@@ -144,3 +144,36 @@ func TestSendInputNotRunning(t *testing.T) {
 		t.Error("expected error when no session is active")
 	}
 }
+
+func TestTaskFinish(t *testing.T) {
+	tk := &Task{Prompt: "test"}
+	tk.InitDoneCh()
+
+	// Done should not be closed yet.
+	select {
+	case <-tk.Done():
+		t.Fatal("doneCh closed prematurely")
+	default:
+	}
+
+	tk.Finish()
+
+	// Done should be closed now.
+	select {
+	case <-tk.Done():
+	default:
+		t.Fatal("doneCh not closed after Finish")
+	}
+
+	// Idempotent.
+	tk.Finish()
+}
+
+func TestAddMessageTransitionsToWaiting(t *testing.T) {
+	tk := &Task{Prompt: "test", State: StateRunning}
+	result := &agent.ResultMessage{MessageType: "result"}
+	tk.addMessage(result)
+	if tk.State != StateWaiting {
+		t.Errorf("state = %v, want %v", tk.State, StateWaiting)
+	}
+}

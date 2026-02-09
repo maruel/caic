@@ -67,10 +67,6 @@ func Start(ctx context.Context, container string, maxTurns int, msgCh chan<- Mes
 	go func() {
 		defer close(s.done)
 		result, parseErr := readMessages(stdout, msgCh, logW)
-		if result != nil {
-			// Close stdin so the process can exit gracefully.
-			s.Close()
-		}
 		waitErr := cmd.Wait()
 		// Store the result and first non-nil error.
 		s.result = result

@@ -66,6 +66,47 @@ func TestHandleTaskInputEmptyPrompt(t *testing.T) {
 	}
 }
 
+func TestHandleFinishNotWaiting(t *testing.T) {
+	s := &Server{}
+	s.tasks = append(s.tasks, &taskEntry{
+		task: &task.Task{Prompt: "test", State: task.StatePending},
+		done: make(chan struct{}),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/0/finish", http.NoBody)
+	req.SetPathValue("id", "0")
+	w := httptest.NewRecorder()
+	s.handleTaskFinish(w, req)
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusConflict)
+	}
+}
+
+func TestHandleFinishWaiting(t *testing.T) {
+	tk := &task.Task{Prompt: "test", State: task.StateWaiting}
+	tk.InitDoneCh()
+	s := &Server{}
+	s.tasks = append(s.tasks, &taskEntry{
+		task: tk,
+		done: make(chan struct{}),
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/0/finish", http.NoBody)
+	req.SetPathValue("id", "0")
+	w := httptest.NewRecorder()
+	s.handleTaskFinish(w, req)
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+
+	// Verify doneCh is closed.
+	select {
+	case <-tk.Done():
+	default:
+		t.Error("doneCh not closed after finish")
+	}
+}
+
 func TestHandleCreateTaskReturnsID(t *testing.T) {
 	s := &Server{runner: &task.Runner{BaseBranch: "main"}}
 	handler := s.handleCreateTask(t.Context())

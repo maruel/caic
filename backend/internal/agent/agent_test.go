@@ -5,6 +5,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestWriteMessageLog(t *testing.T) {
@@ -57,18 +58,38 @@ func TestSessionLifecycle(t *testing.T) {
 	if err := s.Send("test prompt"); err != nil {
 		t.Fatal(err)
 	}
-	s.Close()
-
-	got := <-stdinBuf
-	if !strings.Contains(got, `"content":"test prompt"`) {
-		t.Errorf("unexpected stdin: %s", got)
-	}
 
 	// Write a result message to stdout.
 	resultLine := `{"type":"result","subtype":"success","is_error":false,"duration_ms":100,"num_turns":1,"result":"ok","session_id":"s","total_cost_usd":0.01,"usage":{},"uuid":"u"}` + "\n"
 	if _, err := stdoutW.Write([]byte(resultLine)); err != nil {
 		t.Fatal(err)
 	}
+
+	// Session should NOT be done yet — stdin is still open.
+	select {
+	case <-s.done:
+		t.Fatal("session closed prematurely after result")
+	case <-time.After(50 * time.Millisecond):
+		// Expected: session stays alive.
+	}
+
+	// Send a second message (multi-turn).
+	if err := s.Send("follow-up"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now close stdin so the process can exit.
+	s.Close()
+
+	got := <-stdinBuf
+	if !strings.Contains(got, `"content":"test prompt"`) {
+		t.Errorf("missing first prompt in stdin: %s", got)
+	}
+	if !strings.Contains(got, `"content":"follow-up"`) {
+		t.Errorf("missing follow-up in stdin: %s", got)
+	}
+
+	// Close stdout to simulate process exit.
 	_ = stdoutW.Close()
 
 	// Wait for session to finish.

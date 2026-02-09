@@ -71,10 +71,16 @@ export default function TaskView(props: Props) {
     }
   }
 
-  const isRunning = () => {
+  const isActive = () => {
     const s = props.taskState;
-    return s === "running" || s === "starting";
+    return s === "running" || s === "starting" || s === "waiting";
   };
+
+  const isWaiting = () => props.taskState === "waiting";
+
+  async function finishTask() {
+    await fetch(`/api/tasks/${props.taskId}/finish`, { method: "POST" });
+  }
 
   return (
     <div style={{ display: "flex", "flex-direction": "column", height: "100%" }}>
@@ -96,7 +102,7 @@ export default function TaskView(props: Props) {
         </Show>
       </div>
 
-      <Show when={isRunning()}>
+      <Show when={isActive()}>
         <form onSubmit={(e) => { e.preventDefault(); sendInput(); }}
           style={{ display: "flex", gap: "0.5rem", "margin-top": "0.5rem" }}>
           <input
@@ -108,6 +114,12 @@ export default function TaskView(props: Props) {
             style={{ flex: 1, padding: "0.4rem" }}
           />
           <button type="submit" disabled={sending() || !input().trim()}>Send</button>
+          <Show when={isWaiting()}>
+            <button type="button" onClick={() => finishTask()}
+              style={{ background: "#28a745", color: "white", border: "none", "border-radius": "4px", padding: "0.4rem 0.75rem", cursor: "pointer" }}>
+              Finish
+            </button>
+          </Show>
         </form>
       </Show>
     </div>

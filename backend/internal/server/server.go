@@ -66,6 +66,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/tasks", s.handleCreateTask(ctx))
 	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
 	mux.HandleFunc("POST /api/tasks/{id}/input", s.handleTaskInput)
+	mux.HandleFunc("POST /api/tasks/{id}/finish", s.handleTaskFinish)
 
 	// Serve embedded frontend.
 	dist, err := fs.Sub(frontend.Files, "dist")
@@ -127,7 +128,14 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 		// Run in background using the server context, not the request context.
 		go func() {
 			defer close(entry.done)
-			result := s.runner.Run(ctx, t)
+			if err := s.runner.Start(ctx, t); err != nil {
+				result := task.Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
+				s.mu.Lock()
+				entry.result = &result
+				s.mu.Unlock()
+				return
+			}
+			result := s.runner.Finish(ctx, t)
 			s.mu.Lock()
 			entry.result = &result
 			s.mu.Unlock()
@@ -199,6 +207,25 @@ func (s *Server) handleTaskInput(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+}
+
+// handleTaskFinish signals a task to finish its session and proceed to
+// pull/push/kill.
+func (s *Server) handleTaskFinish(w http.ResponseWriter, r *http.Request) {
+	entry, ok := s.getTask(w, r)
+	if !ok {
+		return
+	}
+
+	state := entry.task.State
+	if state != task.StateWaiting && state != task.StateRunning {
+		http.Error(w, "task is not running or waiting", http.StatusConflict)
+		return
+	}
+
+	entry.task.Finish()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "finishing"})
 }
 
 // getTask looks up a task by the {id} path parameter.

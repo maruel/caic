@@ -28,6 +28,7 @@ const (
 	StatePending  State = iota
 	StateStarting       // Creating branch + container.
 	StateRunning        // Agent is executing.
+	StateWaiting        // Agent completed a turn, awaiting user input or finish.
 	StatePulling        // Pulling changes from container.
 	StatePushing        // Pushing to origin.
 	StateDone           // Successfully completed.
@@ -42,6 +43,8 @@ func (s State) String() string {
 		return "starting"
 	case StateRunning:
 		return "running"
+	case StateWaiting:
+		return "waiting"
 	case StatePulling:
 		return "pulling"
 	case StatePushing:
@@ -78,10 +81,14 @@ type Task struct {
 	State     State
 	StartedAt time.Time
 
-	mu      sync.Mutex
-	msgs    []agent.Message
-	subs    []chan agent.Message // active SSE subscribers
-	session *agent.Session
+	mu       sync.Mutex
+	msgs     []agent.Message
+	subs     []chan agent.Message // active SSE subscribers
+	session  *agent.Session
+	msgCh    chan agent.Message // message dispatch channel; closed by Finish
+	closeLog func()             // closes the session log file
+	doneCh   chan struct{}      // closed when user calls Finish
+	doneOnce sync.Once
 }
 
 // Messages returns a copy of all received agent messages.
@@ -95,6 +102,10 @@ func (t *Task) addMessage(m agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgs = append(t.msgs, m)
+	// Transition to waiting when a result arrives while running.
+	if _, ok := m.(*agent.ResultMessage); ok && t.State == StateRunning {
+		t.State = StateWaiting
+	}
 	// Fan out to subscribers (non-blocking).
 	for i := 0; i < len(t.subs); i++ {
 		select {
@@ -147,11 +158,33 @@ func (t *Task) Subscribe(ctx context.Context) (msgCh <-chan agent.Message, unsub
 func (t *Task) SendInput(prompt string) error {
 	t.mu.Lock()
 	s := t.session
+	if s != nil {
+		t.State = StateRunning
+	}
 	t.mu.Unlock()
 	if s == nil {
 		return errors.New("no active session")
 	}
 	return s.Send(prompt)
+}
+
+// InitDoneCh initializes the done channel. Called by Runner.Start; exposed
+// for tests that construct a Task directly.
+func (t *Task) InitDoneCh() {
+	t.doneCh = make(chan struct{})
+}
+
+// Finish signals that the user is done interacting with this task. The
+// session will be closed and the pull/push/kill cycle will proceed.
+func (t *Task) Finish() {
+	t.doneOnce.Do(func() {
+		close(t.doneCh)
+	})
+}
+
+// Done returns a channel that is closed when the user calls Finish.
+func (t *Task) Done() <-chan struct{} {
+	return t.doneCh
 }
 
 // Runner manages the serialization of setup and push operations.
@@ -164,11 +197,25 @@ type Runner struct {
 	pushMu   sync.Mutex // Serializes git push to origin.
 }
 
-// Run executes the full task lifecycle. It is meant to be called in a
-// goroutine. The result is returned; the task is self-contained.
+// Run executes the full task lifecycle (single-shot). It is meant to be
+// called in a goroutine. The result is returned; the task is self-contained.
 func (r *Runner) Run(ctx context.Context, t *Task) Result {
+	if err := r.Start(ctx, t); err != nil {
+		return Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: err}
+	}
+	// Single-shot: finish immediately.
+	t.Finish()
+	return r.Finish(ctx, t)
+}
+
+// Start performs branch/container setup, starts the agent session, and sends
+// the initial prompt. The session is left open for follow-up messages via
+// SendInput. Call Finish (or t.Finish + r.Finish) to close the session and
+// proceed to pull/push/kill.
+func (r *Runner) Start(ctx context.Context, t *Task) error {
 	t.StartedAt = time.Now()
 	t.State = StateStarting
+	t.InitDoneCh()
 
 	// 1. Create branch + start container (serialized).
 	t.Branch = branchName(t.Prompt)
@@ -178,11 +225,11 @@ func (r *Runner) Run(ctx context.Context, t *Task) Result {
 	r.branchMu.Unlock()
 	if err != nil {
 		t.State = StateFailed
-		return Result{Task: t.Prompt, Branch: t.Branch, State: StateFailed, Err: err}
+		return err
 	}
 	t.Container = name
 
-	// 2. Run the agent (parallel, each in its own container).
+	// 2. Start the agent session.
 	t.State = StateRunning
 	slog.Info("running agent", "container", name, "task", t.Prompt)
 	msgCh := make(chan agent.Message, 256)
@@ -196,35 +243,60 @@ func (r *Runner) Run(ctx context.Context, t *Task) Result {
 		maxTurns = r.MaxTurns
 	}
 	logW, closeLog := r.openLog(t.Prompt)
-	defer closeLog()
 
 	session, err := agent.Start(ctx, name, maxTurns, msgCh, logW)
 	if err != nil {
+		closeLog()
 		close(msgCh)
 		t.State = StateFailed
-		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateFailed, Err: err}
+		return err
 	}
 
 	// Store session so SendInput can reach it.
 	t.mu.Lock()
 	t.session = session
+	t.msgCh = msgCh
+	t.closeLog = closeLog
 	t.mu.Unlock()
 
 	if err := session.Send(t.Prompt); err != nil {
+		closeLog()
 		close(msgCh)
 		t.State = StateFailed
-		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateFailed, Err: fmt.Errorf("write prompt: %w", err)}
+		return fmt.Errorf("write prompt: %w", err)
 	}
-	session.Close()
+	return nil
+}
 
-	result, err := session.Wait()
-	close(msgCh)
+// Finish closes the agent session, waits for the result, and performs
+// pull/push/kill. It blocks until t.Done() is signaled, then proceeds.
+func (r *Runner) Finish(ctx context.Context, t *Task) Result {
+	// Wait for user to signal finish.
+	select {
+	case <-t.Done():
+	case <-ctx.Done():
+		t.State = StateFailed
+		return Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: ctx.Err()}
+	}
 
-	// Clear session.
 	t.mu.Lock()
+	session := t.session
 	t.session = nil
+	msgCh := t.msgCh
+	closeLog := t.closeLog
 	t.mu.Unlock()
 
+	if session == nil {
+		t.State = StateFailed
+		return Result{Task: t.Prompt, Branch: t.Branch, Container: t.Container, State: StateFailed, Err: errors.New("no active session")}
+	}
+
+	session.Close()
+	result, err := session.Wait()
+	close(msgCh)
+	closeLog()
+
+	name := t.Container
 	if err != nil {
 		t.State = StateFailed
 		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateFailed, Err: err}
