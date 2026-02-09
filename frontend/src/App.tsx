@@ -1,6 +1,9 @@
+// Main application component for wmao web UI.
 import { createSignal, For, Show } from "solid-js";
+import TaskView from "./TaskView";
 
 interface TaskResult {
+  id: number;
   task: string;
   branch: string;
   state: string;
@@ -15,6 +18,7 @@ export default function App() {
   const [prompt, setPrompt] = createSignal("");
   const [tasks, setTasks] = createSignal<TaskResult[]>([]);
   const [submitting, setSubmitting] = createSignal(false);
+  const [selectedId, setSelectedId] = createSignal<number | null>(null);
 
   async function submitTask() {
     const p = prompt().trim();
@@ -27,8 +31,10 @@ export default function App() {
         body: JSON.stringify({ prompt: p }),
       });
       if (!res.ok) throw new Error(await res.text());
+      const data = await res.json() as { id: number };
       setPrompt("");
       await refreshTasks();
+      setSelectedId(data.id);
     } finally {
       setSubmitting(false);
     }
@@ -37,7 +43,7 @@ export default function App() {
   async function refreshTasks() {
     const res = await fetch("/api/tasks");
     if (res.ok) {
-      setTasks(await res.json());
+      setTasks(await res.json() as TaskResult[]);
     }
   }
 
@@ -45,8 +51,14 @@ export default function App() {
   setInterval(refreshTasks, 5000);
   refreshTasks();
 
+  const selectedTask = () => {
+    const id = selectedId();
+    if (id === null) return null;
+    return tasks().find((t) => t.id === id) ?? null;
+  };
+
   return (
-    <div style={{ "max-width": "900px", margin: "0 auto", padding: "2rem", "font-family": "system-ui" }}>
+    <div style={{ "max-width": "1200px", margin: "0 auto", padding: "2rem", "font-family": "system-ui" }}>
       <h1>wmao</h1>
       <p>Work my ass off. Manage coding agents.</p>
 
@@ -65,42 +77,64 @@ export default function App() {
         </button>
       </form>
 
-      <h2>Tasks</h2>
-      <Show when={tasks().length === 0}>
-        <p style={{ color: "#888" }}>No tasks yet.</p>
-      </Show>
-      <For each={tasks()}>
-        {(t) => (
-          <div style={{
-            border: "1px solid #ddd", "border-radius": "6px",
-            padding: "1rem", "margin-bottom": "0.75rem",
-          }}>
-            <div style={{ display: "flex", "justify-content": "space-between" }}>
-              <strong>{t.task}</strong>
-              <span style={{
-                padding: "0.15rem 0.5rem", "border-radius": "4px", "font-size": "0.85rem",
-                background: t.state === "done" ? "#d4edda" : t.state === "failed" ? "#f8d7da" : "#fff3cd",
-              }}>
-                {t.state}
-              </span>
-            </div>
-            <Show when={t.branch}>
-              <div style={{ "font-size": "0.85rem", color: "#555" }}>branch: {t.branch}</div>
-            </Show>
-            <Show when={t.diffStat}>
-              <pre style={{ "font-size": "0.8rem", background: "#f8f9fa", padding: "0.5rem" }}>{t.diffStat}</pre>
-            </Show>
-            <Show when={t.error}>
-              <div style={{ color: "red", "font-size": "0.85rem" }}>{t.error}</div>
-            </Show>
-            <Show when={t.costUSD > 0}>
-              <span style={{ "font-size": "0.8rem", color: "#888" }}>
-                ${t.costUSD.toFixed(4)} &middot; {(t.durationMs / 1000).toFixed(1)}s &middot; {t.numTurns} turns
-              </span>
-            </Show>
+      <div style={{ display: "flex", gap: "1.5rem" }}>
+        <div style={{ flex: selectedId() !== null ? "0 0 340px" : "1" }}>
+          <h2>Tasks</h2>
+          <Show when={tasks().length === 0}>
+            <p style={{ color: "#888" }}>No tasks yet.</p>
+          </Show>
+          <For each={tasks()}>
+            {(t) => (
+              <div
+                onClick={() => setSelectedId(t.id)}
+                style={{
+                  border: selectedId() === t.id ? "2px solid #007bff" : "1px solid #ddd",
+                  "border-radius": "6px",
+                  padding: "0.75rem", "margin-bottom": "0.5rem", cursor: "pointer",
+                }}>
+                <div style={{ display: "flex", "justify-content": "space-between" }}>
+                  <strong style={{ "font-size": "0.9rem" }}>{t.task}</strong>
+                  <span style={{
+                    padding: "0.1rem 0.4rem", "border-radius": "4px", "font-size": "0.8rem",
+                    background: stateColor(t.state),
+                  }}>
+                    {t.state}
+                  </span>
+                </div>
+                <Show when={t.branch}>
+                  <div style={{ "font-size": "0.8rem", color: "#555" }}>{t.branch}</div>
+                </Show>
+                <Show when={t.costUSD > 0}>
+                  <span style={{ "font-size": "0.75rem", color: "#888" }}>
+                    ${t.costUSD.toFixed(4)} &middot; {(t.durationMs / 1000).toFixed(1)}s
+                  </span>
+                </Show>
+                <Show when={t.error}>
+                  <div style={{ color: "red", "font-size": "0.8rem" }}>{t.error}</div>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+
+        <Show when={selectedId() !== null}>
+          <div style={{ flex: 1, "min-width": 0 }}>
+            <TaskView
+              taskId={selectedId() ?? 0}
+              taskState={selectedTask()?.state ?? "pending"}
+              onClose={() => setSelectedId(null)}
+            />
           </div>
-        )}
-      </For>
+        </Show>
+      </div>
     </div>
   );
+}
+
+function stateColor(state: string): string {
+  switch (state) {
+    case "done": return "#d4edda";
+    case "failed": return "#f8d7da";
+    default: return "#fff3cd";
+  }
 }

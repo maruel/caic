@@ -116,3 +116,13 @@ type RawMessage struct {
 
 // Type implements Message.
 func (m *RawMessage) Type() string { return m.MessageType }
+
+// MarshalMessage serializes a Message to JSON. For RawMessage, returns the
+// original bytes to preserve unknown fields. For typed messages, uses
+// json.Marshal.
+func MarshalMessage(m Message) ([]byte, error) {
+	if rm, ok := m.(*RawMessage); ok {
+		return rm.Raw, nil
+	}
+	return json.Marshal(m)
+}

@@ -2,16 +2,15 @@ package agent
 
 import (
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 )
 
-func TestWriteUserMessageLog(t *testing.T) {
+func TestWriteMessageLog(t *testing.T) {
 	var buf bytes.Buffer
-	// nopCloser wraps a Writer to satisfy WriteCloser.
-	wc := nopWriteCloser{&buf}
 	var logBuf bytes.Buffer
-	if err := writeUserMessage(wc, "hello", &logBuf); err != nil {
+	if err := writeMessage(&buf, "hello", &logBuf); err != nil {
 		t.Fatal(err)
 	}
 	if buf.String() != logBuf.String() {
@@ -22,9 +21,89 @@ func TestWriteUserMessageLog(t *testing.T) {
 	}
 }
 
-type nopWriteCloser struct{ *bytes.Buffer }
+func TestSessionLifecycle(t *testing.T) {
+	// Simulate a session using pipes instead of a real process.
+	stdinR, stdinW := io.Pipe()
+	stdoutR, stdoutW := io.Pipe()
 
-func (nopWriteCloser) Close() error { return nil }
+	s := &Session{
+		stdin: stdinW,
+		logW:  nil,
+		done:  make(chan struct{}),
+	}
+
+	msgCh := make(chan Message, 16)
+
+	// Simulate the readMessages goroutine.
+	go func() {
+		defer close(s.done)
+		result, parseErr := readMessages(stdoutR, msgCh, nil)
+		s.result = result
+		if parseErr != nil {
+			s.err = parseErr
+		} else if result == nil {
+			s.err = io.ErrUnexpectedEOF
+		}
+	}()
+
+	// Drain stdin in background (io.Pipe is synchronous).
+	stdinBuf := make(chan string, 1)
+	go func() {
+		data, _ := io.ReadAll(stdinR)
+		stdinBuf <- string(data)
+	}()
+
+	// Send a prompt.
+	if err := s.Send("test prompt"); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+
+	got := <-stdinBuf
+	if !strings.Contains(got, `"content":"test prompt"`) {
+		t.Errorf("unexpected stdin: %s", got)
+	}
+
+	// Write a result message to stdout.
+	resultLine := `{"type":"result","subtype":"success","is_error":false,"duration_ms":100,"num_turns":1,"result":"ok","session_id":"s","total_cost_usd":0.01,"usage":{},"uuid":"u"}` + "\n"
+	if _, err := stdoutW.Write([]byte(resultLine)); err != nil {
+		t.Fatal(err)
+	}
+	_ = stdoutW.Close()
+
+	// Wait for session to finish.
+	rm, err := s.Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rm == nil {
+		t.Fatal("expected result, got nil")
+	}
+	if rm.Result != "ok" {
+		t.Errorf("result = %q, want %q", rm.Result, "ok")
+	}
+
+	// Verify messages were dispatched.
+	close(msgCh)
+	var count int
+	for range msgCh {
+		count++
+	}
+	if count != 1 {
+		t.Errorf("message count = %d, want 1", count)
+	}
+}
+
+func TestSessionClose(t *testing.T) {
+	_, stdinW := io.Pipe()
+	s := &Session{
+		stdin: stdinW,
+		done:  make(chan struct{}),
+	}
+	// Close should be idempotent.
+	s.Close()
+	s.Close()
+}
 
 func TestParseMessage(t *testing.T) {
 	t.Run("SystemInit", func(t *testing.T) {

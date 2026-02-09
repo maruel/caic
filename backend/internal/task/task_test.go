@@ -4,6 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/maruel/wmao/backend/internal/agent"
 )
 
 func TestSlugify(t *testing.T) {
@@ -89,4 +92,55 @@ func TestOpenLog(t *testing.T) {
 			t.Errorf("filename too short: %q", name)
 		}
 	})
+}
+
+func TestSubscribeReplay(t *testing.T) {
+	task := &Task{Prompt: "test"}
+	// Add messages before subscribing.
+	msg1 := &agent.SystemMessage{MessageType: "system", Subtype: "status"}
+	msg2 := &agent.AssistantMessage{MessageType: "assistant"}
+	task.addMessage(msg1)
+	task.addMessage(msg2)
+
+	ch, unsub := task.Subscribe(t.Context())
+	defer unsub()
+
+	// Should receive replayed history.
+	timeout := time.After(time.Second)
+	for range 2 {
+		select {
+		case <-ch:
+		case <-timeout:
+			t.Fatal("timed out waiting for replay message")
+		}
+	}
+}
+
+func TestSubscribeLive(t *testing.T) {
+	task := &Task{Prompt: "test"}
+
+	ch, unsub := task.Subscribe(t.Context())
+	defer unsub()
+
+	// Send a live message after subscribing.
+	msg := &agent.AssistantMessage{MessageType: "assistant"}
+	task.addMessage(msg)
+
+	timeout := time.After(time.Second)
+	select {
+	case got := <-ch:
+		if got.Type() != "assistant" {
+			t.Errorf("type = %q, want %q", got.Type(), "assistant")
+		}
+	case <-timeout:
+		t.Fatal("timed out waiting for live message")
+	}
+}
+
+func TestSendInputNotRunning(t *testing.T) {
+	task := &Task{Prompt: "test"}
+	err := task.SendInput("hello")
+	if err == nil {
+		t.Error("expected error when no session is active")
+	}
 }

@@ -4,6 +4,7 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -77,8 +78,10 @@ type Task struct {
 	State     State
 	StartedAt time.Time
 
-	mu   sync.Mutex
-	msgs []agent.Message
+	mu      sync.Mutex
+	msgs    []agent.Message
+	subs    []chan agent.Message // active SSE subscribers
+	session *agent.Session
 }
 
 // Messages returns a copy of all received agent messages.
@@ -92,6 +95,63 @@ func (t *Task) addMessage(m agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgs = append(t.msgs, m)
+	// Fan out to subscribers (non-blocking).
+	for i := 0; i < len(t.subs); i++ {
+		select {
+		case t.subs[i] <- m:
+		default:
+			// Slow subscriber — drop and remove.
+			close(t.subs[i])
+			t.subs = append(t.subs[:i], t.subs[i+1:]...)
+			i--
+		}
+	}
+}
+
+// Subscribe returns a channel that receives replayed history followed by live
+// messages. The returned function unsubscribes and must be called exactly once.
+func (t *Task) Subscribe(ctx context.Context) (msgCh <-chan agent.Message, unsubFn func()) {
+	c := make(chan agent.Message, 256)
+
+	t.mu.Lock()
+	// Replay history.
+	for _, m := range t.msgs {
+		c <- m
+	}
+	t.subs = append(t.subs, c)
+	t.mu.Unlock()
+
+	unsub := func() {
+		t.mu.Lock()
+		defer t.mu.Unlock()
+		for i, sub := range t.subs {
+			if sub == c {
+				t.subs = append(t.subs[:i], t.subs[i+1:]...)
+				break
+			}
+		}
+	}
+
+	// Close channel when context is done.
+	go func() {
+		<-ctx.Done()
+		unsub()
+		close(c)
+	}()
+
+	return c, unsub
+}
+
+// SendInput sends a user message to the running agent. Returns an error if
+// no session is active.
+func (t *Task) SendInput(prompt string) error {
+	t.mu.Lock()
+	s := t.session
+	t.mu.Unlock()
+	if s == nil {
+		return errors.New("no active session")
+	}
+	return s.Send(prompt)
 }
 
 // Runner manages the serialization of setup and push operations.
@@ -137,8 +197,34 @@ func (r *Runner) Run(ctx context.Context, t *Task) Result {
 	}
 	logW, closeLog := r.openLog(t.Prompt)
 	defer closeLog()
-	result, err := agent.Run(ctx, name, t.Prompt, maxTurns, msgCh, logW)
+
+	session, err := agent.Start(ctx, name, maxTurns, msgCh, logW)
+	if err != nil {
+		close(msgCh)
+		t.State = StateFailed
+		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateFailed, Err: err}
+	}
+
+	// Store session so SendInput can reach it.
+	t.mu.Lock()
+	t.session = session
+	t.mu.Unlock()
+
+	if err := session.Send(t.Prompt); err != nil {
+		close(msgCh)
+		t.State = StateFailed
+		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateFailed, Err: fmt.Errorf("write prompt: %w", err)}
+	}
+	session.Close()
+
+	result, err := session.Wait()
 	close(msgCh)
+
+	// Clear session.
+	t.mu.Lock()
+	t.session = nil
+	t.mu.Unlock()
+
 	if err != nil {
 		t.State = StateFailed
 		return Result{Task: t.Prompt, Branch: t.Branch, Container: name, State: StateFailed, Err: err}

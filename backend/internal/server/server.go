@@ -5,14 +5,17 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
 	"github.com/maruel/wmao/backend/frontend"
+	"github.com/maruel/wmao/backend/internal/agent"
 	"github.com/maruel/wmao/backend/internal/gitutil"
 	"github.com/maruel/wmao/backend/internal/task"
 )
@@ -61,6 +64,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/tasks", s.handleListTasks)
 	mux.HandleFunc("POST /api/tasks", s.handleCreateTask(ctx))
+	mux.HandleFunc("GET /api/tasks/{id}/events", s.handleTaskEvents)
+	mux.HandleFunc("POST /api/tasks/{id}/input", s.handleTaskInput)
 
 	// Serve embedded frontend.
 	dist, err := fs.Sub(frontend.Files, "dist")
@@ -115,6 +120,7 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 		entry := &taskEntry{task: t, done: make(chan struct{})}
 
 		s.mu.Lock()
+		id := len(s.tasks)
 		s.tasks = append(s.tasks, entry)
 		s.mu.Unlock()
 
@@ -129,8 +135,88 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
-		_ = json.NewEncoder(w).Encode(map[string]string{"status": "accepted"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "accepted", "id": id})
 	}
+}
+
+// handleTaskEvents streams agent messages as SSE.
+func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
+	entry, ok := s.getTask(w, r)
+	if !ok {
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	ch, unsub := entry.task.Subscribe(r.Context())
+	defer unsub()
+
+	idx := 0
+	for msg := range ch {
+		data, err := agent.MarshalMessage(msg)
+		if err != nil {
+			slog.Warn("marshal SSE message", "err", err)
+			continue
+		}
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\nid: %d\n\n", data, idx)
+		flusher.Flush()
+		idx++
+	}
+}
+
+// handleTaskInput accepts user input for a running task.
+func (s *Server) handleTaskInput(w http.ResponseWriter, r *http.Request) {
+	entry, ok := s.getTask(w, r)
+	if !ok {
+		return
+	}
+
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Prompt == "" {
+		http.Error(w, "prompt is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := entry.task.SendInput(req.Prompt); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "sent"})
+}
+
+// getTask looks up a task by the {id} path parameter.
+func (s *Server) getTask(w http.ResponseWriter, r *http.Request) (*taskEntry, bool) {
+	idStr := r.PathValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		http.Error(w, "invalid task id", http.StatusBadRequest)
+		return nil, false
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id < 0 || id >= len(s.tasks) {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return nil, false
+	}
+	return s.tasks[id], true
 }
 
 func toJSON(id int, e *taskEntry) taskJSON {

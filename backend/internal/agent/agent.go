@@ -12,14 +12,25 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"sync"
 )
 
-// Run executes Claude Code over SSH in the given container with the task
-// prompt. It streams NDJSON from stdout and returns the final Result.
-//
-// All intermediate messages are sent to msgCh for logging/observability.
-// If logW is non-nil, every raw NDJSON line (input and output) is written to it.
-func Run(ctx context.Context, container, task string, maxTurns int, msgCh chan<- Message, logW io.Writer) (*ResultMessage, error) {
+// Session manages a running Claude Code process. Use Start to create one.
+type Session struct {
+	cmd       *exec.Cmd
+	stdin     io.WriteCloser
+	logW      io.Writer
+	mu        sync.Mutex // serializes stdin writes
+	closeOnce sync.Once
+	done      chan struct{} // closed when readMessages goroutine exits
+	result    *ResultMessage
+	err       error
+}
+
+// Start launches a Claude Code process in the given container. Messages are
+// sent to msgCh as they arrive. The caller must call Send to provide the
+// initial prompt, then Wait for the result.
+func Start(ctx context.Context, container string, maxTurns int, msgCh chan<- Message, logW io.Writer) (*Session, error) {
 	args := []string{
 		container,
 		"claude", "-p",
@@ -46,27 +57,74 @@ func Run(ctx context.Context, container, task string, maxTurns int, msgCh chan<-
 		return nil, fmt.Errorf("start claude: %w", err)
 	}
 
-	// Send the user message as NDJSON on stdin, then close to signal EOF.
-	if err := writeUserMessage(stdin, task, logW); err != nil {
+	s := &Session{
+		cmd:   cmd,
+		stdin: stdin,
+		logW:  logW,
+		done:  make(chan struct{}),
+	}
+
+	go func() {
+		defer close(s.done)
+		result, parseErr := readMessages(stdout, msgCh, logW)
+		if result != nil {
+			// Close stdin so the process can exit gracefully.
+			s.Close()
+		}
+		waitErr := cmd.Wait()
+		// Store the result and first non-nil error.
+		s.result = result
+		switch {
+		case result != nil:
+			// Got a proper result — ignore exit errors.
+		case parseErr != nil:
+			s.err = fmt.Errorf("parse: %w", parseErr)
+		case waitErr != nil:
+			s.err = fmt.Errorf("claude exited: %w", waitErr)
+		default:
+			s.err = errors.New("claude exited without a result message")
+		}
+	}()
+
+	return s, nil
+}
+
+// Send writes a user message to the agent's stdin. It is safe for concurrent
+// use. The first call typically provides the initial task prompt.
+func (s *Session) Send(prompt string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return writeMessage(s.stdin, prompt, s.logW)
+}
+
+// Close closes stdin so the agent process can exit. Idempotent.
+func (s *Session) Close() {
+	s.closeOnce.Do(func() {
+		_ = s.stdin.Close()
+	})
+}
+
+// Wait blocks until the agent process exits and returns the result.
+func (s *Session) Wait() (*ResultMessage, error) {
+	<-s.done
+	return s.result, s.err
+}
+
+// Run executes Claude Code over SSH in the given container with the task
+// prompt. It streams NDJSON from stdout and returns the final Result.
+//
+// All intermediate messages are sent to msgCh for logging/observability.
+// If logW is non-nil, every raw NDJSON line (input and output) is written to it.
+func Run(ctx context.Context, container, task string, maxTurns int, msgCh chan<- Message, logW io.Writer) (*ResultMessage, error) {
+	s, err := Start(ctx, container, maxTurns, msgCh, logW)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Send(task); err != nil {
 		return nil, fmt.Errorf("write prompt: %w", err)
 	}
-
-	result, parseErr := readMessages(stdout, msgCh, logW)
-
-	if err := cmd.Wait(); err != nil {
-		// If we got a result, prefer it over the exit error.
-		if result != nil {
-			return result, nil
-		}
-		return nil, fmt.Errorf("claude exited: %w", err)
-	}
-	if parseErr != nil {
-		return nil, fmt.Errorf("parse: %w", parseErr)
-	}
-	if result == nil {
-		return nil, errors.New("claude exited without a result message")
-	}
-	return result, nil
+	s.Close()
+	return s.Wait()
 }
 
 // userInputMessage is the NDJSON message sent to Claude Code via stdin.
@@ -80,27 +138,25 @@ type userInputContent struct {
 	Content string `json:"content"`
 }
 
-// writeUserMessage writes a single user message to w and closes it.
-// If logW is non-nil, the same JSON line is also written to the log.
-func writeUserMessage(w io.WriteCloser, prompt string, logW io.Writer) error {
+// writeMessage writes a single user message NDJSON line to w.
+// If logW is non-nil, the same line is also written to the log.
+func writeMessage(w io.Writer, prompt string, logW io.Writer) error {
 	msg := userInputMessage{
 		Type:    "user",
 		Message: userInputContent{Role: "user", Content: prompt},
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {
-		_ = w.Close()
 		return err
 	}
 	data = append(data, '\n')
 	if _, err := w.Write(data); err != nil {
-		_ = w.Close()
 		return err
 	}
 	if logW != nil {
 		_, _ = logW.Write(data)
 	}
-	return w.Close()
+	return nil
 }
 
 // readMessages reads NDJSON lines from r, dispatches to msgCh, and returns
