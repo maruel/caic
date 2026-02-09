@@ -222,17 +222,25 @@ function groupContentBlocks(blocks: ContentBlock[]): BlockGroup[] {
   return groups;
 }
 
-function ToolUseGroup(props: { tools: ContentBlock[] }) {
-  const names = () => props.tools.map((b) => b.name ?? "tool");
-  const count = () => props.tools.length;
+function toolCountSummary(tools: ContentBlock[]): string {
+  const counts = new Map<string, number>();
+  for (const t of tools) {
+    const n = t.name ?? "tool";
+    counts.set(n, (counts.get(n) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([name, c]) => (c > 1 ? `${name} \u00d7${c}` : name))
+    .join(", ");
+}
 
+function ToolUseGroup(props: { tools: ContentBlock[] }) {
   return (
-    <Show when={count() > 1} fallback={
+    <Show when={props.tools.length > 1} fallback={
       <ToolUseBlock name={props.tools[0].name ?? "tool"} input={props.tools[0].input} />
     }>
       <details class={styles.toolGroup}>
         <summary>
-          {count()} tool calls: {names().join(", ")}
+          {props.tools.length} tools: {toolCountSummary(props.tools)}
         </summary>
         <div class={styles.toolGroupInner}>
           <For each={props.tools}>
