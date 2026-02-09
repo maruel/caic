@@ -3,6 +3,7 @@ import { createSignal, For, Show, onMount } from "solid-js";
 import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
 import { listRepos, listTasks, createTask } from "@sdk/api.gen";
 import TaskView from "./TaskView";
+import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import styles from "./App.module.css";
 
 export default function App() {
@@ -13,7 +14,11 @@ export default function App() {
   const [repos, setRepos] = createSignal<RepoJSON[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
 
+  // Track previous task states to detect transitions to "waiting".
+  let prevStates = new Map<number, string>();
+
   onMount(async () => {
+    requestNotificationPermission();
     const data = await listRepos();
     setRepos(data);
     if (data.length > 0) {
@@ -37,7 +42,14 @@ export default function App() {
   }
 
   async function refreshTasks() {
-    setTasks(await listTasks());
+    const updated = await listTasks();
+    for (const t of updated) {
+      if (t.state === "waiting" && prevStates.get(t.id) !== "waiting") {
+        notifyWaiting(t.id, t.task);
+      }
+    }
+    prevStates = new Map(updated.map((t) => [t.id, t.state]));
+    setTasks(updated);
   }
 
   // Poll for updates.
