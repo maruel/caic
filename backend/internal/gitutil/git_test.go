@@ -75,7 +75,7 @@ func TestMaxBranchSeqNum(t *testing.T) {
 	// Initialize a real git repo.
 	for _, args := range [][]string{
 		{"init"},
-		{"commit", "--allow-empty", "-m", "init"},
+		{"-c", "user.name=Test", "-c", "user.email=test@test", "commit", "--allow-empty", "-m", "init"},
 	} {
 		cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // test helper, args are constant.
 		cmd.Dir = dir
