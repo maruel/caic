@@ -197,6 +197,24 @@ func TestHandleCreateTaskUnknownRepo(t *testing.T) {
 	}
 }
 
+func TestHandleCreateTaskUnknownField(t *testing.T) {
+	s := &Server{runners: map[string]*task.Runner{}}
+	handler := s.handleCreateTask(t.Context())
+
+	body := strings.NewReader(`{"prompt":"test","repo":"r","bogus":true}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
+	w := httptest.NewRecorder()
+	handler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+	e := decodeError(t, w)
+	if e.Code != codeBadRequest {
+		t.Errorf("code = %q, want %q", e.Code, codeBadRequest)
+	}
+}
+
 func TestHandleListRepos(t *testing.T) {
 	s := &Server{
 		repos: []repoInfo{

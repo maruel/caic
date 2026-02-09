@@ -3,27 +3,32 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
+	"reflect"
+	"strconv"
 )
 
-type validatable interface {
-	validate() error
+// Validatable is implemented by request types that can validate their fields.
+type Validatable interface {
+	Validate() error
 }
 
 // emptyReq is used for endpoints that take no request body.
 type emptyReq struct{}
 
-func (emptyReq) validate() error { return nil }
+func (emptyReq) Validate() error { return nil }
 
 // inputReq is the request body for POST /api/v1/tasks/{id}/input.
 type inputReq struct {
 	Prompt string `json:"prompt"`
 }
 
-func (r *inputReq) validate() error {
+func (r *inputReq) Validate() error {
 	if r.Prompt == "" {
 		return badRequest("prompt is required")
 	}
@@ -36,7 +41,7 @@ type createTaskReq struct {
 	Repo   string `json:"repo"`
 }
 
-func (r *createTaskReq) validate() error {
+func (r *createTaskReq) Validate() error {
 	if r.Prompt == "" {
 		return badRequest("prompt is required")
 	}
@@ -51,31 +56,25 @@ type statusResp struct {
 	Status string `json:"status"`
 }
 
-// handle wraps a typed handler function into an http.HandlerFunc. It decodes
-// the JSON request body (skipping decode for emptyReq), validates, calls fn,
-// and encodes the JSON response or writes a structured error.
+// handle wraps a typed handler function into an http.HandlerFunc. It reads the
+// JSON body (with DisallowUnknownFields), populates path parameters via struct
+// tags, validates, calls fn, and writes the JSON response or structured error.
 func handle[In any, PtrIn interface {
 	*In
-	validatable
+	Validatable
 }, Out any](fn func(context.Context, PtrIn) (*Out, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		in := PtrIn(new(In))
-		if _, isEmpty := any(in).(*emptyReq); !isEmpty {
-			if err := json.NewDecoder(r.Body).Decode(in); err != nil && err != io.EOF {
-				writeError(w, badRequest(err.Error()))
-				return
-			}
+		if !readAndDecodeBody(w, r, in) {
+			return
 		}
-		if err := in.validate(); err != nil {
+		populatePathParams(r, in)
+		if err := in.Validate(); err != nil {
 			writeError(w, err)
 			return
 		}
 		out, err := fn(r.Context(), in)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		writeJSON(w, out)
+		writeJSONResponse(w, out, err)
 	}
 }
 
@@ -83,7 +82,7 @@ func handle[In any, PtrIn interface {
 // It parses {id}, looks up the task via s.getTask, then proceeds like handle.
 func handleWithTask[In any, PtrIn interface {
 	*In
-	validatable
+	Validatable
 }, Out any](s *Server, fn func(context.Context, *taskEntry, PtrIn) (*Out, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		entry, err := s.getTask(r)
@@ -92,21 +91,77 @@ func handleWithTask[In any, PtrIn interface {
 			return
 		}
 		in := PtrIn(new(In))
-		if _, isEmpty := any(in).(*emptyReq); !isEmpty {
-			if err := json.NewDecoder(r.Body).Decode(in); err != nil && err != io.EOF {
-				writeError(w, badRequest(err.Error()))
-				return
-			}
+		if !readAndDecodeBody(w, r, in) {
+			return
 		}
-		if err := in.validate(); err != nil {
+		populatePathParams(r, in)
+		if err := in.Validate(); err != nil {
 			writeError(w, err)
 			return
 		}
 		out, err := fn(r.Context(), entry, in)
-		if err != nil {
-			writeError(w, err)
-			return
+		writeJSONResponse(w, out, err)
+	}
+}
+
+// readAndDecodeBody reads the request body and decodes JSON into input. It
+// skips decoding for emptyReq. Unknown JSON fields are rejected. Returns false
+// if an error was written to the response.
+func readAndDecodeBody[In any](w http.ResponseWriter, r *http.Request, input *In) bool {
+	if _, isEmpty := any(input).(*emptyReq); isEmpty {
+		return true
+	}
+	body, err := io.ReadAll(r.Body)
+	if err2 := r.Body.Close(); err == nil {
+		err = err2
+	}
+	if err != nil {
+		writeError(w, badRequest("failed to read request body"))
+		return false
+	}
+	if len(body) == 0 {
+		return true
+	}
+	d := json.NewDecoder(bytes.NewReader(body))
+	d.DisallowUnknownFields()
+	if err := d.Decode(input); err != nil {
+		slog.Error("failed to decode request body", "err", err)
+		writeError(w, badRequest("invalid request body"))
+		return false
+	}
+	return true
+}
+
+// populatePathParams extracts path parameters from the request and populates
+// struct fields tagged with `path:"paramName"`.
+func populatePathParams(r *http.Request, input any) {
+	val := reflect.ValueOf(input)
+	if val.Kind() != reflect.Pointer {
+		return
+	}
+	elem := val.Elem()
+	if elem.Kind() != reflect.Struct {
+		return
+	}
+	typ := elem.Type()
+	for i := range typ.NumField() {
+		field := typ.Field(i)
+		tag := field.Tag.Get("path")
+		if tag == "" {
+			continue
 		}
-		writeJSON(w, out)
+		paramValue := r.PathValue(tag)
+		if paramValue == "" {
+			continue
+		}
+		//exhaustive:ignore
+		switch field.Type.Kind() {
+		case reflect.String:
+			elem.Field(i).SetString(paramValue)
+		case reflect.Int:
+			if v, err := strconv.Atoi(paramValue); err == nil {
+				elem.Field(i).SetInt(int64(v))
+			}
+		}
 	}
 }

@@ -172,11 +172,10 @@ func (s *Server) listTasks(_ context.Context, _ *emptyReq) (*[]taskJSON, error) 
 func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req createTaskReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			writeError(w, badRequest(err.Error()))
+		if !readAndDecodeBody(w, r, &req) {
 			return
 		}
-		if err := req.validate(); err != nil {
+		if err := req.Validate(); err != nil {
 			writeError(w, err)
 			return
 		}
