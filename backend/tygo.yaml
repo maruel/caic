@@ -1,0 +1,5 @@
+packages:
+  - path: "github.com/maruel/wmao/backend/internal/server/dto"
+    output_path: "../frontend/src/api.gen.ts"
+    exclude_files:
+      - validate.go

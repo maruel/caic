@@ -1,4 +1,4 @@
-.PHONY: help build dev test coverage lint lint-go lint-frontend lint-fix docs git-hooks frontend-dev upgrade
+.PHONY: help build dev test coverage lint lint-go lint-frontend lint-fix docs types git-hooks frontend-dev upgrade
 
 FRONTEND_STAMP=node_modules/.stamp
 HTTP?=:8080
@@ -21,7 +21,10 @@ $(FRONTEND_STAMP): pnpm-lock.yaml
 	@NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false pnpm install --frozen-lockfile --silent
 	@touch $@
 
-build: $(FRONTEND_STAMP) docs
+types:
+	@cd backend && go tool tygo generate
+
+build: $(FRONTEND_STAMP) types docs
 	@cd frontend && NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false pnpm build
 	@go install -trimpath -ldflags="-s -w -buildid=" ./backend/cmd/...
 

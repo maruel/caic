@@ -11,57 +11,16 @@ import (
 	"net/http"
 	"reflect"
 	"strconv"
+
+	"github.com/maruel/wmao/backend/internal/server/dto"
 )
-
-// Validatable is implemented by request types that can validate their fields.
-type Validatable interface {
-	Validate() error
-}
-
-// emptyReq is used for endpoints that take no request body.
-type emptyReq struct{}
-
-func (emptyReq) Validate() error { return nil }
-
-// inputReq is the request body for POST /api/v1/tasks/{id}/input.
-type inputReq struct {
-	Prompt string `json:"prompt"`
-}
-
-func (r *inputReq) Validate() error {
-	if r.Prompt == "" {
-		return badRequest("prompt is required")
-	}
-	return nil
-}
-
-// createTaskReq is the request body for POST /api/v1/tasks.
-type createTaskReq struct {
-	Prompt string `json:"prompt"`
-	Repo   string `json:"repo"`
-}
-
-func (r *createTaskReq) Validate() error {
-	if r.Prompt == "" {
-		return badRequest("prompt is required")
-	}
-	if r.Repo == "" {
-		return badRequest("repo is required")
-	}
-	return nil
-}
-
-// statusResp is a common response for mutation endpoints.
-type statusResp struct {
-	Status string `json:"status"`
-}
 
 // handle wraps a typed handler function into an http.HandlerFunc. It reads the
 // JSON body (with DisallowUnknownFields), populates path parameters via struct
 // tags, validates, calls fn, and writes the JSON response or structured error.
 func handle[In any, PtrIn interface {
 	*In
-	Validatable
+	dto.Validatable
 }, Out any](fn func(context.Context, PtrIn) (*Out, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		in := PtrIn(new(In))
@@ -82,7 +41,7 @@ func handle[In any, PtrIn interface {
 // It parses {id}, looks up the task via s.getTask, then proceeds like handle.
 func handleWithTask[In any, PtrIn interface {
 	*In
-	Validatable
+	dto.Validatable
 }, Out any](s *Server, fn func(context.Context, *taskEntry, PtrIn) (*Out, error)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		entry, err := s.getTask(r)
@@ -105,10 +64,10 @@ func handleWithTask[In any, PtrIn interface {
 }
 
 // readAndDecodeBody reads the request body and decodes JSON into input. It
-// skips decoding for emptyReq. Unknown JSON fields are rejected. Returns false
+// skips decoding for EmptyReq. Unknown JSON fields are rejected. Returns false
 // if an error was written to the response.
 func readAndDecodeBody[In any](w http.ResponseWriter, r *http.Request, input *In) bool {
-	if _, isEmpty := any(input).(*emptyReq); isEmpty {
+	if _, isEmpty := any(input).(*dto.EmptyReq); isEmpty {
 		return true
 	}
 	body, err := io.ReadAll(r.Body)
@@ -116,7 +75,7 @@ func readAndDecodeBody[In any](w http.ResponseWriter, r *http.Request, input *In
 		err = err2
 	}
 	if err != nil {
-		writeError(w, badRequest("failed to read request body"))
+		writeError(w, dto.BadRequest("failed to read request body"))
 		return false
 	}
 	if len(body) == 0 {
@@ -126,7 +85,7 @@ func readAndDecodeBody[In any](w http.ResponseWriter, r *http.Request, input *In
 	d.DisallowUnknownFields()
 	if err := d.Decode(input); err != nil {
 		slog.Error("failed to decode request body", "err", err)
-		writeError(w, badRequest("invalid request body"))
+		writeError(w, dto.BadRequest("invalid request body"))
 		return false
 	}
 	return true

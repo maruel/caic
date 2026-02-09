@@ -19,6 +19,7 @@ import (
 	"github.com/maruel/wmao/backend/internal/agent"
 	"github.com/maruel/wmao/backend/internal/container"
 	"github.com/maruel/wmao/backend/internal/gitutil"
+	"github.com/maruel/wmao/backend/internal/server/dto"
 	"github.com/maruel/wmao/backend/internal/task"
 )
 
@@ -42,28 +43,6 @@ type taskEntry struct {
 	task   *task.Task
 	result *task.Result
 	done   chan struct{}
-}
-
-// taskJSON is the JSON representation sent to the frontend.
-type taskJSON struct {
-	ID         int     `json:"id"`
-	Task       string  `json:"task"`
-	Repo       string  `json:"repo"`
-	Branch     string  `json:"branch"`
-	Container  string  `json:"container"`
-	State      string  `json:"state"`
-	DiffStat   string  `json:"diffStat"`
-	CostUSD    float64 `json:"costUSD"`
-	DurationMs int64   `json:"durationMs"`
-	NumTurns   int     `json:"numTurns"`
-	Error      string  `json:"error,omitempty"`
-	Result     string  `json:"result,omitempty"`
-}
-
-// repoJSON is the JSON representation of a discovered repo.
-type repoJSON struct {
-	Path       string `json:"path"`
-	BaseBranch string `json:"baseBranch"`
 }
 
 // New creates a new Server. It discovers repos under rootDir, creates a Runner
@@ -151,17 +130,17 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return srv.ListenAndServe()
 }
 
-func (s *Server) listRepos(_ context.Context, _ *emptyReq) (*[]repoJSON, error) {
-	out := make([]repoJSON, len(s.repos))
+func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]dto.RepoJSON, error) {
+	out := make([]dto.RepoJSON, len(s.repos))
 	for i, r := range s.repos {
-		out[i] = repoJSON{Path: r.RelPath, BaseBranch: r.BaseBranch}
+		out[i] = dto.RepoJSON{Path: r.RelPath, BaseBranch: r.BaseBranch}
 	}
 	return &out, nil
 }
 
-func (s *Server) listTasks(_ context.Context, _ *emptyReq) (*[]taskJSON, error) {
+func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]dto.TaskJSON, error) {
 	s.mu.Lock()
-	out := make([]taskJSON, len(s.tasks))
+	out := make([]dto.TaskJSON, len(s.tasks))
 	for i, e := range s.tasks {
 		out[i] = toJSON(i, e)
 	}
@@ -171,7 +150,7 @@ func (s *Server) listTasks(_ context.Context, _ *emptyReq) (*[]taskJSON, error) 
 
 func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req createTaskReq
+		var req dto.CreateTaskReq
 		if !readAndDecodeBody(w, r, &req) {
 			return
 		}
@@ -182,7 +161,7 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 
 		runner, ok := s.runners[req.Repo]
 		if !ok {
-			writeError(w, badRequest("unknown repo: "+req.Repo))
+			writeError(w, dto.BadRequest("unknown repo: "+req.Repo))
 			return
 		}
 
@@ -226,7 +205,7 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		writeError(w, internalError("streaming not supported"))
+		writeError(w, dto.InternalError("streaming not supported"))
 		return
 	}
 
@@ -251,30 +230,30 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *inputReq) (*statusResp, error) {
+func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *dto.InputReq) (*dto.StatusResp, error) {
 	if err := entry.task.SendInput(req.Prompt); err != nil {
-		return nil, conflict(err.Error())
+		return nil, dto.Conflict(err.Error())
 	}
-	return &statusResp{Status: "sent"}, nil
+	return &dto.StatusResp{Status: "sent"}, nil
 }
 
-func (s *Server) finishTask(_ context.Context, entry *taskEntry, _ *emptyReq) (*statusResp, error) {
+func (s *Server) finishTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
 	state := entry.task.State
 	if state != task.StateWaiting && state != task.StateRunning {
-		return nil, conflict("task is not running or waiting")
+		return nil, dto.Conflict("task is not running or waiting")
 	}
 	entry.task.Finish()
-	return &statusResp{Status: "finishing"}, nil
+	return &dto.StatusResp{Status: "finishing"}, nil
 }
 
-func (s *Server) endTask(_ context.Context, entry *taskEntry, _ *emptyReq) (*statusResp, error) {
+func (s *Server) endTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
 	switch entry.task.State {
 	case task.StateDone, task.StateFailed, task.StateEnded:
-		return nil, conflict("task is already in a terminal state")
+		return nil, dto.Conflict("task is already in a terminal state")
 	case task.StatePending, task.StateStarting, task.StateRunning, task.StateWaiting, task.StatePulling, task.StatePushing:
 	}
 	entry.task.End()
-	return &statusResp{Status: "ending"}, nil
+	return &dto.StatusResp{Status: "ending"}, nil
 }
 
 // adoptContainers discovers preexisting md containers and creates task entries
@@ -337,19 +316,19 @@ func (s *Server) getTask(r *http.Request) (*taskEntry, error) {
 	idStr := r.PathValue("id")
 	id, err := strconv.Atoi(idStr)
 	if err != nil {
-		return nil, badRequest("invalid task id")
+		return nil, dto.BadRequest("invalid task id")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id < 0 || id >= len(s.tasks) {
-		return nil, notFound("task")
+		return nil, dto.NotFound("task")
 	}
 	return s.tasks[id], nil
 }
 
-func toJSON(id int, e *taskEntry) taskJSON {
-	j := taskJSON{
+func toJSON(id int, e *taskEntry) dto.TaskJSON {
+	j := dto.TaskJSON{
 		ID:        id,
 		Task:      e.task.Prompt,
 		Repo:      e.task.Repo,

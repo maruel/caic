@@ -57,5 +57,5 @@ export default tseslint.config(
       'solid/style-prop': 'error',
     },
   },
-  { ignores: ['dist/**'] },
+  { ignores: ['dist/**', 'src/**/*.gen.ts'] },
 );

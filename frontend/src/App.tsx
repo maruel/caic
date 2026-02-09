@@ -1,37 +1,20 @@
 // Main application component for wmao web UI.
 import { createSignal, For, Show, onMount } from "solid-js";
+import type { RepoJSON, TaskJSON } from "./api.gen";
 import TaskView from "./TaskView";
-
-interface RepoInfo {
-  path: string;
-  baseBranch: string;
-}
-
-interface TaskResult {
-  id: number;
-  task: string;
-  repo: string;
-  branch: string;
-  state: string;
-  diffStat: string;
-  costUSD: number;
-  durationMs: number;
-  numTurns: number;
-  error?: string;
-}
 
 export default function App() {
   const [prompt, setPrompt] = createSignal("");
-  const [tasks, setTasks] = createSignal<TaskResult[]>([]);
+  const [tasks, setTasks] = createSignal<TaskJSON[]>([]);
   const [submitting, setSubmitting] = createSignal(false);
   const [selectedId, setSelectedId] = createSignal<number | null>(null);
-  const [repos, setRepos] = createSignal<RepoInfo[]>([]);
+  const [repos, setRepos] = createSignal<RepoJSON[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
 
   onMount(async () => {
     const res = await fetch("/api/v1/repos");
     if (res.ok) {
-      const data = (await res.json()) as RepoInfo[];
+      const data = (await res.json()) as RepoJSON[];
       setRepos(data);
       if (data.length > 0) {
         setSelectedRepo(data[0].path);
@@ -66,7 +49,7 @@ export default function App() {
   async function refreshTasks() {
     const res = await fetch("/api/v1/tasks");
     if (res.ok) {
-      setTasks(await res.json() as TaskResult[]);
+      setTasks(await res.json() as TaskJSON[]);
     }
   }
 

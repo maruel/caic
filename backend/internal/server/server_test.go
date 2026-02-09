@@ -7,12 +7,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/maruel/wmao/backend/internal/server/dto"
 	"github.com/maruel/wmao/backend/internal/task"
 )
 
-func decodeError(t *testing.T, w *httptest.ResponseRecorder) errorBody {
+func decodeError(t *testing.T, w *httptest.ResponseRecorder) dto.ErrorDetails {
 	t.Helper()
-	var resp errorResponse
+	var resp dto.ErrorResponse
 	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 		t.Fatalf("failed to decode error response: %v", err)
 	}
@@ -29,8 +30,8 @@ func TestHandleTaskEventsNotFound(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeNotFound {
-		t.Errorf("code = %q, want %q", e.Code, codeNotFound)
+	if e.Code != dto.CodeNotFound {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeNotFound)
 	}
 }
 
@@ -44,8 +45,8 @@ func TestHandleTaskEventsInvalidID(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeBadRequest {
-		t.Errorf("code = %q, want %q", e.Code, codeBadRequest)
+	if e.Code != dto.CodeBadRequest {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeBadRequest)
 	}
 }
 
@@ -65,8 +66,8 @@ func TestHandleTaskInputNotRunning(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusConflict)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeConflict {
-		t.Errorf("code = %q, want %q", e.Code, codeConflict)
+	if e.Code != dto.CodeConflict {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeConflict)
 	}
 }
 
@@ -86,8 +87,8 @@ func TestHandleTaskInputEmptyPrompt(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeBadRequest {
-		t.Errorf("code = %q, want %q", e.Code, codeBadRequest)
+	if e.Code != dto.CodeBadRequest {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeBadRequest)
 	}
 }
 
@@ -106,8 +107,8 @@ func TestHandleFinishNotWaiting(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusConflict)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeConflict {
-		t.Errorf("code = %q, want %q", e.Code, codeConflict)
+	if e.Code != dto.CodeConflict {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeConflict)
 	}
 }
 
@@ -174,8 +175,8 @@ func TestHandleCreateTaskMissingRepo(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeBadRequest {
-		t.Errorf("code = %q, want %q", e.Code, codeBadRequest)
+	if e.Code != dto.CodeBadRequest {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeBadRequest)
 	}
 }
 
@@ -192,8 +193,8 @@ func TestHandleCreateTaskUnknownRepo(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeBadRequest {
-		t.Errorf("code = %q, want %q", e.Code, codeBadRequest)
+	if e.Code != dto.CodeBadRequest {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeBadRequest)
 	}
 }
 
@@ -210,8 +211,8 @@ func TestHandleCreateTaskUnknownField(t *testing.T) {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 	e := decodeError(t, w)
-	if e.Code != codeBadRequest {
-		t.Errorf("code = %q, want %q", e.Code, codeBadRequest)
+	if e.Code != dto.CodeBadRequest {
+		t.Errorf("code = %q, want %q", e.Code, dto.CodeBadRequest)
 	}
 }
 
@@ -231,7 +232,7 @@ func TestHandleListRepos(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
-	var repos []repoJSON
+	var repos []dto.RepoJSON
 	if err := json.NewDecoder(w.Body).Decode(&repos); err != nil {
 		t.Fatal(err)
 	}
