@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -332,6 +333,18 @@ func (s *Server) pushTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 		return nil, dto.InternalError(err.Error())
 	}
 	return &dto.StatusResp{Status: "pushed"}, nil
+}
+
+// SetRunnerOps overrides container and agent operations on all runners.
+func (s *Server) SetRunnerOps(c container.Ops, agentStart func(ctx context.Context, ctr string, maxTurns int, msgCh chan<- agent.Message, logW io.Writer, resumeSessionID string) (*agent.Session, error)) {
+	for _, r := range s.runners {
+		if c != nil {
+			r.Container = c
+		}
+		if agentStart != nil {
+			r.AgentStartFn = agentStart
+		}
+	}
 }
 
 // adoptContainers discovers preexisting md containers and creates task entries

@@ -5,15 +5,19 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/maruel/wmao/backend/internal/agent"
+	"github.com/maruel/wmao/backend/internal/container"
 	"github.com/maruel/wmao/backend/internal/gitutil"
 	"github.com/maruel/wmao/backend/internal/server"
 	"github.com/maruel/wmao/backend/internal/task"
@@ -26,7 +30,12 @@ func mainImpl() error {
 	maxTurns := flag.Int("max-turns", 0, "max agentic turns per task (0=unlimited)")
 	addr := flag.String("http", "", "start web UI on this address (e.g. :8080)")
 	root := flag.String("root", "", "parent directory containing git repos")
+	fake := flag.Bool("fake", false, "use fake container/agent ops (for e2e tests); creates a temp repo when -root is omitted")
 	flag.Parse()
+
+	if *fake {
+		return serveFake(ctx, *addr, *root)
+	}
 
 	logDir := cacheDir()
 
@@ -170,6 +179,124 @@ func main() {
 		fmt.Fprintf(os.Stderr, "wmao: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// serveFake starts the HTTP server with fake container/agent ops and a temp
+// git repo. Used for e2e testing without md CLI or SSH.
+func serveFake(ctx context.Context, addr, rootDir string) error {
+	if addr == "" {
+		addr = ":8090"
+	}
+
+	// When -root is not provided, create a temp git repo.
+	if rootDir == "" {
+		tmpDir, err := os.MkdirTemp("", "wmao-e2e-*")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = os.RemoveAll(tmpDir) }()
+		clone, err := initFakeRepo(tmpDir)
+		if err != nil {
+			return fmt.Errorf("init fake repo: %w", err)
+		}
+		rootDir = filepath.Dir(clone)
+	}
+
+	srv, err := server.New(ctx, rootDir, 1, "")
+	if err != nil {
+		return fmt.Errorf("new server: %w", err)
+	}
+	srv.SetRunnerOps(&fakeContainer{}, fakeAgentStart)
+
+	err = srv.ListenAndServe(ctx, addr)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+// initFakeRepo creates a bare remote and a clone with one commit on main.
+func initFakeRepo(tmpDir string) (string, error) {
+	bare := filepath.Join(tmpDir, "remote.git")
+	clone := filepath.Join(tmpDir, "clone")
+	for _, args := range [][]string{
+		{"init", "--bare", bare},
+		{"init", clone},
+		{"-C", clone, "config", "user.name", "Test"},
+		{"-C", clone, "config", "user.email", "test@test.com"},
+		{"-C", clone, "checkout", "-b", "main"},
+	} {
+		if err := runGit(args...); err != nil {
+			return "", err
+		}
+	}
+	if err := os.WriteFile(filepath.Join(clone, "README.md"), []byte("hello\n"), 0o600); err != nil {
+		return "", err
+	}
+	for _, args := range [][]string{
+		{"-C", clone, "add", "."},
+		{"-C", clone, "commit", "-m", "init"},
+		{"-C", clone, "remote", "add", "origin", bare},
+		{"-C", clone, "push", "-u", "origin", "main"},
+	} {
+		if err := runGit(args...); err != nil {
+			return "", err
+		}
+	}
+	return clone, nil
+}
+
+func runGit(args ...string) error {
+	out, err := exec.Command("git", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git %v: %w\n%s", args, err, out)
+	}
+	return nil
+}
+
+// fakeContainer implements container.Ops with no-op operations.
+type fakeContainer struct{}
+
+var _ container.Ops = (*fakeContainer)(nil)
+
+func (*fakeContainer) Start(ctx context.Context, dir string) (string, error) {
+	branch, err := gitutil.CurrentBranch(ctx, dir)
+	if err != nil {
+		return "", err
+	}
+	return "md-test-" + strings.ReplaceAll(branch, "/", "-"), nil
+}
+
+func (*fakeContainer) Diff(_ context.Context, _ string, _ ...string) (string, error) {
+	return "", nil
+}
+
+func (*fakeContainer) Pull(_ context.Context, _ string) error { return nil }
+func (*fakeContainer) Push(_ context.Context, _ string) error { return nil }
+func (*fakeContainer) Kill(_ context.Context, _ string) error { return nil }
+
+// fakeAgentStart creates a Session backed by a shell process that emits three
+// JSON messages (init, assistant, result) then exits.
+func fakeAgentStart(_ context.Context, _ string, _ int, msgCh chan<- agent.Message, logW io.Writer, _ string) (*agent.Session, error) {
+	script := `read line
+echo '{"type":"system","subtype":"init","session_id":"test-session","cwd":"/workspace","model":"fake-model","claude_code_version":"0.0.0-test"}'
+echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I completed the requested task."}]}}'
+echo '{"type":"result","subtype":"success","result":"All done.","num_turns":1,"total_cost_usd":0.01,"duration_ms":500}'
+`
+	cmd := exec.Command("sh", "-c", script)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, err
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, err
+	}
+	cmd.Stderr = nil
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return agent.NewSession(cmd, stdin, stdout, msgCh, logW), nil
 }
 
 // cacheDir returns the wmao log/cache directory, using $XDG_CACHE_HOME/wmao/
