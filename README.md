@@ -34,12 +34,14 @@ journalctl --user -u wmao -f
 
 ## Serving over Tailscale
 
-Safely expose mddb on your [Tailscale](https://tailscale.com/) network using `tailscale serve`. This provides
+Safely expose wmao on your [Tailscale](https://tailscale.com/) network using `tailscale serve`. This provides
 secure access from any device on your tailnet without opening ports or configuring firewalls.
 
 ```bash
-# Expose mddb on your tailnet at https://<hostname>.<tailnet>.ts.net
+# Expose wmao on your tailnet at https://<hostname>.<tailnet>.ts.net
 tailscale serve --bg 8080
 ```
 
-**HTTPS**: Tailscale serve/funnel provides HTTPS automatically via Let's Encrypt TLS certificates.
+**HTTPS**: Tailscale serve provides HTTPS automatically via Let's Encrypt TLS certificates.
+
+Do not use tailscale funnel.
