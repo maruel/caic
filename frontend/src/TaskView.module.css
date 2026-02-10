@@ -17,9 +17,6 @@
   margin: 0;
 }
 
-.closeBtn {
-  cursor: pointer;
-}
 
 .query {
   font-size: 0.9rem;
@@ -61,25 +58,6 @@
   overflow-y: auto;
 }
 
-.btn {
-  border: none;
-  border-radius: 4px;
-  padding: 0.4rem 0.75rem;
-  cursor: pointer;
-  color: white;
-}
-
-.btnGray {
-  background: #6c757d;
-}
-
-.btnGreen {
-  background: #28a745;
-}
-
-.btnRed {
-  background: #dc3545;
-}
 
 .systemInit {
   color: #888;
@@ -412,11 +390,6 @@
     flex: none;
     box-sizing: border-box;
     min-height: 2.5rem;
-  }
-
-  .btn {
-    padding: 0.5rem 0.75rem;
-    font-size: 0.85rem;
   }
 
   .messageArea {

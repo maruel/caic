@@ -1,0 +1,54 @@
+.btn {
+  border: none;
+  border-radius: 4px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  color: white;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: #4a90d9;
+}
+
+.primary:hover:not(:disabled) {
+  background: #357abd;
+}
+
+.gray {
+  background: #6c757d;
+}
+
+.gray:hover:not(:disabled) {
+  background: #5a6268;
+}
+
+.red {
+  background: #dc3545;
+}
+
+.red:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.green {
+  background: #28a745;
+}
+
+.green:hover:not(:disabled) {
+  background: #218838;
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .btn {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+  }
+}

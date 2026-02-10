@@ -3,6 +3,7 @@ import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Sw
 import { sendInput as apiSendInput, terminateTask as apiTerminateTask, pullTask as apiPullTask, pushTask as apiPushTask } from "@sdk/api.gen";
 import { Marked } from "marked";
 import AutoResizeTextarea from "./AutoResizeTextarea";
+import Button from "./Button";
 import styles from "./TaskView.module.css";
 
 interface ContentBlock {
@@ -136,7 +137,7 @@ export default function TaskView(props: Props) {
     <div class={styles.container}>
       <div class={styles.header}>
         <h3>Task #{props.taskId}</h3>
-        <button class={styles.closeBtn} onClick={() => props.onClose()}>Close</button>
+        <Button variant="gray" class={styles.closeBtn} onClick={() => props.onClose()}>Close</Button>
       </div>
       <div class={styles.query}>{props.taskQuery}</div>
 
@@ -214,16 +215,10 @@ export default function TaskView(props: Props) {
             disabled={sending()}
             class={styles.textInput}
           />
-          <button type="submit" disabled={sending() || !input().trim()}>Send</button>
-          <button type="button" class={`${styles.btn} ${styles.btnGray}`} onClick={() => pullTask()}>
-            Pull
-          </button>
-          <button type="button" class={`${styles.btn} ${styles.btnGray}`} onClick={() => pushTask()}>
-            Push
-          </button>
-          <button type="button" class={`${styles.btn} ${styles.btnRed}`} onClick={() => terminateTask()}>
-            Terminate
-          </button>
+          <Button type="submit" disabled={sending() || !input().trim()}>Send</Button>
+          <Button type="button" variant="gray" onClick={() => pullTask()}>Pull</Button>
+          <Button type="button" variant="gray" onClick={() => pushTask()}>Push</Button>
+          <Button type="button" variant="red" onClick={() => terminateTask()}>Terminate</Button>
         </form>
       </Show>
     </div>

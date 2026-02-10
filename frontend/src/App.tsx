@@ -6,6 +6,7 @@ import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
 import { listRepos, listTasks, createTask } from "@sdk/api.gen";
 import TaskView from "./TaskView";
 import AutoResizeTextarea from "./AutoResizeTextarea";
+import Button from "./Button";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import styles from "./App.module.css";
 
@@ -174,9 +175,9 @@ export default function App() {
           disabled={submitting()}
           class={styles.promptInput}
         />
-        <button type="submit" disabled={submitting() || !prompt().trim() || !selectedRepo()}>
+        <Button type="submit" disabled={submitting() || !prompt().trim() || !selectedRepo()}>
           {submitting() ? "Submitting..." : "Run"}
-        </button>
+        </Button>
       </form>
 
       <div class={styles.layout}>
