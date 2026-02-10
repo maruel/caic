@@ -116,12 +116,26 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/reconnect", handleWithTask(s, s.reconnectTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/takeover", handleWithTask(s, s.takeoverTask))
 
-	// Serve embedded frontend.
+	// Serve embedded frontend with SPA fallback: serve the file if it exists,
+	// otherwise serve index.html for client-side routing.
 	dist, err := fs.Sub(frontend.Files, "dist")
 	if err != nil {
 		return err
 	}
-	mux.Handle("GET /", http.FileServerFS(dist))
+	fileServer := http.FileServerFS(dist)
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		// Try to stat the requested path. Serve the file if it exists.
+		p := r.URL.Path
+		if p != "/" {
+			if _, err := fs.Stat(dist, p[1:]); err == nil {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
+		// SPA fallback: serve index.html.
+		r.URL.Path = "/"
+		fileServer.ServeHTTP(w, r)
+	})
 
 	srv := &http.Server{
 		Addr:              addr,

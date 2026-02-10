@@ -10,6 +10,7 @@
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
+    "@solidjs/router": "^0.15.0",
     "marked": "^17.0.1",
     "solid-js": "^1.9.0"
   },

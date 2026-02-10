@@ -1,22 +1,44 @@
 // Main application component for wmao web UI.
-import { createSignal, For, Show, onMount } from "solid-js";
+import { createSignal, createEffect, For, Show, Switch, Match, onMount } from "solid-js";
+import { useNavigate, useLocation } from "@solidjs/router";
 import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
 import { listRepos, listTasks, createTask } from "@sdk/api.gen";
 import TaskView from "./TaskView";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import styles from "./App.module.css";
 
+function taskUrl(t: TaskJSON): string {
+  return `/${t.repo}/${t.branch}`;
+}
+
+function findTaskByPath(tasks: TaskJSON[], pathname: string): TaskJSON | null {
+  if (pathname === "/") return null;
+  for (const t of tasks) {
+    if (t.repo && t.branch && taskUrl(t) === pathname) return t;
+  }
+  return null;
+}
+
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [prompt, setPrompt] = createSignal("");
   const [tasks, setTasks] = createSignal<TaskJSON[]>([]);
   const [submitting, setSubmitting] = createSignal(false);
-  const [selectedId, setSelectedId] = createSignal<number | null>(null);
   const [repos, setRepos] = createSignal<RepoJSON[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
 
+  // After creating a task, it may not have a branch yet. Store the task ID to
+  // navigate once the branch appears.
+  const [pendingNavId, setPendingNavId] = createSignal<number | null>(null);
+
   // Track previous task states to detect transitions to "waiting".
   let prevStates = new Map<number, string>();
+
+  const selectedTask = (): TaskJSON | null => findTaskByPath(tasks(), location.pathname);
+  const selectedId = (): number | null => selectedTask()?.id ?? null;
 
   onMount(async () => {
     requestNotificationPermission();
@@ -26,6 +48,17 @@ export default function App() {
       const last = localStorage.getItem("wmao:lastRepo");
       const match = last && data.find((r) => r.path === last);
       setSelectedRepo(match ? match.path : data[0].path);
+    }
+  });
+
+  // Navigate to a newly created task once its branch becomes available.
+  createEffect(() => {
+    const id = pendingNavId();
+    if (id === null) return;
+    const found = tasks().find((item) => item.id === id);
+    if (found && found.branch) {
+      setPendingNavId(null);
+      navigate(taskUrl(found));
     }
   });
 
@@ -39,7 +72,13 @@ export default function App() {
       const data = await createTask({ prompt: p, repo });
       setPrompt("");
       await refreshTasks();
-      setSelectedId(data.id);
+      // If the task already has a branch, navigate immediately.
+      const created = tasks().find((item) => item.id === data.id);
+      if (created && created.branch) {
+        navigate(taskUrl(created));
+      } else {
+        setPendingNavId(data.id);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -68,12 +107,6 @@ export default function App() {
       if (aAdopted !== bAdopted) return aAdopted - bAdopted;
       return b.id - a.id;
     });
-
-  const selectedTask = () => {
-    const id = selectedId();
-    if (id === null) return null;
-    return tasks().find((t) => t.id === id) ?? null;
-  };
 
   return (
     <div class={styles.app}>
@@ -118,7 +151,11 @@ export default function App() {
           <For each={sortedTasks()}>
             {(t) => (
               <div
-                onClick={() => setSelectedId(t.id)}
+                onClick={() => {
+                  if (t.branch) {
+                    navigate(taskUrl(t));
+                  }
+                }}
                 class={`${styles.taskCard} ${selectedId() === t.id ? styles.taskCardSelected : ""}`}>
                 <div class={styles.taskHeader}>
                   <strong class={styles.taskTitle}>{t.task}</strong>
@@ -148,17 +185,27 @@ export default function App() {
           <button class={styles.expandBtn} onClick={() => setSidebarOpen(true)} title="Expand sidebar">&rsaquo;</button>
         </Show>
 
-        <Show when={selectedId() !== null}>
-          <div class={styles.detailPane}>
-            <button class={styles.backBtn} onClick={() => setSelectedId(null)}>&larr; Back</button>
-            <TaskView
-              taskId={selectedId() ?? 0}
-              taskState={selectedTask()?.state ?? "pending"}
-              taskQuery={selectedTask()?.task ?? ""}
-              onClose={() => setSelectedId(null)}
-            />
-          </div>
-        </Show>
+        <Switch>
+          <Match when={location.pathname !== "/" && selectedTask() === null && tasks().length > 0}>
+            <div class={styles.detailPane}>
+              <button class={styles.backBtn} onClick={() => navigate("/")}>&larr; Back</button>
+              <p class={styles.placeholder}>Task not found.</p>
+            </div>
+          </Match>
+          <Match when={selectedTask()}>
+            {(task) => (
+              <div class={styles.detailPane}>
+                <button class={styles.backBtn} onClick={() => navigate("/")}>&larr; Back</button>
+                <TaskView
+                  taskId={task().id}
+                  taskState={task().state}
+                  taskQuery={task().task}
+                  onClose={() => navigate("/")}
+                />
+              </div>
+            )}
+          </Match>
+        </Switch>
       </div>
     </div>
   );
