@@ -556,6 +556,10 @@ func (r *Runner) Finish(ctx context.Context, t *Task) Result {
 // setup creates the branch and starts the container. Must be called under
 // branchMu.
 func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
+	// Fetch so that origin/<BaseBranch> is up to date.
+	if err := gitutil.Fetch(ctx, r.Dir); err != nil {
+		return "", fmt.Errorf("fetch: %w", err)
+	}
 	// Assign a sequential branch name, skipping existing ones.
 	var err error
 	for range 100 {

@@ -23,6 +23,18 @@ func CurrentBranch(ctx context.Context, dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+// Fetch fetches the latest refs from origin.
+func Fetch(ctx context.Context, dir string) error {
+	cmd := exec.CommandContext(ctx, "git", "fetch", "origin")
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git fetch origin: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
 // CreateBranch creates a new branch from startPoint and checks it out.
 func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
 	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", name, startPoint)
