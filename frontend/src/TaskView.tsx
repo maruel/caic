@@ -1,5 +1,5 @@
 // TaskView renders the real-time agent output stream for a single task.
-import { createSignal, createMemo, For, Show, onCleanup, createEffect, Switch, Match } from "solid-js";
+import { createSignal, createMemo, For, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
 import { taskEvents, sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask, reconnectTask as apiReconnectTask, takeoverTask as apiTakeoverTask } from "@sdk/api.gen";
 import { Marked } from "marked";
 import styles from "./TaskView.module.css";
@@ -29,12 +29,17 @@ interface AgentMessage {
   claude_code_version?: string;
 }
 
+interface AskOption { label: string; description?: string }
+interface AskQuestion { question: string; header?: string; options: AskOption[]; multiSelect?: boolean }
+interface AskUserQuestionInput { questions: AskQuestion[] }
+
 // A group of consecutive messages that should be rendered together.
 // "text" groups contain assistant text blocks.
 // "tool" groups coalesce tool_use blocks and their user (tool result) messages.
+// "ask" groups contain a single AskUserQuestion tool_use block.
 // "other" groups contain standalone messages (system, result, etc.).
 interface MessageGroup {
-  kind: "text" | "tool" | "other";
+  kind: "text" | "tool" | "ask" | "other";
   messages: AgentMessage[];
   toolBlocks: ContentBlock[];
 }
@@ -121,20 +126,49 @@ export default function TaskView(props: Props) {
       <div class={styles.query}>{props.taskQuery}</div>
 
       <div class={styles.messageArea}>
-        <For each={groupMessages(messages())}>
-          {(group) => (
-            <Switch>
-              <Match when={group.kind === "tool"}>
-                <ToolMessageGroup toolBlocks={group.toolBlocks} />
-              </Match>
-              <Match when={group.kind === "text" || group.kind === "other"}>
-                <For each={group.messages}>
-                  {(msg) => <MessageItem msg={msg} />}
-                </For>
-              </Match>
-            </Switch>
-          )}
-        </For>
+        {(() => {
+          const grouped = createMemo(() => groupMessages(messages()));
+          const lastAskIdx = createMemo(() => {
+            const g = grouped();
+            for (let i = g.length - 1; i >= 0; i--) {
+              if (g[i].kind === "ask") return i;
+            }
+            return -1;
+          });
+
+          async function sendAskAnswer(text: string) {
+            setSending(true);
+            try {
+              await apiSendInput(props.taskId, { prompt: text });
+            } finally {
+              setSending(false);
+            }
+          }
+
+          return (
+            <For each={grouped()}>
+              {(group, index) => (
+                <Switch>
+                  <Match when={group.kind === "ask"}>
+                    <AskQuestionGroup
+                      block={group.toolBlocks[0]}
+                      interactive={isWaiting() && index() === lastAskIdx()}
+                      onSubmit={sendAskAnswer}
+                    />
+                  </Match>
+                  <Match when={group.kind === "tool"}>
+                    <ToolMessageGroup toolBlocks={group.toolBlocks} />
+                  </Match>
+                  <Match when={group.kind === "text" || group.kind === "other"}>
+                    <For each={group.messages}>
+                      {(msg) => <MessageItem msg={msg} />}
+                    </For>
+                  </Match>
+                </Switch>
+              )}
+            </For>
+          );
+        })()}
         <Show when={messages().length === 0}>
           <p class={styles.placeholder}>Waiting for agent output...</p>
         </Show>
@@ -235,15 +269,22 @@ function groupMessages(msgs: AgentMessage[]): MessageGroup[] {
         groups.push({ kind: "text", messages: [msg], toolBlocks: [] });
       }
 
-      // Append tool_use blocks to existing tool group or start a new one.
-      if (toolBlocks.length > 0) {
+      // Split tool_use blocks: AskUserQuestion gets its own "ask" group.
+      const askBlocks = toolBlocks.filter((b) => b.name === "AskUserQuestion");
+      const otherToolBlocks = toolBlocks.filter((b) => b.name !== "AskUserQuestion");
+
+      if (otherToolBlocks.length > 0) {
         const last = lastGroup();
         if (last && last.kind === "tool") {
           last.messages.push(msg);
-          last.toolBlocks.push(...toolBlocks);
+          last.toolBlocks.push(...otherToolBlocks);
         } else {
-          groups.push({ kind: "tool", messages: [msg], toolBlocks: [...toolBlocks] });
+          groups.push({ kind: "tool", messages: [msg], toolBlocks: [...otherToolBlocks] });
         }
+      }
+
+      for (const askBlock of askBlocks) {
+        groups.push({ kind: "ask", messages: [msg], toolBlocks: [askBlock] });
       }
     } else if (msg.type === "user") {
       // Tool results — coalesce into the preceding tool group.
@@ -307,6 +348,145 @@ function Markdown(props: { text: string }) {
   const html = createMemo(() => marked.parse(props.text) as string);
   // eslint-disable-next-line solid/no-innerhtml -- rendering trusted marked output
   return <div class={styles.markdown} innerHTML={html()} />;
+}
+
+function parseAskInput(input: unknown): AskUserQuestionInput | undefined {
+  if (typeof input !== "object" || input === null) return undefined;
+  const obj = input as Record<string, unknown>;
+  if (!Array.isArray(obj.questions)) return undefined;
+  return obj as unknown as AskUserQuestionInput;
+}
+
+function AskQuestionGroup(props: { block: ContentBlock; interactive: boolean; onSubmit: (text: string) => void }) {
+  const parsed = createMemo(() => parseAskInput(props.block.input));
+  const [selections, setSelections] = createSignal<Map<number, Set<string>>>(new Map());
+  const [otherTexts, setOtherTexts] = createSignal<Map<number, string>>(new Map());
+  const [submitted, setSubmitted] = createSignal(false);
+
+  function toggleOption(qIdx: number, label: string, multiSelect: boolean) {
+    setSelections((prev) => {
+      const next = new Map(prev);
+      const set = new Set(next.get(qIdx) ?? []);
+      if (label === "__other__") {
+        if (set.has(label)) {
+          set.delete(label);
+        } else {
+          if (!multiSelect) set.clear();
+          set.add(label);
+        }
+      } else if (set.has(label)) {
+        set.delete(label);
+      } else {
+        if (!multiSelect) set.clear();
+        set.add(label);
+      }
+      next.set(qIdx, set);
+      return next;
+    });
+  }
+
+  function setOtherText(qIdx: number, text: string) {
+    setOtherTexts((prev) => {
+      const next = new Map(prev);
+      next.set(qIdx, text);
+      return next;
+    });
+  }
+
+  function formatAnswer(): string {
+    const questions = parsed()?.questions ?? [];
+    const parts: string[] = [];
+    for (let i = 0; i < questions.length; i++) {
+      const q = questions[i];
+      const sel = selections().get(i) ?? new Set();
+      const labels: string[] = [];
+      for (const s of sel) {
+        if (s === "__other__") {
+          labels.push(otherTexts().get(i) ?? "");
+        } else {
+          labels.push(s);
+        }
+      }
+      const answer = labels.filter((l) => l.length > 0).join(", ");
+      if (questions.length === 1) {
+        parts.push(answer);
+      } else {
+        parts.push(`${q.header ?? `Q${i + 1}`}: ${answer}`);
+      }
+    }
+    return parts.join("\n");
+  }
+
+  function handleSubmit() {
+    const answer = formatAnswer();
+    if (!answer.trim()) return;
+    setSubmitted(true);
+    props.onSubmit(answer);
+  }
+
+  const canInteract = (): boolean => props.interactive && !submitted();
+
+  return (
+    <Switch fallback={<ToolUseBlock name={props.block.name ?? "AskUserQuestion"} input={props.block.input} />}>
+      <Match when={parsed()}>
+        <div class={canInteract() ? `${styles.askGroup} ${styles.askGroupActive}` : styles.askGroup}>
+          <For each={parsed()?.questions ?? []}>
+            {(q: AskQuestion, qIdx: Accessor<number>) => (
+              <div class={styles.askQuestion}>
+                <Show when={q.header}>
+                  <div class={styles.askHeader}>{q.header}</div>
+                </Show>
+                <div class={styles.askText}>{q.question}</div>
+                <div class={styles.askOptions}>
+                  <For each={q.options}>
+                    {(opt) => {
+                      const selected = (): boolean => selections().get(qIdx())?.has(opt.label) ?? false;
+                      return (
+                        <button
+                          class={selected() ? `${styles.askChip} ${styles.askChipSelected}` : styles.askChip}
+                          disabled={!canInteract()}
+                          onClick={() => toggleOption(qIdx(), opt.label, q.multiSelect ?? false)}
+                        >
+                          <span class={styles.askChipLabel}>{opt.label}</span>
+                          <Show when={opt.description}>
+                            <span class={styles.askChipDesc}>{opt.description}</span>
+                          </Show>
+                        </button>
+                      );
+                    }}
+                  </For>
+                  {/* "Other" option */}
+                  <button
+                    class={selections().get(qIdx())?.has("__other__") ? `${styles.askChip} ${styles.askChipSelected}` : styles.askChip}
+                    disabled={!canInteract()}
+                    onClick={() => toggleOption(qIdx(), "__other__", q.multiSelect ?? false)}
+                  >
+                    <span class={styles.askChipLabel}>Other</span>
+                  </button>
+                </div>
+                <Show when={selections().get(qIdx())?.has("__other__")}>
+                  <input
+                    type="text"
+                    class={styles.askOtherInput}
+                    placeholder="Type your answer..."
+                    value={otherTexts().get(qIdx()) ?? ""}
+                    onInput={(e) => setOtherText(qIdx(), e.currentTarget.value)}
+                    disabled={!canInteract()}
+                  />
+                </Show>
+              </div>
+            )}
+          </For>
+          <Show when={canInteract()}>
+            <button class={styles.askSubmit} onClick={() => handleSubmit()}>Submit</button>
+          </Show>
+          <Show when={submitted()}>
+            <div class={styles.askSubmitted}>Answer submitted</div>
+          </Show>
+        </div>
+      </Match>
+    </Switch>
+  );
 }
 
 function ToolUseBlock(props: { name: string; input: unknown }) {

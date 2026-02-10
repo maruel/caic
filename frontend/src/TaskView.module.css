@@ -268,6 +268,111 @@
   overflow: auto;
 }
 
+.askGroup {
+  margin-bottom: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #f8f9fa;
+}
+
+.askGroupActive {
+  border-color: #4a90d9;
+  background: #f0f6ff;
+}
+
+.askQuestion {
+  margin-bottom: 0.5rem;
+}
+
+.askQuestion:last-child {
+  margin-bottom: 0;
+}
+
+.askHeader {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #666;
+  margin-bottom: 0.15rem;
+}
+
+.askText {
+  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+}
+
+.askOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.askChip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  padding: 0.35rem 0.6rem;
+  background: white;
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.askChip:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.askChipSelected {
+  border-color: #4a90d9;
+  background: #dbe9f9;
+}
+
+.askChipLabel {
+  font-weight: 500;
+}
+
+.askChipDesc {
+  font-size: 0.7rem;
+  color: #555;
+  margin-top: 0.1rem;
+}
+
+.askOtherInput {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.8rem;
+}
+
+.askSubmit {
+  margin-top: 0.5rem;
+  padding: 0.4rem 1rem;
+  border: none;
+  border-radius: 4px;
+  background: #4a90d9;
+  color: white;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.askSubmit:hover {
+  background: #357abd;
+}
+
+.askSubmitted {
+  margin-top: 0.35rem;
+  font-size: 0.8rem;
+  color: #28a745;
+}
+
 /* Mobile: <=768px */
 @media (max-width: 768px) {
   .inputForm {
@@ -291,5 +396,9 @@
 
   .toolBlockPre {
     max-height: 150px;
+  }
+
+  .askOptions {
+    flex-direction: column;
   }
 }
