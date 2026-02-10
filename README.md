@@ -23,8 +23,7 @@ systemctl --user daemon-reload
 systemctl --user enable --now wmao
 ```
 
-Edit `~/.config/systemd/user/wmao.service` to adjust `-root`, `-http`, and
-`-logs` flags to match your setup.
+Edit `~/.config/systemd/user/wmao.service` to adjust `-root` and `-http`
 
 View logs:
 
