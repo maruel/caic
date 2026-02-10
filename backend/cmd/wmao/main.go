@@ -13,12 +13,16 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/lmittmann/tint"
 	"github.com/maruel/wmao/backend/internal/agent"
 	"github.com/maruel/wmao/backend/internal/container"
 	"github.com/maruel/wmao/backend/internal/gitutil"
 	"github.com/maruel/wmao/backend/internal/server"
+	"github.com/mattn/go-colorable"
+	"github.com/mattn/go-isatty"
 )
 
 func mainImpl() error {
@@ -28,11 +32,14 @@ func mainImpl() error {
 	maxTurns := flag.Int("max-turns", 0, "max agentic turns per task (0=unlimited)")
 	addr := flag.String("http", "", "start web UI on this address (e.g. :8080)")
 	root := flag.String("root", "", "parent directory containing git repos")
+	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
 	fake := flag.Bool("fake", false, "use fake container/agent ops (for e2e tests); creates a temp repo when -root is omitted")
 	flag.Parse()
 	if args := flag.Args(); len(args) > 0 {
 		return fmt.Errorf("unexpected arguments: %v", args)
 	}
+
+	initLogging(*logLevel)
 
 	if *fake {
 		return serveFake(ctx, *addr, *root)
@@ -51,6 +58,59 @@ func mainImpl() error {
 		slog.Warn("failed to watch executable", "err", err)
 	}
 	return serveHTTP(ctx, *addr, *root, *maxTurns, logDir)
+}
+
+// initLogging configures slog with tint for colored, concise output.
+// Timestamps are omitted under systemd (JOURNAL_STREAM), and zero-value
+// attributes are dropped.
+func initLogging(level string) {
+	ll := &slog.LevelVar{}
+	switch level {
+	case "debug":
+		ll.Set(slog.LevelDebug)
+	case "info":
+		// default
+	case "warn":
+		ll.Set(slog.LevelWarn)
+	case "error":
+		ll.Set(slog.LevelError)
+	}
+	// Skip timestamps when running under systemd (it adds its own).
+	underSystemd := os.Getenv("JOURNAL_STREAM") != ""
+	slog.SetDefault(slog.New(tint.NewHandler(colorable.NewColorable(os.Stderr), &tint.Options{
+		Level:      ll,
+		TimeFormat: "15:04:05.000",
+		NoColor:    !isatty.IsTerminal(os.Stderr.Fd()),
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if underSystemd && a.Key == slog.TimeKey && len(groups) == 0 {
+				return slog.Attr{}
+			}
+			val := a.Value.Any()
+			skip := false
+			switch t := val.(type) {
+			case string:
+				skip = t == ""
+			case bool:
+				skip = !t
+			case uint64:
+				skip = t == 0
+			case int64:
+				skip = t == 0
+			case float64:
+				skip = t == 0
+			case time.Time:
+				skip = t.IsZero()
+			case time.Duration:
+				skip = t == 0
+			case nil:
+				skip = true
+			}
+			if skip {
+				return slog.Attr{}
+			}
+			return a
+		},
+	})))
 }
 
 func serveHTTP(ctx context.Context, addr, rootDir string, maxTurns int, logDir string) error {
