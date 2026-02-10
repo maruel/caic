@@ -141,9 +141,22 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		fileServer.ServeHTTP(w, r)
 	})
 
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
+		mux.ServeHTTP(rw, r)
+		slog.InfoContext(r.Context(), "http",
+			"m", r.Method,
+			"p", r.URL.Path,
+			"s", rw.status,
+			"d", roundDuration(time.Since(start)),
+			"b", rw.size,
+		)
+	})
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           mux,
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 		BaseContext: func(_ net.Listener) context.Context {
 			return ctx
@@ -622,4 +635,45 @@ func toJSON(id int, e *taskEntry) dto.TaskJSON {
 		}
 	}
 	return j
+}
+
+// responseWriter wraps http.ResponseWriter to capture status code and response size.
+type responseWriter struct {
+	http.ResponseWriter
+	status int
+	size   int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.status = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	n, err := rw.ResponseWriter.Write(b)
+	rw.size += n
+	return n, err
+}
+
+// Flush implements http.Flusher so SSE handlers can flush through the wrapper.
+func (rw *responseWriter) Flush() {
+	if f, ok := rw.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap returns the underlying ResponseWriter so http.NewResponseController
+// can discover interfaces like http.Flusher.
+func (rw *responseWriter) Unwrap() http.ResponseWriter {
+	return rw.ResponseWriter
+}
+
+// roundDuration rounds d to 3 significant digits with minimum 1us precision.
+func roundDuration(d time.Duration) time.Duration {
+	for t := 100 * time.Second; t >= 100*time.Microsecond; t /= 10 {
+		if d >= t {
+			return d.Round(t / 100)
+		}
+	}
+	return d.Round(time.Microsecond)
 }
