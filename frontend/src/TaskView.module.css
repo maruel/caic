@@ -398,6 +398,10 @@
     max-height: 150px;
   }
 
+  .closeBtn {
+    display: none;
+  }
+
   .askOptions {
     flex-direction: column;
   }

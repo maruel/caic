@@ -13,6 +13,7 @@ export default function App() {
   const [selectedId, setSelectedId] = createSignal<number | null>(null);
   const [repos, setRepos] = createSignal<RepoJSON[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
+  const [sidebarOpen, setSidebarOpen] = createSignal(true);
 
   // Track previous task states to detect transitions to "waiting".
   let prevStates = new Map<number, string>();
@@ -106,8 +107,11 @@ export default function App() {
       </form>
 
       <div class={styles.layout}>
-        <div class={`${styles.taskList} ${selectedId() !== null ? styles.taskListCollapsed : ""}`}>
-          <h2>Tasks</h2>
+        <div class={`${styles.taskList} ${selectedId() !== null ? styles.taskListNarrow : ""} ${sidebarOpen() ? "" : styles.taskListHidden}`}>
+          <div class={styles.taskListHeader}>
+            <h2>Tasks</h2>
+            <button class={styles.collapseBtn} onClick={() => setSidebarOpen(false)} title="Collapse sidebar">&lsaquo;</button>
+          </div>
           <Show when={tasks().length === 0}>
             <p class={styles.placeholder}>No tasks yet.</p>
           </Show>
@@ -140,6 +144,9 @@ export default function App() {
             )}
           </For>
         </div>
+        <Show when={!sidebarOpen()}>
+          <button class={styles.expandBtn} onClick={() => setSidebarOpen(true)} title="Expand sidebar">&rsaquo;</button>
+        </Show>
 
         <Show when={selectedId() !== null}>
           <div class={styles.detailPane}>
