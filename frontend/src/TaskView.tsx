@@ -28,6 +28,16 @@ interface AgentMessage {
   claude_code_version?: string;
 }
 
+// A group of consecutive messages that should be rendered together.
+// "text" groups contain assistant text blocks.
+// "tool" groups coalesce tool_use blocks and their user (tool result) messages.
+// "other" groups contain standalone messages (system, result, etc.).
+interface MessageGroup {
+  kind: "text" | "tool" | "other";
+  messages: AgentMessage[];
+  toolBlocks: ContentBlock[];
+}
+
 interface Props {
   taskId: number;
   taskState: string;
@@ -110,8 +120,19 @@ export default function TaskView(props: Props) {
       <div class={styles.query}>{props.taskQuery}</div>
 
       <div class={styles.messageArea}>
-        <For each={messages()}>
-          {(msg) => <MessageItem msg={msg} />}
+        <For each={groupMessages(messages())}>
+          {(group) => (
+            <Switch>
+              <Match when={group.kind === "tool"}>
+                <ToolMessageGroup toolBlocks={group.toolBlocks} />
+              </Match>
+              <Match when={group.kind === "text" || group.kind === "other"}>
+                <For each={group.messages}>
+                  {(msg) => <MessageItem msg={msg} />}
+                </For>
+              </Match>
+            </Switch>
+          )}
         </For>
         <Show when={messages().length === 0}>
           <p class={styles.placeholder}>Waiting for agent output...</p>
@@ -170,16 +191,8 @@ function MessageItem(props: { msg: AgentMessage }) {
       </Match>
       <Match when={props.msg.type === "assistant"}>
         <div class={styles.assistantMsg}>
-          <For each={groupContentBlocks(props.msg.message?.content ?? [])}>
-            {(group) => (
-              <Show when={group.type === "text"} fallback={
-                <ToolUseGroup tools={group.blocks} />
-              }>
-                <For each={group.blocks}>
-                  {(block) => <div class={styles.textBlock}>{block.text}</div>}
-                </For>
-              </Show>
-            )}
+          <For each={props.msg.message?.content?.filter((b) => b.type === "text") ?? []}>
+            {(block) => <div class={styles.textBlock}>{block.text}</div>}
           </For>
         </div>
       </Match>
@@ -196,29 +209,52 @@ function MessageItem(props: { msg: AgentMessage }) {
           </Show>
         </div>
       </Match>
-      <Match when={props.msg.type === "user"}>
-        <details class={styles.toolResult}>
-          <summary>tool result</summary>
-        </details>
-      </Match>
     </Switch>
   );
 }
 
-interface BlockGroup {
-  type: "text" | "tool_use";
-  blocks: ContentBlock[];
-}
+// Groups consecutive messages so that tool_use blocks and their user (tool result)
+// messages are coalesced into a single "tool" group. Text-only assistant messages
+// become "text" groups. Everything else (system, result) becomes "other".
+function groupMessages(msgs: AgentMessage[]): MessageGroup[] {
+  const groups: MessageGroup[] = [];
 
-function groupContentBlocks(blocks: ContentBlock[]): BlockGroup[] {
-  const groups: BlockGroup[] = [];
-  for (const block of blocks) {
-    const t = block.type === "text" ? "text" as const : "tool_use" as const;
-    const last = groups[groups.length - 1];
-    if (last && last.type === t) {
-      last.blocks.push(block);
+  function lastGroup(): MessageGroup | undefined {
+    return groups[groups.length - 1];
+  }
+
+  for (const msg of msgs) {
+    if (msg.type === "assistant") {
+      const content = msg.message?.content ?? [];
+      const textBlocks = content.filter((b) => b.type === "text");
+      const toolBlocks = content.filter((b) => b.type === "tool_use");
+
+      // Emit text group for any text blocks.
+      if (textBlocks.length > 0) {
+        groups.push({ kind: "text", messages: [msg], toolBlocks: [] });
+      }
+
+      // Append tool_use blocks to existing tool group or start a new one.
+      if (toolBlocks.length > 0) {
+        const last = lastGroup();
+        if (last && last.kind === "tool") {
+          last.messages.push(msg);
+          last.toolBlocks.push(...toolBlocks);
+        } else {
+          groups.push({ kind: "tool", messages: [msg], toolBlocks: [...toolBlocks] });
+        }
+      }
+    } else if (msg.type === "user") {
+      // Tool results — coalesce into the preceding tool group.
+      const last = lastGroup();
+      if (last && last.kind === "tool") {
+        last.messages.push(msg);
+      } else {
+        // Orphaned user message; start a tool group anyway.
+        groups.push({ kind: "tool", messages: [msg], toolBlocks: [] });
+      }
     } else {
-      groups.push({ type: t, blocks: [block] });
+      groups.push({ kind: "other", messages: [msg], toolBlocks: [] });
     }
   }
   return groups;
@@ -235,23 +271,28 @@ function toolCountSummary(tools: ContentBlock[]): string {
     .join(", ");
 }
 
-function ToolUseGroup(props: { tools: ContentBlock[] }) {
+function ToolMessageGroup(props: { toolBlocks: ContentBlock[] }) {
+  const blocks = () => props.toolBlocks;
   return (
-    <Show when={props.tools.length > 1} fallback={
-      <ToolUseBlock name={props.tools[0].name ?? "tool"} input={props.tools[0].input} />
+    <Show when={blocks().length > 0} fallback={
+      <details class={styles.toolResult}><summary>tool result</summary></details>
     }>
-      <details class={styles.toolGroup}>
-        <summary>
-          {props.tools.length} tools: {toolCountSummary(props.tools)}
-        </summary>
-        <div class={styles.toolGroupInner}>
-          <For each={props.tools}>
-            {(block) => (
-              <ToolUseBlock name={block.name ?? "tool"} input={block.input} />
-            )}
-          </For>
-        </div>
-      </details>
+      <Show when={blocks().length > 1} fallback={
+        <ToolUseBlock name={blocks()[0].name ?? "tool"} input={blocks()[0].input} />
+      }>
+        <details class={styles.toolGroup}>
+          <summary>
+            {blocks().length} tools: {toolCountSummary(blocks())}
+          </summary>
+          <div class={styles.toolGroupInner}>
+            <For each={blocks()}>
+              {(block) => (
+                <ToolUseBlock name={block.name ?? "tool"} input={block.input} />
+              )}
+            </For>
+          </div>
+        </details>
+      </Show>
     </Show>
   );
 }
