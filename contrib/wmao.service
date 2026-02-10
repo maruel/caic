@@ -12,7 +12,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=PATH=%h/go/bin:%h/src/md:/usr/local/bin:/usr/bin:/bin
-ExecStart=%h/go/bin/wmao -http :8080 -root %h/wmao -logs %h/wmao/logs
+ExecStart=%h/go/bin/wmao -http :8080 -root %h/wmao
 WorkingDirectory=%h/wmao
 Restart=always
 RestartSec=1s
