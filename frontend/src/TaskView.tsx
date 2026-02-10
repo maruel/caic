@@ -1,6 +1,6 @@
 // TaskView renders the real-time agent output stream for a single task.
 import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
-import { taskEvents, sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask } from "@sdk/api.gen";
+import { sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask } from "@sdk/api.gen";
 import { Marked } from "marked";
 import styles from "./TaskView.module.css";
 
@@ -60,18 +60,36 @@ export default function TaskView(props: Props) {
     const id = props.taskId;
     setMessages([]);
 
-    const es = taskEvents(id);
+    let es: EventSource | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delay = 500;
 
-    es.addEventListener("message", (e) => {
-      try {
-        const msg = JSON.parse(e.data) as AgentMessage;
-        setMessages((prev) => [...prev, msg]);
-      } catch {
-        // Ignore unparseable messages.
-      }
+    function connect() {
+      setMessages([]);
+      es = new EventSource(`/api/v1/tasks/${id}/events`);
+      es.addEventListener("open", () => { delay = 500; });
+      es.addEventListener("message", (e) => {
+        try {
+          const msg = JSON.parse(e.data) as AgentMessage;
+          setMessages((prev) => [...prev, msg]);
+        } catch {
+          // Ignore unparseable messages.
+        }
+      });
+      es.onerror = () => {
+        es?.close();
+        es = null;
+        timer = setTimeout(connect, delay);
+        delay = Math.min(delay * 1.5, 4000);
+      };
+    }
+
+    connect();
+
+    onCleanup(() => {
+      es?.close();
+      if (timer !== null) clearTimeout(timer);
     });
-
-    onCleanup(() => es.close());
   });
 
   async function sendInput() {

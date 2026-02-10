@@ -51,23 +51,50 @@ export default function App() {
     }
   });
 
-  // Subscribe to task list updates via SSE.
-  const es = new EventSource("/api/v1/events");
-  es.addEventListener("tasks", (e) => {
-    try {
-      const updated = JSON.parse(e.data) as TaskJSON[];
-      for (const t of updated) {
-        if (t.state === "waiting" && prevStates.get(t.id) !== "waiting") {
-          notifyWaiting(t.id, t.task);
+  // Subscribe to task list updates via SSE with automatic reconnection.
+  // Backoff: 500ms × 1.5 each failure, capped at 4s, reset on success.
+  const [connected, setConnected] = createSignal(true);
+  {
+    let es: EventSource | null = null;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delay = 500;
+
+    function connect() {
+      es = new EventSource("/api/v1/events");
+      es.addEventListener("open", () => {
+        setConnected(true);
+        delay = 500;
+      });
+      es.addEventListener("tasks", (e) => {
+        try {
+          const updated = JSON.parse(e.data) as TaskJSON[];
+          for (const t of updated) {
+            if (t.state === "waiting" && prevStates.get(t.id) !== "waiting") {
+              notifyWaiting(t.id, t.task);
+            }
+          }
+          prevStates = new Map(updated.map((t) => [t.id, t.state]));
+          setTasks(updated);
+        } catch {
+          // Ignore unparseable messages.
         }
-      }
-      prevStates = new Map(updated.map((t) => [t.id, t.state]));
-      setTasks(updated);
-    } catch {
-      // Ignore unparseable messages.
+      });
+      es.onerror = () => {
+        setConnected(false);
+        es?.close();
+        es = null;
+        timer = setTimeout(connect, delay);
+        delay = Math.min(delay * 1.5, 4000);
+      };
     }
-  });
-  onCleanup(() => es.close());
+
+    connect();
+
+    onCleanup(() => {
+      es?.close();
+      if (timer !== null) clearTimeout(timer);
+    });
+  }
 
   // Navigate to a newly created task once its branch becomes available.
   createEffect(() => {
@@ -110,6 +137,10 @@ export default function App() {
         <h1 class={styles.title}>wmao</h1>
         <span class={styles.subtitle}>Work my ass off. Manage coding agents.</span>
       </div>
+
+      <Show when={!connected()}>
+        <div class={styles.reconnecting}>Reconnecting to server...</div>
+      </Show>
 
       <form onSubmit={(e) => { e.preventDefault(); submitTask(); }} class={styles.submitForm}>
         <select
