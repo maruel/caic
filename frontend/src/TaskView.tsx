@@ -1,5 +1,5 @@
 // TaskView renders the real-time agent output stream for a single task.
-import { createSignal, createMemo, For, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
+import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
 import { taskEvents, sendInput as apiSendInput, finishTask as apiFinishTask, endTask as apiEndTask, pullTask as apiPullTask, pushTask as apiPushTask, reconnectTask as apiReconnectTask, takeoverTask as apiTakeoverTask } from "@sdk/api.gen";
 import { Marked } from "marked";
 import styles from "./TaskView.module.css";
@@ -146,27 +146,27 @@ export default function TaskView(props: Props) {
           }
 
           return (
-            <For each={grouped()}>
+            <Index each={grouped()}>
               {(group, index) => (
                 <Switch>
-                  <Match when={group.kind === "ask"}>
+                  <Match when={group().kind === "ask"}>
                     <AskQuestionGroup
-                      block={group.toolBlocks[0]}
-                      interactive={isWaiting() && index() === lastAskIdx()}
+                      block={group().toolBlocks[0]}
+                      interactive={isWaiting() && index === lastAskIdx()}
                       onSubmit={sendAskAnswer}
                     />
                   </Match>
-                  <Match when={group.kind === "tool"}>
-                    <ToolMessageGroup toolBlocks={group.toolBlocks} />
+                  <Match when={group().kind === "tool"}>
+                    <ToolMessageGroup toolBlocks={group().toolBlocks} />
                   </Match>
-                  <Match when={group.kind === "text" || group.kind === "other"}>
-                    <For each={group.messages}>
+                  <Match when={group().kind === "text" || group().kind === "other"}>
+                    <For each={group().messages}>
                       {(msg) => <MessageItem msg={msg} />}
                     </For>
                   </Match>
                 </Switch>
               )}
-            </For>
+            </Index>
           );
         })()}
         <Show when={messages().length === 0}>
