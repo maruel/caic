@@ -106,6 +106,20 @@ func (t *Task) Messages() []agent.Message {
 	return append([]agent.Message(nil), t.msgs...)
 }
 
+// RestoreMessages sets the initial message history from previously saved logs.
+// It also extracts the SessionID from the last SystemInitMessage, if any.
+func (t *Task) RestoreMessages(msgs []agent.Message) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.msgs = msgs
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if init, ok := msgs[i].(*agent.SystemInitMessage); ok && init.SessionID != "" {
+			t.SessionID = init.SessionID
+			break
+		}
+	}
+}
+
 func (t *Task) addMessage(m agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()

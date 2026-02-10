@@ -364,12 +364,27 @@ func (s *Server) adoptContainers(ctx context.Context) {
 			if !ok {
 				continue
 			}
+			prompt := "(adopted) " + branch
+			var startedAt time.Time
+
+			// Restore conversation history from JSONL logs when available.
+			lt := task.LoadBranchLogs(s.logDir, branch)
+			if lt != nil && lt.Prompt != "" {
+				prompt = "(adopted) " + lt.Prompt
+				startedAt = lt.StartedAt
+			}
+
 			t := &task.Task{
-				Prompt:    "(adopted) " + branch,
+				Prompt:    prompt,
 				Repo:      ri.RelPath,
 				Branch:    branch,
 				Container: e.Name,
 				State:     task.StateWaiting,
+				StartedAt: startedAt,
+			}
+			if lt != nil && len(lt.Msgs) > 0 {
+				t.RestoreMessages(lt.Msgs)
+				slog.Info("restored conversation from logs", "branch", branch, "messages", len(lt.Msgs))
 			}
 			t.InitDoneCh()
 			entry := &taskEntry{task: t, done: make(chan struct{})}

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/maruel/wmao/backend/internal/agent"
@@ -148,6 +149,54 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 	}
 
 	return lt, scanner.Err()
+}
+
+// LoadBranchLogs loads all JSONL log files for the given branch from logDir,
+// returning messages from all sessions concatenated chronologically. Returns
+// nil when logDir is empty, no matching files exist, or on read errors.
+func LoadBranchLogs(logDir, branch string) *LoadedTask {
+	if logDir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(logDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			slog.Warn("failed to read log dir", "dir", logDir, "err", err)
+		}
+		return nil
+	}
+
+	suffix := "-" + strings.ReplaceAll(branch, "/", "-") + ".jsonl"
+	var matches []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
+			matches = append(matches, filepath.Join(logDir, e.Name()))
+		}
+	}
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Sort by name — timestamp prefix ensures chronological order.
+	slices.Sort(matches)
+
+	var merged *LoadedTask
+	for _, path := range matches {
+		lt, err := loadLogFile(path)
+		if err != nil {
+			continue
+		}
+		if merged == nil {
+			merged = lt
+		} else {
+			merged.Msgs = append(merged.Msgs, lt.Msgs...)
+			if lt.Result != nil {
+				merged.Result = lt.Result
+				merged.State = lt.State
+			}
+		}
+	}
+	return merged
 }
 
 // parseState converts a state string back to a State value.

@@ -434,3 +434,51 @@ func TestRunnerEnd(t *testing.T) {
 		t.Error("container Pull should not be called after End")
 	}
 }
+
+func TestRestoreMessages(t *testing.T) {
+	t.Run("Basic", func(t *testing.T) {
+		tk := &Task{Prompt: "test"}
+		msgs := []agent.Message{
+			&agent.SystemInitMessage{MessageType: "system", Subtype: "init", SessionID: "sess-123"},
+			&agent.AssistantMessage{MessageType: "assistant"},
+			&agent.ResultMessage{MessageType: "result"},
+		}
+		tk.RestoreMessages(msgs)
+
+		if len(tk.Messages()) != 3 {
+			t.Fatalf("Messages() len = %d, want 3", len(tk.Messages()))
+		}
+		if tk.SessionID != "sess-123" {
+			t.Errorf("SessionID = %q, want %q", tk.SessionID, "sess-123")
+		}
+	})
+	t.Run("UsesLastSessionID", func(t *testing.T) {
+		tk := &Task{Prompt: "test"}
+		msgs := []agent.Message{
+			&agent.SystemInitMessage{MessageType: "system", Subtype: "init", SessionID: "old"},
+			&agent.AssistantMessage{MessageType: "assistant"},
+			&agent.SystemInitMessage{MessageType: "system", Subtype: "init", SessionID: "new"},
+		}
+		tk.RestoreMessages(msgs)
+
+		if tk.SessionID != "new" {
+			t.Errorf("SessionID = %q, want %q", tk.SessionID, "new")
+		}
+	})
+	t.Run("Subscribe", func(t *testing.T) {
+		tk := &Task{Prompt: "test"}
+		msgs := []agent.Message{
+			&agent.AssistantMessage{MessageType: "assistant"},
+			&agent.AssistantMessage{MessageType: "assistant"},
+		}
+		tk.RestoreMessages(msgs)
+
+		// A subscriber should see restored messages in the history snapshot.
+		history, _, unsub := tk.Subscribe(t.Context())
+		defer unsub()
+
+		if len(history) != 2 {
+			t.Fatalf("history len = %d, want 2", len(history))
+		}
+	})
+}
