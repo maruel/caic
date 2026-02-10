@@ -14,18 +14,18 @@ the container owns Claude's stdin/stdout and persists across SSH disconnects,
 so the server can restart without killing the agent or losing messages.
 
 ```
- HOST (wmao server)                     CONTAINER (md)
- ──────────────────                     ──────────────────────────────────
-                                         relay.py (setsid, survives SSH)
-  ┌─────────┐    SSH stdin/stdout        ┌────────┐     ┌──────────────┐
-  │ Session  │◄═════════════════════════►│ attach │◄═══►│ Unix socket  │
-  │ (Go)    │      NDJSON bidir          └────────┘     │              │
-  └─────────┘                                           │ relay server │
-                                         output.jsonl ◄─┤ ┌──────────┐ │
-                                         (append-only)  │ │ claude   │ │
-                                                        │ │ process  │ │
-                                                        │ └──────────┘ │
-                                                        └──────────────┘
+HOST (wmao server)              CONTAINER (md)
+──────────────────              ───────────────────────────────
+                                relay.py (setsid, survives SSH)
+┌─────────┐   SSH stdin/stdout  ┌────────┐     ┌──────────────┐
+│ Session │◄═══════════════════►│ attach │◄═══►│ Unix socket  │
+│ (Go)    │     NDJSON bidir    └────────┘     │              │
+└─────────┘                                    │ relay server │
+                                output.jsonl ◄─┤ ┌────────┐   │
+                                (append-only)  │ │ claude │   │
+                                               │ │ code   │   │
+                                               │ └────────┘   │
+                                               └──────────────┘
 ```
 
 **Normal operation:** The server connects via SSH to the relay's `attach`
