@@ -22,7 +22,9 @@ export default function App() {
     const data = await listRepos();
     setRepos(data);
     if (data.length > 0) {
-      setSelectedRepo(data[0].path);
+      const last = localStorage.getItem("wmao:lastRepo");
+      const match = last && data.find((r) => r.path === last);
+      setSelectedRepo(match ? match.path : data[0].path);
     }
   });
 
@@ -31,6 +33,7 @@ export default function App() {
     const repo = selectedRepo();
     if (!p || !repo) return;
     setSubmitting(true);
+    localStorage.setItem("wmao:lastRepo", repo);
     try {
       const data = await createTask({ prompt: p, repo });
       setPrompt("");
