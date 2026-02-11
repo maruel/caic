@@ -3,7 +3,7 @@
 .app {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 1rem 2rem;
+  padding: 0.5rem 1rem 1rem;
   font-family: system-ui;
 }
 
@@ -202,7 +202,7 @@
 /* Mobile: <=768px */
 @media (max-width: 768px) {
   .app {
-    padding: 1rem;
+    padding: 0.5rem 0.5rem 1rem;
   }
 
   .submitForm {
