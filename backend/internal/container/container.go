@@ -13,7 +13,7 @@ import (
 
 // Ops abstracts md container lifecycle operations.
 type Ops interface {
-	Start(ctx context.Context, dir string) (name string, err error)
+	Start(ctx context.Context, dir string, labels []string) (name string, err error)
 	Diff(ctx context.Context, dir string, args ...string) (string, error)
 	Pull(ctx context.Context, dir string) error
 	Push(ctx context.Context, dir string) error
@@ -24,9 +24,15 @@ type Ops interface {
 type MD struct{}
 
 // Start creates and starts an md container for the current branch.
-// It does not SSH into it (--no-ssh).
-func (MD) Start(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "md", "start", "--no-ssh")
+//
+// It does not SSH into it (--no-ssh). Labels are passed as --label flags.
+func (MD) Start(ctx context.Context, dir string, labels []string) (string, error) {
+	args := make([]string, 0, 2+2*len(labels))
+	args = append(args, "start", "--no-ssh")
+	for _, l := range labels {
+		args = append(args, "--label", l)
+	}
+	cmd := exec.CommandContext(ctx, "md", args...) //nolint:gosec // args are constructed from trusted labels, not user input.
 	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -86,6 +92,23 @@ func (MD) Kill(ctx context.Context, dir string) error {
 		return fmt.Errorf("md kill: %w: %s", err, stderr.String())
 	}
 	return nil
+}
+
+// LabelValue returns the value of a Docker label on a running container.
+//
+// Returns empty string if the label is not set.
+func LabelValue(ctx context.Context, containerName, label string) (string, error) {
+	format := fmt.Sprintf("{{index .Config.Labels %q}}", label)
+	cmd := exec.CommandContext(ctx, "docker", "inspect", containerName, "--format", format) //nolint:gosec // containerName and format are not user-controlled.
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("docker inspect label %q on %s: %w", label, containerName, err)
+	}
+	v := strings.TrimSpace(string(out))
+	if v == "<no value>" {
+		return "", nil
+	}
+	return v, nil
 }
 
 // Entry represents a container returned by md list.

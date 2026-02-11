@@ -210,7 +210,7 @@ type fakeContainer struct{}
 
 var _ container.Ops = (*fakeContainer)(nil)
 
-func (*fakeContainer) Start(ctx context.Context, dir string) (string, error) {
+func (*fakeContainer) Start(ctx context.Context, dir string, _ []string) (string, error) {
 	branch, err := gitutil.CurrentBranch(ctx, dir)
 	if err != nil {
 		return "", err

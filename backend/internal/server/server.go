@@ -499,19 +499,21 @@ func (s *Server) adoptContainers(ctx context.Context) error {
 
 // adoptOne investigates a single container and registers it as a task.
 func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, e container.Entry, branch string, branchID map[string]string) error {
-	// Only adopt containers that wmao actually started. The
-	// relay directory (deployed by DeployRelay) is the only
-	// reliable proof that wmao owns this specific container
-	// instance. Host-side log files alone are not sufficient
-	// because they persist across container lifetimes.
-	hasRelay, relayDirErr := agent.HasRelayDir(ctx, e.Name)
-	if relayDirErr != nil {
-		return fmt.Errorf("relay dir check for %s: %w", e.Name, relayDirErr)
+	// Only adopt containers that wmao started. The wmao label is set at
+	// container creation and is the authoritative proof of ownership.
+	labelVal, err := container.LabelValue(ctx, e.Name, "wmao")
+	if err != nil {
+		return fmt.Errorf("label check for %s: %w", e.Name, err)
 	}
-	if !hasRelay {
+	if labelVal == "" {
 		slog.Info("skipping non-wmao container", "repo", ri.RelPath, "container", e.Name, "branch", branch)
 		return nil
 	}
+	taskID, err := ksid.Parse(labelVal)
+	if err != nil {
+		return fmt.Errorf("parse wmao label %q on %s: %w", labelVal, e.Name, err)
+	}
+
 	lt := task.LoadBranchLogs(s.logDir, branch)
 
 	prompt := branch
@@ -545,6 +547,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		stateUpdatedAt = time.Now().UTC()
 	}
 	t := &task.Task{
+		ID:             taskID,
 		Prompt:         prompt,
 		Repo:           ri.RelPath,
 		Branch:         branch,
@@ -563,7 +566,6 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		t.RestoreMessages(lt.Msgs)
 		slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(lt.Msgs))
 	}
-	t.ID = ksid.NewID()
 	t.InitDoneCh()
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 

@@ -386,7 +386,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	// 1. Create branch + start container (serialized).
 	slog.Info("setting up task", "repo", t.Repo)
 	r.branchMu.Lock()
-	name, err := r.setup(ctx, t)
+	name, err := r.setup(ctx, t, []string{"wmao=" + t.ID.String()})
 	r.branchMu.Unlock()
 	if err != nil {
 		t.setState(StateFailed)
@@ -508,7 +508,7 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 
 // setup creates the branch and starts the container. Must be called under
 // branchMu.
-func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
+func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (string, error) {
 	// Fetch so that origin/<BaseBranch> is up to date.
 	if err := gitutil.Fetch(ctx, r.Dir); err != nil {
 		return "", fmt.Errorf("fetch: %w", err)
@@ -533,7 +533,7 @@ func (r *Runner) setup(ctx context.Context, t *Task) (string, error) {
 
 	t.setState(StateProvisioning)
 	slog.Info("starting container", "repo", t.Repo, "branch", t.Branch)
-	name, err := r.Container.Start(ctx, r.Dir)
+	name, err := r.Container.Start(ctx, r.Dir, labels)
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
 	}
