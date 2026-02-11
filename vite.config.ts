@@ -1,10 +1,11 @@
 import { resolve } from "path";
 import { defineConfig } from "vite";
 import solidPlugin from "vite-plugin-solid";
+import solidSVG from "vite-solid-svg";
 
 export default defineConfig({
   root: "frontend",
-  plugins: [solidPlugin()],
+  plugins: [solidPlugin(), solidSVG()],
   resolve: {
     alias: {
       "@sdk": resolve(__dirname, "sdk"),

@@ -4,6 +4,8 @@ import type { Accessor } from "solid-js";
 import type { TaskJSON } from "@sdk/types.gen";
 import TaskItemSummary from "./TaskItemSummary";
 import styles from "./TaskList.module.css";
+import LeftPanelClose from "@material-symbols/svg-400/outlined/left_panel_close.svg?solid";
+import LeftPanelOpen from "@material-symbols/svg-400/outlined/left_panel_open.svg?solid";
 
 export interface TaskListProps {
   tasks: Accessor<TaskJSON[]>;
@@ -29,7 +31,7 @@ export default function TaskList(props: TaskListProps) {
       <div class={`${styles.list} ${props.selectedId !== null ? styles.narrow : ""} ${props.sidebarOpen() ? "" : styles.hidden}`}>
         <div class={styles.header}>
           <h2>Tasks</h2>
-          <button class={styles.collapseBtn} onClick={() => props.setSidebarOpen(false)} title="Collapse sidebar">&lsaquo;</button>
+          <button class={styles.collapseBtn} onClick={() => props.setSidebarOpen(false)} title="Collapse sidebar"><LeftPanelClose width={20} height={20} /></button>
         </div>
         <Show when={props.tasks().length === 0}>
           <p class={styles.placeholder}>No tasks yet.</p>
@@ -58,7 +60,7 @@ export default function TaskList(props: TaskListProps) {
         </Index>
       </div>
       <Show when={!props.sidebarOpen()}>
-        <button class={styles.expandBtn} onClick={() => props.setSidebarOpen(true)} title="Expand sidebar">&rsaquo;</button>
+        <button class={styles.expandBtn} onClick={() => props.setSidebarOpen(true)} title="Expand sidebar"><LeftPanelOpen width={20} height={20} /></button>
       </Show>
     </>
   );

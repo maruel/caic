@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@material-symbols/svg-400':
+        specifier: ^0.40.2
+        version: 0.40.2
       '@solidjs/router':
         specifier: ^0.15.0
         version: 0.15.4(solid-js@1.9.11)
@@ -45,6 +48,9 @@ importers:
       vite-plugin-solid:
         specifier: ^2.11.0
         version: 2.11.10(solid-js@1.9.11)(vite@6.4.1)
+      vite-solid-svg:
+        specifier: ^0.0.4
+        version: 0.0.4(rollup@4.57.1)(solid-js@1.9.11)(vite@6.4.1)
 
 packages:
 
@@ -355,10 +361,22 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
+  '@material-symbols/svg-400@0.40.2':
+    resolution: {integrity: sha512-e2yEgZW/OveVT1sGaZW1kkRWTPVghjsJYWy+vIea3q08Fv2o7FCYv23PESMyr5D4AaAXdM5dKWkF1e6yIm4swA==}
+
   '@playwright/test@1.58.2':
     resolution: {integrity: sha512-akea+6bHYBBfA9uQqSYmlJXn61cTa+jbO87xVLCWbTqbWadRVmhxlXATaOjOgcBaWU4ePo0wB41KMFv3o35IXA==}
     engines: {node: '>=18'}
     hasBin: true
+
+  '@rollup/pluginutils@5.3.0':
+    resolution: {integrity: sha512-5EdhGZtnu3V88ces7s53hhfK5KSASnJZv8Lulpc04cWO3REESroJXg73DFsOmgbU2BhwV0E20bu2IDZb3VKW4Q==}
+    engines: {node: '>=14.0.0'}
+    peerDependencies:
+      rollup: ^1.20.0||^2.0.0||^3.0.0||^4.0.0
+    peerDependenciesMeta:
+      rollup:
+        optional: true
 
   '@rollup/rollup-android-arm-eabi@4.57.1':
     resolution: {integrity: sha512-A6ehUVSiSaaliTxai040ZpZ2zTevHYbvu/lDoeAteHI8QnaosIzm4qwtezfRg1jOYaUmnzLX1AOD6Z+UJjtifg==}
@@ -502,6 +520,9 @@ packages:
     resolution: {integrity: sha512-WOpgg9a9T638cR+5FGbFi/IV4l2FpmBs1GpIMSPa0Ce9vyJN7Wts+X2PqMf9IYn0zUj2MlSJtm1gp7/HI/n5TQ==}
     peerDependencies:
       solid-js: ^1.8.6
+
+  '@thednp/domparser@0.1.7':
+    resolution: {integrity: sha512-+3grT2ra1C5WuLM0+7n+QJrygPU4p6GXZbnvpyUTaAgRJ+mEqw3oAy//K3FBBzdG3IfrNbqTrhWZzmH/RpRviQ==}
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -739,6 +760,9 @@ packages:
   estraverse@5.3.0:
     resolution: {integrity: sha512-MMdARuVEQziNTeJD8DgMqmhwR11BRQ/cBP+pLtYdSTnf3MIO8fFeiINEbX36ZdNlfU/7A9f3gUw49B3oQsvwBA==}
     engines: {node: '>=4.0'}
+
+  estree-walker@2.0.2:
+    resolution: {integrity: sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==}
 
   esutils@2.0.3:
     resolution: {integrity: sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==}
@@ -1091,6 +1115,12 @@ packages:
       '@testing-library/jest-dom':
         optional: true
 
+  vite-solid-svg@0.0.4:
+    resolution: {integrity: sha512-jTUXjzsWIWkIrSeMSqc8DXstsLL11QphG7zS5ff3yw4Kkk02yJngzWkSBI4bC2wqnj14wkmp7VBWtcvsiL8XLg==}
+    peerDependencies:
+      solid-js: ^1.9.5
+      vite: ^5.0.0 || ^6.0.0
+
   vite@6.4.1:
     resolution: {integrity: sha512-+Oxm7q9hDoLMyJOYfUYBuHQo+dkAloi33apOPP56pzj+vsdJDzr+j1NISE5pyaAuKL4A3UD34qd0lx5+kfKp2g==}
     engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
@@ -1422,9 +1452,19 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@material-symbols/svg-400@0.40.2': {}
+
   '@playwright/test@1.58.2':
     dependencies:
       playwright: 1.58.2
+
+  '@rollup/pluginutils@5.3.0(rollup@4.57.1)':
+    dependencies:
+      '@types/estree': 1.0.8
+      estree-walker: 2.0.2
+      picomatch: 4.0.3
+    optionalDependencies:
+      rollup: 4.57.1
 
   '@rollup/rollup-android-arm-eabi@4.57.1':
     optional: true
@@ -1504,6 +1544,8 @@ snapshots:
   '@solidjs/router@0.15.4(solid-js@1.9.11)':
     dependencies:
       solid-js: 1.9.11
+
+  '@thednp/domparser@0.1.7': {}
 
   '@types/babel__core@7.20.5':
     dependencies:
@@ -1824,6 +1866,8 @@ snapshots:
 
   estraverse@5.3.0: {}
 
+  estree-walker@2.0.2: {}
+
   esutils@2.0.3: {}
 
   fast-deep-equal@3.1.3: {}
@@ -2137,6 +2181,15 @@ snapshots:
       vitefu: 1.1.1(vite@6.4.1)
     transitivePeerDependencies:
       - supports-color
+
+  vite-solid-svg@0.0.4(rollup@4.57.1)(solid-js@1.9.11)(vite@6.4.1):
+    dependencies:
+      '@rollup/pluginutils': 5.3.0(rollup@4.57.1)
+      '@thednp/domparser': 0.1.7
+      solid-js: 1.9.11
+      vite: 6.4.1
+    transitivePeerDependencies:
+      - rollup
 
   vite@6.4.1:
     dependencies:
