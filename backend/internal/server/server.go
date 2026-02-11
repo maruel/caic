@@ -605,7 +605,8 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	}
 
 	if relayAlive && len(relayMsgs) > 0 {
-		// Relay output is authoritative — zero loss.
+		// Relay output is authoritative — zero loss. It contains both
+		// Claude Code stdout and user inputs (logged by the relay).
 		t.RestoreMessages(relayMsgs)
 		t.RelayOffset = relaySize
 		slog.Info("restored conversation from relay", "repo", ri.RelPath, "branch", branch, "container", e.Name, "messages", len(relayMsgs))

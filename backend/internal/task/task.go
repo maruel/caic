@@ -216,6 +216,20 @@ func (t *Task) addMessage(m agent.Message) {
 	}
 }
 
+// syntheticUserInput creates a UserMessage representing user-provided text
+// input. It is injected into the message stream so that the JSONL log and SSE
+// events contain an explicit record of every user message.
+func syntheticUserInput(text string) *agent.UserMessage {
+	raw, _ := json.Marshal(struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}{Role: "user", Content: text})
+	return &agent.UserMessage{
+		MessageType: "user",
+		Message:     raw,
+	}
+}
+
 // lastAssistantHasAsk reports whether the last AssistantMessage in msgs
 // contains an AskUserQuestion tool_use block.
 func lastAssistantHasAsk(msgs []agent.Message) bool {
@@ -281,6 +295,7 @@ func (t *Task) SendInput(prompt string) error {
 	if s == nil {
 		return errors.New("no active session")
 	}
+	t.addMessage(syntheticUserInput(prompt))
 	return s.Send(prompt)
 }
 
@@ -484,6 +499,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	t.closeLog = closeLog
 	t.mu.Unlock()
 
+	t.addMessage(syntheticUserInput(t.Prompt))
 	if err := session.Send(t.Prompt); err != nil {
 		closeLog()
 		close(msgCh)

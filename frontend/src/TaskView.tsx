@@ -33,7 +33,6 @@ interface Turn {
 interface Props {
   taskId: string;
   taskState: string;
-  taskQuery: string;
   onClose: () => void;
   inputDraft: string;
   onInputDraft: (value: string) => void;
@@ -132,8 +131,6 @@ export default function TaskView(props: Props) {
         <h3>Task #{props.taskId}</h3>
         <Button variant="gray" class={styles.closeBtn} onClick={() => props.onClose()}>Close</Button>
       </div>
-      <div class={styles.query}>{props.taskQuery}</div>
-
       <div class={styles.messageArea}>
         {(() => {
           const grouped = createMemo(() => groupMessages(messages()));

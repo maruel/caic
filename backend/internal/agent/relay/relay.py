@@ -5,9 +5,9 @@
 #   serve-attach -- <cmd...>   Start relay server + attach as first client.
 #   attach [--offset N]        Reconnect to an existing relay server.
 #
-# The relay server owns the subprocess stdin/stdout, logs all output to a
-# file, and accepts client connections via a Unix socket. When a client
-# disconnects (SSH drops), the subprocess keeps running.
+# The relay server owns the subprocess stdin/stdout, logs all I/O to a
+# file (output.jsonl), and accepts client connections via a Unix socket.
+# When a client disconnects (SSH drops), the subprocess keeps running.
 
 import json
 import os
@@ -152,7 +152,7 @@ def serve(cmd_args):
 
             set_client(conn)
 
-            # Thread: read client stdin → subprocess stdin.
+            # Thread: read client stdin → subprocess stdin + log.
             def client_reader(c):
                 try:
                     while True:
@@ -161,6 +161,8 @@ def serve(cmd_args):
                             break
                         proc.stdin.write(data)
                         proc.stdin.flush()
+                        output_file.write(data)
+                        output_file.flush()
                 except (OSError, BrokenPipeError, ValueError):
                     pass
 

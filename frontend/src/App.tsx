@@ -234,7 +234,6 @@ export default function App() {
                 <TaskView
                   taskId={id}
                   taskState={selectedTask()?.state ?? "pending"}
-                  taskQuery={selectedTask()?.task ?? ""}
                   onClose={() => navigate("/")}
                   inputDraft={inputDrafts().get(id) ?? ""}
                   onInputDraft={(v) => setInputDrafts((prev) => { const next = new Map(prev); next.set(id, v); return next; })}
