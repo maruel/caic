@@ -47,6 +47,7 @@
   color: #888;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
+  margin-right: 0.5rem;
 }
 
 .metaRow {
