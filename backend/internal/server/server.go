@@ -74,7 +74,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		changed:  make(chan struct{}),
 		maxTurns: maxTurns,
 		logDir:   logDir,
-		usage:    newUsageFetcher(),
+		usage:    newUsageFetcher(ctx),
 	}
 
 	for _, abs := range absPaths {
@@ -332,7 +332,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	var prevUsage []byte
 
 	emitUsage := func() {
-		if s.usage == nil {
+		if s.usage == nil || !s.usage.hasToken() {
 			return
 		}
 		u := s.usage.get()
@@ -443,7 +443,7 @@ func (s *Server) pushTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
-	if s.usage == nil {
+	if s.usage == nil || !s.usage.hasToken() {
 		writeError(w, dto.InternalError("usage not available: no OAuth token"))
 		return
 	}
