@@ -133,10 +133,15 @@
 .taskHeader {
   display: flex;
   justify-content: space-between;
+  align-items: center;
 }
 
 .taskTitle {
   font-size: 0.9rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stateGroup {
@@ -151,7 +156,6 @@
   border-radius: 999px;
   font-size: 0.75rem;
   white-space: nowrap;
-  align-self: flex-start;
   flex-shrink: 0;
   line-height: 1.4;
 }
