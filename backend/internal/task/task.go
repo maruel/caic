@@ -458,10 +458,9 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 
 	// Terminate agent session if one exists.
 	var result *agent.ResultMessage
-	var waitErr error
 	if session != nil {
 		session.Close()
-		result, waitErr = session.Wait()
+		result, _ = session.Wait()
 	}
 	if msgCh != nil {
 		close(msgCh)
@@ -497,9 +496,8 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 		res.NumTurns = result.NumTurns
 		res.AgentResult = result.Result
 	}
-	if waitErr != nil {
-		res.Err = waitErr
-	}
+	// waitErr is intentionally ignored: the user requested termination, so a
+	// missing result message or non-zero exit is expected, not an error.
 	finishLog(&res)
 	return res
 }
