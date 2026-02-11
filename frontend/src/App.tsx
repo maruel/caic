@@ -1,14 +1,39 @@
 // Main application component for wmao web UI.
 import { createSignal, For, Show, Switch, Match, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
-import type { RepoJSON, TaskJSON } from "@sdk/types.gen";
-import { listRepos, listTasks, createTask } from "@sdk/api.gen";
+import type { RepoJSON, TaskJSON, UsageResp } from "@sdk/types.gen";
+import { listRepos, listTasks, createTask, getUsage } from "@sdk/api.gen";
 import TaskView from "./TaskView";
 import TaskList from "./TaskList";
 import AutoResizeTextarea from "./AutoResizeTextarea";
 import Button from "./Button";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import styles from "./App.module.css";
+
+function formatReset(iso: string): string {
+  const d = new Date(iso);
+  const now = Date.now();
+  const diffMs = d.getTime() - now;
+  if (diffMs <= 0) return "now";
+  const hours = Math.floor(diffMs / 3_600_000);
+  const mins = Math.floor((diffMs % 3_600_000) / 60_000);
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    return `in ${days}d ${hours % 24}h`;
+  }
+  if (hours > 0) return `in ${hours}h ${mins}m`;
+  return `in ${mins}m`;
+}
+
+function UsageBadge(props: { label: string; utilization: number; resetsAt: string }) {
+  const pct = () => Math.round(props.utilization);
+  const cls = () => (pct() >= 80 ? styles.usageRed : pct() >= 50 ? styles.usageYellow : styles.usageGreen);
+  return (
+    <span class={`${styles.usageBadge} ${cls()}`} title={`Resets ${formatReset(props.resetsAt)}`}>
+      {props.label}: {pct()}%
+    </span>
+  );
+}
 
 export default function App() {
   const navigate = useNavigate();
@@ -20,6 +45,7 @@ export default function App() {
   const [repos, setRepos] = createSignal<RepoJSON[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
+  const [usage, setUsage] = createSignal<UsageResp | null>(null);
 
   // Per-task input drafts survive task switching.
   const [inputDrafts, setInputDrafts] = createSignal<Map<string, string>>(new Map());
@@ -52,6 +78,7 @@ export default function App() {
       const match = last && data.find((r) => r.path === last);
       setSelectedRepo(match ? match.path : data[0].path);
     }
+    getUsage().then(setUsage).catch(() => {});
   });
 
   // Subscribe to task list updates via SSE with automatic reconnection.
@@ -97,6 +124,13 @@ export default function App() {
           // Ignore unparseable messages.
         }
       });
+      es.addEventListener("usage", (e) => {
+        try {
+          setUsage(JSON.parse(e.data) as UsageResp);
+        } catch {
+          // Ignore unparseable messages.
+        }
+      });
       es.onerror = () => {
         setConnected(false);
         es?.close();
@@ -134,6 +168,18 @@ export default function App() {
       <div class={styles.titleRow}>
         <h1 class={styles.title}>wmao</h1>
         <span class={styles.subtitle}>Work my ass off. Manage coding agents.</span>
+        <Show when={usage()} keyed>
+          {(u) => (
+            <span class={styles.usageRow}>
+              <Show when={u.fiveHour} keyed>
+                {(w) => <UsageBadge label="5h" utilization={w.utilization} resetsAt={w.resetsAt} />}
+              </Show>
+              <Show when={u.sevenDay} keyed>
+                {(w) => <UsageBadge label="Weekly" utilization={w.utilization} resetsAt={w.resetsAt} />}
+              </Show>
+            </span>
+          )}
+        </Show>
       </div>
 
       <Show when={!connected()}>

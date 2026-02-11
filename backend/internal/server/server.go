@@ -43,6 +43,7 @@ type Server struct {
 	changed  chan struct{} // closed on task mutation; replaced under mu
 	maxTurns int
 	logDir   string
+	usage    *usageFetcher // nil if no OAuth token available
 }
 
 type taskEntry struct {
@@ -73,6 +74,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		changed:  make(chan struct{}),
 		maxTurns: maxTurns,
 		logDir:   logDir,
+		usage:    newUsageFetcher(),
 	}
 
 	for _, abs := range absPaths {
@@ -123,6 +125,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/terminate", handleWithTask(s, s.terminateTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/pull", handleWithTask(s, s.pullTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/push", handleWithTask(s, s.pushTask))
+	mux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 
 	// Serve embedded frontend with SPA fallback and precompressed variants.
@@ -319,10 +322,37 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
 
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
+	taskTicker := time.NewTicker(2 * time.Second)
+	defer taskTicker.Stop()
 
-	var prev []byte
+	usageTicker := time.NewTicker(30 * time.Second)
+	defer usageTicker.Stop()
+
+	var prevTasks []byte
+	var prevUsage []byte
+
+	emitUsage := func() {
+		if s.usage == nil {
+			return
+		}
+		u := s.usage.get()
+		if u == nil {
+			return
+		}
+		data, err := json.Marshal(u)
+		if err != nil {
+			return
+		}
+		if !bytes.Equal(data, prevUsage) {
+			_, _ = fmt.Fprintf(w, "event: usage\ndata: %s\n\n", data)
+			flusher.Flush()
+			prevUsage = data
+		}
+	}
+
+	// Send initial usage immediately.
+	emitUsage()
+
 	for {
 		s.mu.Lock()
 		out := make([]dto.TaskJSON, 0, len(s.tasks))
@@ -338,17 +368,19 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("marshal task list", "err", err)
 			return
 		}
-		if !bytes.Equal(data, prev) {
+		if !bytes.Equal(data, prevTasks) {
 			_, _ = fmt.Fprintf(w, "event: tasks\ndata: %s\n\n", data)
 			flusher.Flush()
-			prev = data
+			prevTasks = data
 		}
 
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ch:
-		case <-ticker.C:
+		case <-taskTicker.C:
+		case <-usageTicker.C:
+			emitUsage()
 		}
 	}
 }
@@ -408,6 +440,20 @@ func (s *Server) pushTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 		return nil, dto.InternalError(err.Error())
 	}
 	return &dto.StatusResp{Status: "pushed"}, nil
+}
+
+func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
+	if s.usage == nil {
+		writeError(w, dto.InternalError("usage not available: no OAuth token"))
+		return
+	}
+	resp := s.usage.get()
+	if resp == nil {
+		writeError(w, dto.InternalError("usage data unavailable"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 // SetRunnerOps overrides container and agent operations on all runners.

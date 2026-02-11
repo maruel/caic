@@ -283,6 +283,20 @@ export interface PullResp {
   diffStat: string;
 }
 /**
+ * UsageWindow represents a single quota window (5-hour or 7-day).
+ */
+export interface UsageWindow {
+  utilization: number /* float64 */;
+  resetsAt: string;
+}
+/**
+ * UsageResp is the response for GET /api/v1/usage.
+ */
+export interface UsageResp {
+  fiveHour?: UsageWindow;
+  sevenDay?: UsageWindow;
+}
+/**
  * EmptyReq is used for endpoints that take no request body.
  */
 export interface EmptyReq {

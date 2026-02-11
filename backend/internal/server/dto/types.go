@@ -64,5 +64,17 @@ type PullResp struct {
 	DiffStat string `json:"diffStat"`
 }
 
+// UsageWindow represents a single quota window (5-hour or 7-day).
+type UsageWindow struct {
+	Utilization float64 `json:"utilization"`
+	ResetsAt    string  `json:"resetsAt"`
+}
+
+// UsageResp is the response for GET /api/v1/usage.
+type UsageResp struct {
+	FiveHour *UsageWindow `json:"fiveHour,omitempty"`
+	SevenDay *UsageWindow `json:"sevenDay,omitempty"`
+}
+
 // EmptyReq is used for endpoints that take no request body.
 type EmptyReq struct{}
