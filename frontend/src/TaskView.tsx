@@ -68,20 +68,32 @@ export default function TaskView(props: Props) {
 
   createEffect(() => {
     const id = props.taskId;
-    setMessages([]);
 
     let es: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let delay = 500;
+    // Buffer accumulates replayed history; swapped into signal on stream open.
+    let buf: AgentMessage[] = [];
+    let live = false;
 
     function connect() {
-      setMessages([]);
+      buf = [];
+      live = false;
       es = new EventSource(`/api/v1/tasks/${id}/events`);
-      es.addEventListener("open", () => { delay = 500; });
+      es.addEventListener("open", () => {
+        delay = 500;
+        // History replay is complete; swap buffer in atomically.
+        live = true;
+        setMessages(buf);
+      });
       es.addEventListener("message", (e) => {
         try {
           const msg = JSON.parse(e.data) as AgentMessage;
-          setMessages((prev) => [...prev, msg]);
+          if (live) {
+            setMessages((prev) => [...prev, msg]);
+          } else {
+            buf.push(msg);
+          }
         } catch {
           // Ignore unparseable messages.
         }
