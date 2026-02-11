@@ -204,8 +204,8 @@ export default function App() {
                     <span class={styles.stateBadge} style={{ background: stateColor(t().state) }}>
                       {t().state}
                     </span>
-                    <Show when={t().stateUpdatedAtMs > 0}>
-                      <StateDuration stateUpdatedAtMs={t().stateUpdatedAtMs} now={now} />
+                    <Show when={t().stateUpdatedAt > 0}>
+                      <StateDuration stateUpdatedAt={t().stateUpdatedAt} now={now} />
                     </Show>
                   </span>
                 </div>
@@ -215,9 +215,17 @@ export default function App() {
                 <Show when={t().branch}>
                   <div class={styles.branchLabel}>{t().branch}</div>
                 </Show>
+                <Show when={t().model}>
+                  <div class={styles.repoLabel}>{t().model}{t().claudeCodeVersion ? ` · ${t().claudeCodeVersion}` : ""}</div>
+                </Show>
                 <Show when={t().costUSD > 0}>
                   <span class={styles.costLabel}>
-                    ${t().costUSD.toFixed(4)} &middot; {(t().durationMs / 1000).toFixed(1)}s
+                    ${t().costUSD.toFixed(4)} &middot; {(t().durationMs / 1000).toFixed(1)}s &middot; {t().numTurns} turns
+                  </span>
+                </Show>
+                <Show when={(t().containerUptimeMs ?? 0) > 0}>
+                  <span class={styles.costLabel}>
+                    container {formatUptime(t().containerUptimeMs ?? 0)}
                   </span>
                 </Show>
                 <Show when={t().error}>
@@ -264,9 +272,18 @@ function formatElapsed(ms: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-function StateDuration(props: { stateUpdatedAtMs: number; now: Accessor<number> }) {
-  const elapsed = () => Math.max(0, props.now() - props.stateUpdatedAtMs);
+function StateDuration(props: { stateUpdatedAt: number; now: Accessor<number> }) {
+  const elapsed = () => Math.max(0, props.now() - props.stateUpdatedAt * 1000);
   return <span class={styles.durationLabel}>{formatElapsed(elapsed())}</span>;
+}
+
+function formatUptime(ms: number): string {
+  const sec = Math.floor(ms / 1000);
+  if (sec < 60) return `${sec}s`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ${sec % 60}s`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ${min % 60}m`;
 }
 
 function stateColor(state: string): string {

@@ -107,13 +107,23 @@ func writeJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
 }
 
 func writeSSEFunc(b *strings.Builder, r *dto.Route, params []string) {
-	args := make([]string, 0, len(params))
+	args := make([]string, 0, len(params)+1)
 	for _, p := range params {
 		args = append(args, p+": string")
 	}
 	tsPath := buildTSPath(r.Path, params)
-	fmt.Fprintf(b, "export function %s(%s): EventSource {\n", r.Name, strings.Join(args, ", "))
-	fmt.Fprintf(b, "  return new EventSource(%s);\n", tsPath)
+	if r.RespType != "" {
+		args = append(args, "onMessage: (event: "+r.RespType+") => void")
+		fmt.Fprintf(b, "export function %s(%s): EventSource {\n", r.Name, strings.Join(args, ", "))
+		fmt.Fprintf(b, "  const es = new EventSource(%s);\n", tsPath)
+		b.WriteString("  es.addEventListener(\"message\", (e) => {\n")
+		fmt.Fprintf(b, "    onMessage(JSON.parse(e.data) as %s);\n", r.RespType)
+		b.WriteString("  });\n")
+		b.WriteString("  return es;\n")
+	} else {
+		fmt.Fprintf(b, "export function %s(%s): EventSource {\n", r.Name, strings.Join(args, ", "))
+		fmt.Fprintf(b, "  return new EventSource(%s);\n", tsPath)
+	}
 	b.WriteString("}\n\n")
 }
 

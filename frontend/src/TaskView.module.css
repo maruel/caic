@@ -269,6 +269,36 @@
   margin-top: 0.25rem;
 }
 
+.toolDuration {
+  margin-left: 0.5em;
+  font-size: 0.75rem;
+  color: #666;
+}
+
+.toolError {
+  margin-left: 0.5em;
+  font-size: 0.75rem;
+  color: #c00;
+  font-weight: bold;
+}
+
+.toolErrorPre {
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  max-height: 150px;
+  overflow: auto;
+  color: #c00;
+  background: #fff0f0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+}
+
+.usageMeta {
+  font-size: 0.75rem;
+  color: #888;
+  padding: 0.1rem 0.5rem;
+}
+
 .askGroup {
   margin-bottom: 0.5rem;
   padding: 0.75rem;

@@ -85,17 +85,19 @@ type Result struct {
 
 // Task represents a single unit of work.
 type Task struct {
-	ID             ksid.ID
-	Prompt         string
-	Repo           string // Relative repo path (for display/API).
-	MaxTurns       int
-	Branch         string
-	Container      string
-	State          State
-	StateUpdatedAt time.Time // UTC timestamp of the last state transition.
-	SessionID      string    // Claude Code session ID, captured from SystemInitMessage.
-	StartedAt      time.Time
-	RelayOffset    int64 // Bytes received from relay output.jsonl, for reconnect.
+	ID                ksid.ID
+	Prompt            string
+	Repo              string // Relative repo path (for display/API).
+	MaxTurns          int
+	Branch            string
+	Container         string
+	State             State
+	StateUpdatedAt    time.Time // UTC timestamp of the last state transition.
+	SessionID         string    // Claude Code session ID, captured from SystemInitMessage.
+	Model             string    // Model name, captured from SystemInitMessage.
+	ClaudeCodeVersion string    // Claude Code version, captured from SystemInitMessage.
+	StartedAt         time.Time
+	RelayOffset       int64 // Bytes received from relay output.jsonl, for reconnect.
 
 	mu       sync.Mutex
 	msgs     []agent.Message
@@ -123,7 +125,7 @@ func (t *Task) Messages() []agent.Message {
 }
 
 // RestoreMessages sets the initial message history from previously saved logs.
-// It also extracts the SessionID from the last SystemInitMessage, if any.
+// It also extracts metadata from the last SystemInitMessage, if any.
 func (t *Task) RestoreMessages(msgs []agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -131,6 +133,8 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if init, ok := msgs[i].(*agent.SystemInitMessage); ok && init.SessionID != "" {
 			t.SessionID = init.SessionID
+			t.Model = init.Model
+			t.ClaudeCodeVersion = init.Version
 			break
 		}
 	}
@@ -140,9 +144,11 @@ func (t *Task) addMessage(m agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgs = append(t.msgs, m)
-	// Capture session ID from the init message.
+	// Capture metadata from the init message.
 	if init, ok := m.(*agent.SystemInitMessage); ok && init.SessionID != "" {
 		t.SessionID = init.SessionID
+		t.Model = init.Model
+		t.ClaudeCodeVersion = init.Version
 	}
 	// Transition to waiting/asking when a result arrives while running.
 	if _, ok := m.(*agent.ResultMessage); ok && t.State == StateRunning {

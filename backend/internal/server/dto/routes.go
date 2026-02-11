@@ -18,7 +18,7 @@ var Routes = []Route{
 	{Name: "listRepos", Method: "GET", Path: "/api/v1/repos", RespType: "RepoJSON", IsArray: true},
 	{Name: "listTasks", Method: "GET", Path: "/api/v1/tasks", RespType: "TaskJSON", IsArray: true},
 	{Name: "createTask", Method: "POST", Path: "/api/v1/tasks", ReqType: "CreateTaskReq", RespType: "CreateTaskResp"},
-	{Name: "taskEvents", Method: "GET", Path: "/api/v1/tasks/{id}/events", IsSSE: true},
+	{Name: "taskEvents", Method: "GET", Path: "/api/v1/tasks/{id}/events", IsSSE: true, RespType: "EventMessage"},
 	{Name: "sendInput", Method: "POST", Path: "/api/v1/tasks/{id}/input", ReqType: "InputReq", RespType: "StatusResp"},
 	{Name: "terminateTask", Method: "POST", Path: "/api/v1/tasks/{id}/terminate", RespType: "StatusResp"},
 	{Name: "pullTask", Method: "POST", Path: "/api/v1/tasks/{id}/pull", RespType: "PullResp"},

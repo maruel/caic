@@ -251,7 +251,7 @@ func (s *Server) handleCreateTask(ctx context.Context) http.HandlerFunc {
 	}
 }
 
-// handleTaskEvents streams agent messages as SSE.
+// handleTaskEvents streams agent messages as SSE using typed EventMessage DTOs.
 func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	entry, err := s.getTask(r)
 	if err != nil {
@@ -273,29 +273,33 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	history, live, unsub := entry.task.Subscribe(r.Context())
 	defer unsub()
 
-	// Phase 1: replay full history.
+	tracker := newToolTimingTracker()
 	idx := 0
-	for _, msg := range history {
-		data, err := agent.MarshalMessage(msg)
-		if err != nil {
-			slog.Warn("marshal SSE message", "err", err)
-			continue
+
+	writeEvents := func(events []dto.EventMessage) {
+		for _, ev := range events {
+			data, err := json.Marshal(ev)
+			if err != nil {
+				slog.Warn("marshal SSE event", "err", err)
+				continue
+			}
+			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\nid: %d\n\n", data, idx)
+			idx++
 		}
-		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\nid: %d\n\n", data, idx)
-		idx++
+	}
+
+	// Phase 1: replay full history. Tool durations are 0 for replayed
+	// messages because original timestamps are not stored.
+	now := time.Now()
+	for _, msg := range history {
+		writeEvents(tracker.convertMessage(msg, now))
 	}
 	flusher.Flush()
 
-	// Phase 2: stream live messages.
+	// Phase 2: stream live messages with accurate timestamps.
 	for msg := range live {
-		data, err := agent.MarshalMessage(msg)
-		if err != nil {
-			slog.Warn("marshal SSE message", "err", err)
-			continue
-		}
-		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\nid: %d\n\n", data, idx)
+		writeEvents(tracker.convertMessage(msg, time.Now()))
 		flusher.Flush()
-		idx++
 	}
 }
 
@@ -617,13 +621,19 @@ func (s *Server) notifyTaskChange() {
 
 func toJSON(e *taskEntry) dto.TaskJSON {
 	j := dto.TaskJSON{
-		ID:               e.task.ID,
-		Task:             e.task.Prompt,
-		Repo:             e.task.Repo,
-		Branch:           e.task.Branch,
-		Container:        e.task.Container,
-		State:            e.task.State.String(),
-		StateUpdatedAtMs: e.task.StateUpdatedAt.UnixMilli(),
+		ID:                e.task.ID,
+		Task:              e.task.Prompt,
+		Repo:              e.task.Repo,
+		Branch:            e.task.Branch,
+		Container:         e.task.Container,
+		State:             e.task.State.String(),
+		StateUpdatedAt:    float64(e.task.StateUpdatedAt.UnixMilli()) / 1e3,
+		Model:             e.task.Model,
+		ClaudeCodeVersion: e.task.ClaudeCodeVersion,
+		SessionID:         e.task.SessionID,
+	}
+	if !e.task.StartedAt.IsZero() {
+		j.ContainerUptimeMs = time.Since(e.task.StartedAt).Milliseconds()
 	}
 	if e.result != nil {
 		j.DiffStat = e.result.DiffStat

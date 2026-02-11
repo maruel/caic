@@ -54,6 +54,151 @@ export interface ErrorDetails {
 }
 
 //////////
+// source: events.go
+/*
+SSE event types sent to the frontend for task event streams.
+These structs are generated into TypeScript via tygo.
+*/
+
+/**
+ * EventKind identifies the type of SSE event.
+ */
+export type EventKind = string;
+/**
+ * Event kind constants.
+ */
+export const EventKindInit: EventKind = "init";
+/**
+ * Event kind constants.
+ */
+export const EventKindText: EventKind = "text";
+/**
+ * Event kind constants.
+ */
+export const EventKindToolUse: EventKind = "toolUse";
+/**
+ * Event kind constants.
+ */
+export const EventKindToolResult: EventKind = "toolResult";
+/**
+ * Event kind constants.
+ */
+export const EventKindAsk: EventKind = "ask";
+/**
+ * Event kind constants.
+ */
+export const EventKindUsage: EventKind = "usage";
+/**
+ * Event kind constants.
+ */
+export const EventKindResult: EventKind = "result";
+/**
+ * Event kind constants.
+ */
+export const EventKindSystem: EventKind = "system";
+/**
+ * EventMessage is a single SSE event sent to the frontend. The Kind field
+ * determines which payload field is non-nil.
+ */
+export interface EventMessage {
+  kind: EventKind;
+  ts: number /* int64 */; // Unix milliseconds when the backend received this message.
+  init?: EventInit; // Kind "init".
+  text?: EventText; // Kind "text".
+  toolUse?: EventToolUse; // Kind "toolUse".
+  toolResult?: EventToolResult; // Kind "toolResult".
+  ask?: EventAsk; // Kind "ask".
+  usage?: EventUsage; // Kind "usage".
+  result?: EventResult; // Kind "result".
+  system?: EventSystem; // Kind "system".
+}
+/**
+ * EventInit is emitted once at the start of a session.
+ */
+export interface EventInit {
+  model: string;
+  claudeCodeVersion: string;
+  sessionID: string;
+  tools: string[];
+  cwd: string;
+}
+/**
+ * EventText is an assistant text block.
+ */
+export interface EventText {
+  text: string;
+}
+/**
+ * EventToolUse is emitted when the assistant invokes a tool.
+ */
+export interface EventToolUse {
+  toolUseID: string;
+  name: string;
+  input: any /* json.RawMessage */;
+}
+/**
+ * EventToolResult is emitted when a tool call completes.
+ */
+export interface EventToolResult {
+  toolUseID: string;
+  durationMs: number /* int64 */; // Server-computed; 0 if unknown.
+  error?: string;
+}
+/**
+ * AskOption is a single option in an AskUserQuestion.
+ */
+export interface AskOption {
+  label: string;
+  description?: string;
+}
+/**
+ * AskQuestion is a single question from AskUserQuestion.
+ */
+export interface AskQuestion {
+  question: string;
+  header?: string;
+  options: AskOption[];
+  multiSelect?: boolean;
+}
+/**
+ * EventAsk is emitted when the agent asks the user a question.
+ */
+export interface EventAsk {
+  toolUseID: string;
+  questions: AskQuestion[];
+}
+/**
+ * EventUsage reports per-turn token usage.
+ */
+export interface EventUsage {
+  inputTokens: number /* int */;
+  outputTokens: number /* int */;
+  cacheCreationInputTokens: number /* int */;
+  cacheReadInputTokens: number /* int */;
+  serviceTier?: string;
+  model: string;
+}
+/**
+ * EventResult is emitted when the task reaches a terminal state.
+ */
+export interface EventResult {
+  subtype: string;
+  isError: boolean;
+  result: string;
+  totalCostUSD: number /* float64 */;
+  durationMs: number /* int64 */;
+  durationAPIMs: number /* int64 */;
+  numTurns: number /* int */;
+  usage: EventUsage;
+}
+/**
+ * EventSystem is a generic system event (status, compact_boundary, etc.).
+ */
+export interface EventSystem {
+  subtype: string;
+}
+
+//////////
 // source: types.go
 /*
 Exported request and response types for the wmao API.
@@ -76,13 +221,20 @@ export interface TaskJSON {
   branch: string;
   container: string;
   state: string;
-  stateUpdatedAtMs: number /* int64 */; // Unix millis UTC of last state change.
+  stateUpdatedAt: number /* float64 */; // Unix epoch seconds (ms precision) of last state change.
   diffStat: string;
   costUSD: number /* float64 */;
   durationMs: number /* int64 */;
   numTurns: number /* int */;
   error?: string;
   result?: string;
+  /**
+   * Per-task agent/container metadata.
+   */
+  model?: string;
+  claudeCodeVersion?: string;
+  sessionID?: string;
+  containerUptimeMs?: number /* int64 */;
 }
 /**
  * StatusResp is a common response for mutation endpoints.

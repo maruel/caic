@@ -1,49 +1,25 @@
 // TaskView renders the real-time agent output stream for a single task.
 import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
-import { sendInput as apiSendInput, terminateTask as apiTerminateTask, pullTask as apiPullTask, pushTask as apiPushTask } from "@sdk/api.gen";
+import { sendInput as apiSendInput, terminateTask as apiTerminateTask, pullTask as apiPullTask, pushTask as apiPushTask, taskEvents } from "@sdk/api.gen";
 import { Marked } from "marked";
 import AutoResizeTextarea from "./AutoResizeTextarea";
 import Button from "./Button";
 import styles from "./TaskView.module.css";
 
-interface ContentBlock {
-  type: string;
-  text?: string;
-  id?: string;
-  name?: string;
-  input?: unknown;
-}
-
-interface AgentMessage {
-  type: string;
-  subtype?: string;
-  message?: {
-    model?: string;
-    content?: ContentBlock[];
-  };
-  result?: string;
-  total_cost_usd?: number;
-  duration_ms?: number;
-  num_turns?: number;
-  is_error?: boolean;
-  cwd?: string;
-  model?: string;
-  claude_code_version?: string;
-}
-
-interface AskOption { label: string; description?: string }
-interface AskQuestion { question: string; header?: string; options: AskOption[]; multiSelect?: boolean }
-interface AskUserQuestionInput { questions: AskQuestion[] }
-
-// A group of consecutive messages that should be rendered together.
-// "text" groups contain assistant text blocks.
-// "tool" groups coalesce tool_use blocks and their user (tool result) messages.
-// "ask" groups contain a single AskUserQuestion tool_use block.
-// "other" groups contain standalone messages (system, result, etc.).
+// A group of consecutive events that should be rendered together.
 interface MessageGroup {
   kind: "text" | "tool" | "ask" | "other";
-  messages: AgentMessage[];
-  toolBlocks: ContentBlock[];
+  events: EventMessage[];
+  // For "tool" groups: paired tool_use and tool_result events.
+  toolCalls: ToolCall[];
+  // For "ask" groups: the ask payload.
+  ask?: EventAsk;
+}
+
+// A tool_use event paired with its optional tool_result.
+interface ToolCall {
+  use: EventToolUse;
+  result?: EventToolResult;
 }
 
 // A turn is a sequence of message groups between user interactions.
@@ -62,7 +38,7 @@ interface Props {
 }
 
 export default function TaskView(props: Props) {
-  const [messages, setMessages] = createSignal<AgentMessage[]>([]);
+  const [messages, setMessages] = createSignal<EventMessage[]>([]);
   const [input, setInput] = createSignal("");
   const [sending, setSending] = createSignal(false);
 
@@ -73,30 +49,24 @@ export default function TaskView(props: Props) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let delay = 500;
     // Buffer accumulates replayed history; swapped into signal on stream open.
-    let buf: AgentMessage[] = [];
+    let buf: EventMessage[] = [];
     let live = false;
 
     function connect() {
       buf = [];
       live = false;
-      es = new EventSource(`/api/v1/tasks/${id}/events`);
+      es = taskEvents(id, (ev) => {
+        if (live) {
+          setMessages((prev) => [...prev, ev]);
+        } else {
+          buf.push(ev);
+        }
+      });
       es.addEventListener("open", () => {
         delay = 500;
         // History replay is complete; swap buffer in atomically.
         live = true;
         setMessages(buf);
-      });
-      es.addEventListener("message", (e) => {
-        try {
-          const msg = JSON.parse(e.data) as AgentMessage;
-          if (live) {
-            setMessages((prev) => [...prev, msg]);
-          } else {
-            buf.push(msg);
-          }
-        } catch {
-          // Ignore unparseable messages.
-        }
       });
       es.onerror = () => {
         es?.close();
@@ -188,19 +158,21 @@ export default function TaskView(props: Props) {
                     <For each={turn().groups}>
                       {(group) => (
                         <Switch>
-                          <Match when={group.kind === "ask"}>
-                            <AskQuestionGroup
-                              block={group.toolBlocks[0]}
-                              interactive={isWaiting() && group === grouped()[lastAskIdx()]}
-                              onSubmit={sendAskAnswer}
-                            />
+                          <Match when={group.kind === "ask" && group.ask} keyed>
+                            {(ask) => (
+                              <AskQuestionGroup
+                                ask={ask}
+                                interactive={isWaiting() && group === grouped()[lastAskIdx()]}
+                                onSubmit={sendAskAnswer}
+                              />
+                            )}
                           </Match>
                           <Match when={group.kind === "tool"}>
-                            <ToolMessageGroup toolBlocks={group.toolBlocks} />
+                            <ToolMessageGroup toolCalls={group.toolCalls} />
                           </Match>
                           <Match when={group.kind === "text" || group.kind === "other"}>
-                            <For each={group.messages}>
-                              {(msg) => <MessageItem msg={msg} />}
+                            <For each={group.events}>
+                              {(ev) => <MessageItem ev={ev} />}
                             </For>
                           </Match>
                         </Switch>
@@ -237,99 +209,124 @@ export default function TaskView(props: Props) {
   );
 }
 
-function MessageItem(props: { msg: AgentMessage }) {
+function MessageItem(props: { ev: EventMessage }) {
   return (
     <Switch>
-      <Match when={props.msg.type === "system" && props.msg.subtype === "init"}>
-        <div class={styles.systemInit}>
-          Session started &middot; {props.msg.model} &middot; {props.msg.claude_code_version}
-        </div>
+      <Match when={props.ev.init} keyed>
+        {(init) => (
+          <div class={styles.systemInit}>
+            Session started &middot; {init.model} &middot; {init.claudeCodeVersion}
+          </div>
+        )}
       </Match>
-      <Match when={props.msg.type === "system"}>
-        <div class={styles.systemMsg}>
-          [{props.msg.subtype}]
-        </div>
+      <Match when={props.ev.system} keyed>
+        {(sys) => (
+          <div class={styles.systemMsg}>
+            [{sys.subtype}]
+          </div>
+        )}
       </Match>
-      <Match when={props.msg.type === "assistant"}>
-        <div class={styles.assistantMsg}>
-          <For each={props.msg.message?.content?.filter((b) => b.type === "text") ?? []}>
-            {(block) => <Markdown text={block.text ?? ""} />}
-          </For>
-        </div>
+      <Match when={props.ev.text} keyed>
+        {(text) => (
+          <div class={styles.assistantMsg}>
+            <Markdown text={text.text} />
+          </div>
+        )}
       </Match>
-      <Match when={props.msg.type === "result"}>
-        <div class={`${styles.result} ${props.msg.is_error ? styles.resultError : styles.resultSuccess}`}>
-          <strong>{props.msg.is_error ? "Error" : "Done"}</strong>
-          <Show when={props.msg.result}>
-            <div class={styles.resultText}>{props.msg.result}</div>
-          </Show>
-          <Show when={props.msg.total_cost_usd}>
+      <Match when={props.ev.usage} keyed>
+        {(usage) => (
+          <div class={styles.usageMeta}>
+            {usage.model} &middot; {usage.inputTokens}in + {usage.outputTokens}out
+            <Show when={usage.cacheReadInputTokens > 0}>
+              {" "}&middot; {usage.cacheReadInputTokens} cache
+            </Show>
+          </div>
+        )}
+      </Match>
+      <Match when={props.ev.result} keyed>
+        {(result) => (
+          <div class={`${styles.result} ${result.isError ? styles.resultError : styles.resultSuccess}`}>
+            <strong>{result.isError ? "Error" : "Done"}</strong>
+            <Show when={result.result}>
+              <div class={styles.resultText}>{result.result}</div>
+            </Show>
             <div class={styles.resultMeta}>
-              ${props.msg.total_cost_usd?.toFixed(4)} &middot; {((props.msg.duration_ms ?? 0) / 1000).toFixed(1)}s &middot; {props.msg.num_turns} turns
+              ${result.totalCostUSD.toFixed(4)} &middot; {(result.durationMs / 1000).toFixed(1)}s &middot; {result.numTurns} turns
+              &middot; {result.usage.inputTokens + result.usage.outputTokens} tokens
             </div>
-          </Show>
-        </div>
+          </div>
+        )}
       </Match>
     </Switch>
   );
 }
 
-// Groups consecutive messages so that tool_use blocks and their user (tool result)
-// messages are coalesced into a single "tool" group. Text-only assistant messages
-// become "text" groups. Everything else (system, result) becomes "other".
-function groupMessages(msgs: AgentMessage[]): MessageGroup[] {
+// Groups consecutive events for cohesive rendering.
+function groupMessages(msgs: EventMessage[]): MessageGroup[] {
   const groups: MessageGroup[] = [];
 
   function lastGroup(): MessageGroup | undefined {
     return groups[groups.length - 1];
   }
 
-  for (const msg of msgs) {
-    if (msg.type === "assistant") {
-      const content = msg.message?.content ?? [];
-      const textBlocks = content.filter((b) => b.type === "text");
-      const toolBlocks = content.filter((b) => b.type === "tool_use");
-
-      // Emit text group for any text blocks.
-      if (textBlocks.length > 0) {
-        groups.push({ kind: "text", messages: [msg], toolBlocks: [] });
-      }
-
-      // Split tool_use blocks: AskUserQuestion gets its own "ask" group.
-      const askBlocks = toolBlocks.filter((b) => b.name === "AskUserQuestion");
-      const otherToolBlocks = toolBlocks.filter((b) => b.name !== "AskUserQuestion");
-
-      if (otherToolBlocks.length > 0) {
-        const last = lastGroup();
-        if (last && last.kind === "tool") {
-          last.messages.push(msg);
-          last.toolBlocks.push(...otherToolBlocks);
-        } else {
-          groups.push({ kind: "tool", messages: [msg], toolBlocks: [...otherToolBlocks] });
+  for (const ev of msgs) {
+    switch (ev.kind) {
+      case "text":
+        groups.push({ kind: "text", events: [ev], toolCalls: [] });
+        break;
+      case "toolUse": {
+        if (ev.toolUse) {
+          const last = lastGroup();
+          const call: ToolCall = { use: ev.toolUse };
+          if (last && last.kind === "tool") {
+            last.events.push(ev);
+            last.toolCalls.push(call);
+          } else {
+            groups.push({ kind: "tool", events: [ev], toolCalls: [call] });
+          }
         }
+        break;
       }
-
-      for (const askBlock of askBlocks) {
-        groups.push({ kind: "ask", messages: [msg], toolBlocks: [askBlock] });
+      case "toolResult": {
+        if (ev.toolResult) {
+          const last = lastGroup();
+          if (last && last.kind === "tool") {
+            last.events.push(ev);
+            const tr = ev.toolResult;
+            const match = last.toolCalls.find((tc) => tc.use.toolUseID === tr.toolUseID && !tc.result);
+            if (match) {
+              match.result = ev.toolResult;
+            }
+          } else {
+            groups.push({ kind: "tool", events: [ev], toolCalls: [] });
+          }
+        }
+        break;
       }
-    } else if (msg.type === "user") {
-      // Tool results — coalesce into the preceding tool group.
-      const last = lastGroup();
-      if (last && last.kind === "tool") {
-        last.messages.push(msg);
-      } else {
-        // Orphaned user message; start a tool group anyway.
-        groups.push({ kind: "tool", messages: [msg], toolBlocks: [] });
-      }
-    } else {
-      groups.push({ kind: "other", messages: [msg], toolBlocks: [] });
+      case "ask":
+        if (ev.ask) {
+          groups.push({ kind: "ask", events: [ev], toolCalls: [], ask: ev.ask });
+        }
+        break;
+      case "usage":
+        {
+          const last = lastGroup();
+          if (last && (last.kind === "text" || last.kind === "tool")) {
+            last.events.push(ev);
+          } else {
+            groups.push({ kind: "other", events: [ev], toolCalls: [] });
+          }
+        }
+        break;
+      default:
+        groups.push({ kind: "other", events: [ev], toolCalls: [] });
+        break;
     }
   }
   return groups;
 }
 
-// Splits message groups into turns separated by "result" messages.
-// Each turn represents a segment of agent work between user interactions.
+// Splits message groups into turns separated by "result" events.
 function groupTurns(groups: MessageGroup[]): Turn[] {
   const turns: Turn[] = [];
   let current: MessageGroup[] = [];
@@ -348,12 +345,11 @@ function groupTurns(groups: MessageGroup[]): Turn[] {
   for (const g of groups) {
     current.push(g);
     if (g.kind === "tool") {
-      toolCount += g.toolBlocks.length;
+      toolCount += g.toolCalls.length;
     } else if (g.kind === "text") {
       textCount++;
     }
-    // A result message ends the current turn.
-    if (g.kind === "other" && g.messages.some((m) => m.type === "result")) {
+    if (g.kind === "other" && g.events.some((ev) => ev.kind === "result")) {
       flush();
     }
   }
@@ -361,10 +357,15 @@ function groupTurns(groups: MessageGroup[]): Turn[] {
   return turns;
 }
 
-function toolCountSummary(tools: ContentBlock[]): string {
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function toolCountSummary(calls: ToolCall[]): string {
   const counts = new Map<string, number>();
-  for (const t of tools) {
-    const n = t.name ?? "tool";
+  for (const tc of calls) {
+    const n = tc.use.name;
     counts.set(n, (counts.get(n) ?? 0) + 1);
   }
   return Array.from(counts.entries())
@@ -372,24 +373,20 @@ function toolCountSummary(tools: ContentBlock[]): string {
     .join(", ");
 }
 
-function ToolMessageGroup(props: { toolBlocks: ContentBlock[] }) {
-  const blocks = () => props.toolBlocks;
+function ToolMessageGroup(props: { toolCalls: ToolCall[] }) {
+  const calls = () => props.toolCalls;
   return (
-    <Show when={blocks().length > 0} fallback={
-      <details class={styles.toolResult}><summary>tool result</summary></details>
-    }>
-      <Show when={blocks().length > 1} fallback={
-        <ToolUseBlock name={blocks()[0].name ?? "tool"} input={blocks()[0].input} />
+    <Show when={calls().length > 0}>
+      <Show when={calls().length > 1} fallback={
+        <ToolCallBlock call={calls()[0]} />
       }>
         <details class={styles.toolGroup}>
           <summary>
-            {blocks().length} tools: {toolCountSummary(blocks())}
+            {calls().length} tools: {toolCountSummary(calls())}
           </summary>
           <div class={styles.toolGroupInner}>
-            <For each={blocks()}>
-              {(block) => (
-                <ToolUseBlock name={block.name ?? "tool"} input={block.input} />
-              )}
+            <For each={calls()}>
+              {(call) => <ToolCallBlock call={call} />}
             </For>
           </div>
         </details>
@@ -417,25 +414,51 @@ function ElidedTurn(props: { turn: Turn }) {
         <For each={props.turn.groups}>
           {(group) => (
             <Switch>
-              <Match when={group.kind === "ask"}>
-                <div class={styles.askGroup}>
-                  <div class={styles.askText}>
-                    {(parseAskInput(group.toolBlocks[0]?.input))?.questions[0]?.question ?? "Question"}
+              <Match when={group.kind === "ask" && group.ask} keyed>
+                {(ask) => (
+                  <div class={styles.askGroup}>
+                    <div class={styles.askText}>
+                      {ask.questions[0]?.question ?? "Question"}
+                    </div>
                   </div>
-                </div>
+                )}
               </Match>
               <Match when={group.kind === "tool"}>
-                <ToolMessageGroup toolBlocks={group.toolBlocks} />
+                <ToolMessageGroup toolCalls={group.toolCalls} />
               </Match>
               <Match when={group.kind === "text" || group.kind === "other"}>
-                <For each={group.messages}>
-                  {(msg) => <MessageItem msg={msg} />}
+                <For each={group.events}>
+                  {(ev) => <MessageItem ev={ev} />}
                 </For>
               </Match>
             </Switch>
           )}
         </For>
       </div>
+    </details>
+  );
+}
+
+function ToolCallBlock(props: { call: ToolCall }) {
+  const duration = () => props.call.result?.durationMs ?? 0;
+  const error = () => props.call.result?.error ?? "";
+  return (
+    <details class={styles.toolBlock}>
+      <summary>
+        {props.call.use.name}
+        <Show when={duration() > 0}>
+          <span class={styles.toolDuration}>{formatDuration(duration())}</span>
+        </Show>
+        <Show when={error()}>
+          <span class={styles.toolError}> error</span>
+        </Show>
+      </summary>
+      <pre class={styles.toolBlockPre}>
+        {JSON.stringify(props.call.use.input, null, 2)}
+      </pre>
+      <Show when={error()}>
+        <pre class={styles.toolErrorPre}>{error()}</pre>
+      </Show>
     </details>
   );
 }
@@ -451,15 +474,8 @@ function Markdown(props: { text: string }) {
   return <div class={styles.markdown} innerHTML={html()} />;
 }
 
-function parseAskInput(input: unknown): AskUserQuestionInput | undefined {
-  if (typeof input !== "object" || input === null) return undefined;
-  const obj = input as Record<string, unknown>;
-  if (!Array.isArray(obj.questions)) return undefined;
-  return obj as unknown as AskUserQuestionInput;
-}
-
-function AskQuestionGroup(props: { block: ContentBlock; interactive: boolean; onSubmit: (text: string) => void }) {
-  const parsed = createMemo(() => parseAskInput(props.block.input));
+function AskQuestionGroup(props: { ask: EventAsk; interactive: boolean; onSubmit: (text: string) => void }) {
+  const questions = () => props.ask.questions;
   const [selections, setSelections] = createSignal<Map<number, Set<string>>>(new Map());
   const [otherTexts, setOtherTexts] = createSignal<Map<number, string>>(new Map());
   const [submitted, setSubmitted] = createSignal(false);
@@ -495,10 +511,10 @@ function AskQuestionGroup(props: { block: ContentBlock; interactive: boolean; on
   }
 
   function formatAnswer(): string {
-    const questions = parsed()?.questions ?? [];
+    const qs = questions();
     const parts: string[] = [];
-    for (let i = 0; i < questions.length; i++) {
-      const q = questions[i];
+    for (let i = 0; i < qs.length; i++) {
+      const q = qs[i];
       const sel = selections().get(i) ?? new Set();
       const labels: string[] = [];
       for (const s of sel) {
@@ -509,7 +525,7 @@ function AskQuestionGroup(props: { block: ContentBlock; interactive: boolean; on
         }
       }
       const answer = labels.filter((l) => l.length > 0).join(", ");
-      if (questions.length === 1) {
+      if (qs.length === 1) {
         parts.push(answer);
       } else {
         parts.push(`${q.header ?? `Q${i + 1}`}: ${answer}`);
@@ -528,74 +544,59 @@ function AskQuestionGroup(props: { block: ContentBlock; interactive: boolean; on
   const canInteract = (): boolean => props.interactive && !submitted();
 
   return (
-    <Switch fallback={<ToolUseBlock name={props.block.name ?? "AskUserQuestion"} input={props.block.input} />}>
-      <Match when={parsed()}>
-        <div class={canInteract() ? `${styles.askGroup} ${styles.askGroupActive}` : styles.askGroup}>
-          <For each={parsed()?.questions ?? []}>
-            {(q: AskQuestion, qIdx: Accessor<number>) => (
-              <div class={styles.askQuestion}>
-                <Show when={q.header}>
-                  <div class={styles.askHeader}>{q.header}</div>
-                </Show>
-                <div class={styles.askText}>{q.question}</div>
-                <div class={styles.askOptions}>
-                  <For each={q.options}>
-                    {(opt) => {
-                      const selected = (): boolean => selections().get(qIdx())?.has(opt.label) ?? false;
-                      return (
-                        <button
-                          class={selected() ? `${styles.askChip} ${styles.askChipSelected}` : styles.askChip}
-                          disabled={!canInteract()}
-                          onClick={() => toggleOption(qIdx(), opt.label, q.multiSelect ?? false)}
-                        >
-                          <span class={styles.askChipLabel}>{opt.label}</span>
-                          <Show when={opt.description}>
-                            <span class={styles.askChipDesc}>{opt.description}</span>
-                          </Show>
-                        </button>
-                      );
-                    }}
-                  </For>
-                  {/* "Other" option */}
-                  <button
-                    class={selections().get(qIdx())?.has("__other__") ? `${styles.askChip} ${styles.askChipSelected}` : styles.askChip}
-                    disabled={!canInteract()}
-                    onClick={() => toggleOption(qIdx(), "__other__", q.multiSelect ?? false)}
-                  >
-                    <span class={styles.askChipLabel}>Other</span>
-                  </button>
-                </div>
-                <Show when={selections().get(qIdx())?.has("__other__")}>
-                  <AutoResizeTextarea
-                    class={styles.askOtherInput}
-                    placeholder="Type your answer..."
-                    value={otherTexts().get(qIdx()) ?? ""}
-                    onInput={(v) => setOtherText(qIdx(), v)}
-                    disabled={!canInteract()}
-                  />
-                </Show>
-              </div>
-            )}
-          </For>
-          <Show when={canInteract()}>
-            <button class={styles.askSubmit} onClick={() => handleSubmit()}>Submit</button>
-          </Show>
-          <Show when={submitted()}>
-            <div class={styles.askSubmitted}>Answer submitted</div>
-          </Show>
-        </div>
-      </Match>
-    </Switch>
-  );
-}
-
-function ToolUseBlock(props: { name: string; input: unknown }) {
-  return (
-    <details class={styles.toolBlock}>
-      <summary>{props.name}</summary>
-      <pre class={styles.toolBlockPre}>
-        {JSON.stringify(props.input, null, 2)}
-      </pre>
-    </details>
+    <div class={canInteract() ? `${styles.askGroup} ${styles.askGroupActive}` : styles.askGroup}>
+      <For each={questions()}>
+        {(q: AskQuestion, qIdx: Accessor<number>) => (
+          <div class={styles.askQuestion}>
+            <Show when={q.header}>
+              <div class={styles.askHeader}>{q.header}</div>
+            </Show>
+            <div class={styles.askText}>{q.question}</div>
+            <div class={styles.askOptions}>
+              <For each={q.options}>
+                {(opt) => {
+                  const selected = (): boolean => selections().get(qIdx())?.has(opt.label) ?? false;
+                  return (
+                    <button
+                      class={selected() ? `${styles.askChip} ${styles.askChipSelected}` : styles.askChip}
+                      disabled={!canInteract()}
+                      onClick={() => toggleOption(qIdx(), opt.label, q.multiSelect ?? false)}
+                    >
+                      <span class={styles.askChipLabel}>{opt.label}</span>
+                      <Show when={opt.description}>
+                        <span class={styles.askChipDesc}>{opt.description}</span>
+                      </Show>
+                    </button>
+                  );
+                }}
+              </For>
+              {/* "Other" option */}
+              <button
+                class={selections().get(qIdx())?.has("__other__") ? `${styles.askChip} ${styles.askChipSelected}` : styles.askChip}
+                disabled={!canInteract()}
+                onClick={() => toggleOption(qIdx(), "__other__", q.multiSelect ?? false)}
+              >
+                <span class={styles.askChipLabel}>Other</span>
+              </button>
+            </div>
+            <Show when={selections().get(qIdx())?.has("__other__")}>
+              <AutoResizeTextarea
+                class={styles.askOtherInput}
+                placeholder="Type your answer..."
+                value={otherTexts().get(qIdx()) ?? ""}
+                onInput={(v) => setOtherText(qIdx(), v)}
+                disabled={!canInteract()}
+              />
+            </Show>
+          </div>
+        )}
+      </For>
+      <Show when={canInteract()}>
+        <button class={styles.askSubmit} onClick={() => handleSubmit()}>Submit</button>
+      </Show>
+      <Show when={submitted()}>
+        <div class={styles.askSubmitted}>Answer submitted</div>
+      </Show>
+    </div>
   );
 }
