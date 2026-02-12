@@ -179,34 +179,34 @@ export default function TaskView(props: Props) {
                   <Show when={isLastTurn()} fallback={
                     <ElidedTurn turn={turn()} />
                   }>
-                    <For each={turn().groups}>
+                    <Index each={turn().groups}>
                       {(group) => (
                         <Switch>
-                          <Match when={group.kind === "ask" && group.ask} keyed>
+                          <Match when={group().kind === "ask" && group().ask} keyed>
                             {(ask) => (
                               <AskQuestionGroup
                                 ask={ask}
-                                interactive={isWaiting() && group === grouped()[lastAskIdx()]}
+                                interactive={isWaiting() && group() === grouped()[lastAskIdx()]}
                                 onSubmit={sendAskAnswer}
                               />
                             )}
                           </Match>
-                          <Match when={group.kind === "userInput" && group.events[0]?.userInput} keyed>
+                          <Match when={group().kind === "userInput" && group().events[0]?.userInput} keyed>
                             {(ui) => (
                               <div class={styles.userInputMsg}>{ui.text}</div>
                             )}
                           </Match>
-                          <Match when={group.kind === "tool"}>
-                            <ToolMessageGroup toolCalls={group.toolCalls} />
+                          <Match when={group().kind === "tool"}>
+                            <ToolMessageGroup toolCalls={group().toolCalls} />
                           </Match>
-                          <Match when={group.kind === "text" || group.kind === "other"}>
-                            <For each={group.events}>
+                          <Match when={group().kind === "text" || group().kind === "other"}>
+                            <For each={group().events}>
                               {(ev) => <MessageItem ev={ev} />}
                             </For>
                           </Match>
                         </Switch>
                       )}
-                    </For>
+                    </Index>
                   </Show>
                 );
               }}
@@ -433,12 +433,18 @@ function toolCountSummary(calls: ToolCall[]): string {
 
 function ToolMessageGroup(props: { toolCalls: ToolCall[] }) {
   const calls = () => props.toolCalls;
+  // Track whether the user has manually toggled the group open/closed.
+  // undefined = user hasn't interacted; default to open so expanding
+  // groups stay visible as new tool calls arrive.
+  const [userOpen, setUserOpen] = createSignal<boolean | undefined>(undefined);
+  const isOpen = () => userOpen() ?? true;
   return (
     <Show when={calls().length > 0}>
       <Show when={calls().length > 1} fallback={
         <ToolCallBlock call={calls()[0]} />
       }>
-        <details class={styles.toolGroup}>
+        <details class={styles.toolGroup} open={isOpen()}
+          onToggle={(e) => setUserOpen(e.currentTarget.open)}>
           <summary>
             {calls().length} tools: {toolCountSummary(calls())}
           </summary>
