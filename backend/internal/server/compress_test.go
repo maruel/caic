@@ -117,18 +117,28 @@ func TestCompressMiddleware(t *testing.T) {
 		}
 	})
 
-	t.Run("SkipsSSE", func(t *testing.T) {
+	t.Run("CompressesSSE", func(t *testing.T) {
 		h := compressMiddleware(sseHandler())
 		req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-		req.Header.Set("Accept-Encoding", "zstd, br, gzip")
+		req.Header.Set("Accept-Encoding", "zstd")
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, req)
 
-		if got := w.Header().Get("Content-Encoding"); got != "" {
-			t.Errorf("Content-Encoding = %q, want empty (SSE should not be compressed)", got)
+		if got := w.Header().Get("Content-Encoding"); got != "zstd" {
+			t.Fatalf("Content-Encoding = %q, want %q", got, "zstd")
 		}
-		if got := w.Body.String(); got != "event: ping\ndata: {}\n\n" {
-			t.Errorf("body = %q, want SSE payload", got)
+
+		dec, err := zstd.NewReader(w.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer dec.Close()
+		body, err := io.ReadAll(dec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(body) != "event: ping\ndata: {}\n\n" {
+			t.Errorf("body = %q, want SSE payload", string(body))
 		}
 	})
 

@@ -1,14 +1,14 @@
 // Response compression middleware for API endpoints.
 //
 // Compresses responses using zstd, brotli, or gzip at fast compression
-// levels. Skips SSE (text/event-stream) and responses that already have a
-// Content-Encoding (precompressed static files).
+// levels. SSE streams are compressed with per-event flushing to preserve
+// real-time delivery. Skips responses that already have a Content-Encoding
+// (precompressed static files).
 package server
 
 import (
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/gzip"
@@ -83,13 +83,6 @@ func (cw *compressWriter) initOnce() {
 		return
 	}
 
-	// Skip SSE — compression buffering breaks real-time streaming.
-	ct := h.Get("Content-Type")
-	if strings.HasPrefix(ct, "text/event-stream") {
-		cw.skipCompress = true
-		return
-	}
-
 	// Compressed size differs from original; remove Content-Length.
 	h.Del("Content-Length")
 	h.Set("Content-Encoding", cw.encoding)
@@ -115,8 +108,14 @@ func (cw *compressWriter) finish() {
 	_ = cw.writer.Close()
 }
 
-// Flush propagates to the underlying writer for SSE passthrough.
+// Flush flushes compressed data to the wire. When compression is active,
+// the compressor is flushed first to emit buffered compressed bytes.
 func (cw *compressWriter) Flush() {
+	if cw.writer != nil {
+		if f, ok := cw.writer.(interface{ Flush() error }); ok {
+			_ = f.Flush()
+		}
+	}
 	if f, ok := cw.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
