@@ -330,9 +330,11 @@ func (t *Task) Done() <-chan struct{} {
 // Runner manages the serialization of setup and push operations.
 type Runner struct {
 	BaseBranch string
-	Dir        string // Absolute path to the git repository.
+	Dir        string        // Absolute path to the git repository.
 	MaxTurns   int
-	LogDir     string // If set, raw JSONL session logs are written here.
+	GitTimeout            time.Duration // Timeout for git/container ops; defaults to 1 minute.
+	ContainerStartTimeout time.Duration // Timeout for container start (image pull); defaults to 1 hour.
+	LogDir                string        // If set, raw JSONL session logs are written here.
 
 	// Container provides md container lifecycle operations. Must be set before
 	// calling Start.
@@ -350,6 +352,12 @@ func (r *Runner) initDefaults() {
 		if r.AgentStartFn == nil {
 			r.AgentStartFn = agent.StartWithRelay
 		}
+		if r.GitTimeout == 0 {
+			r.GitTimeout = time.Minute
+		}
+		if r.ContainerStartTimeout == 0 {
+			r.ContainerStartTimeout = time.Hour
+		}
 	})
 }
 
@@ -357,6 +365,8 @@ func (r *Runner) initDefaults() {
 // waste attempts on branches that already exist.
 func (r *Runner) Init(ctx context.Context) error {
 	r.initDefaults()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer cancel()
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 	highest, err := gitutil.MaxBranchSeqNum(ctx, r.Dir)
@@ -599,20 +609,24 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 // setup creates the branch and starts the container. Must be called under
 // branchMu.
 func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (string, error) {
+	detached := context.WithoutCancel(ctx)
+
+	gitCtx, gitCancel := context.WithTimeout(detached, r.GitTimeout)
+	defer gitCancel()
 	// Fetch so that origin/<BaseBranch> is up to date.
-	if err := gitutil.Fetch(ctx, r.Dir); err != nil {
+	if err := gitutil.Fetch(gitCtx, r.Dir); err != nil {
 		return "", fmt.Errorf("fetch: %w", err)
 	}
 	// Assign a sequential branch name, skipping existing ones.
 	var err error
 	for range 100 {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
+		if gitCtx.Err() != nil {
+			return "", gitCtx.Err()
 		}
 		t.Branch = fmt.Sprintf("caic/w%d", r.nextID)
 		r.nextID++
 		slog.Info("creating branch", "repo", t.Repo, "branch", t.Branch)
-		err = gitutil.CreateBranch(ctx, r.Dir, t.Branch, "origin/"+r.BaseBranch)
+		err = gitutil.CreateBranch(gitCtx, r.Dir, t.Branch, "origin/"+r.BaseBranch)
 		if err == nil {
 			break
 		}
@@ -623,14 +637,19 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (string, e
 
 	t.setState(StateProvisioning)
 	slog.Info("starting container", "repo", t.Repo, "branch", t.Branch)
-	name, err := r.Container.Start(ctx, r.Dir, t.Branch, labels)
+	startCtx, startCancel := context.WithTimeout(detached, r.ContainerStartTimeout)
+	defer startCancel()
+	name, err := r.Container.Start(startCtx, r.Dir, t.Branch, labels)
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
 	}
 	slog.Info("container started", "repo", t.Repo, "branch", t.Branch)
 
 	// Switch back to the base branch so the next task can create its branch.
-	if err := gitutil.CheckoutBranch(ctx, r.Dir, r.BaseBranch); err != nil {
+	// Fresh timeout since the previous gitCtx likely expired during container start.
+	gitCtx, gitCancel = context.WithTimeout(detached, r.GitTimeout)
+	defer gitCancel()
+	if err := gitutil.CheckoutBranch(gitCtx, r.Dir, r.BaseBranch); err != nil {
 		return "", fmt.Errorf("checkout base: %w", err)
 	}
 	return name, nil
@@ -640,6 +659,8 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (string, e
 // stat and the first error encountered.
 func (r *Runner) PullChanges(ctx context.Context, branch string) (string, error) {
 	r.initDefaults()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer cancel()
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 	diffStat, _ := r.Container.Diff(ctx, r.Dir, branch, "--stat")
@@ -653,6 +674,8 @@ func (r *Runner) PullChanges(ctx context.Context, branch string) (string, error)
 // PushChanges pushes local changes into the container.
 func (r *Runner) PushChanges(ctx context.Context, branch string) error {
 	r.initDefaults()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer cancel()
 	slog.Info("pushing changes to container", "repo", filepath.Base(r.Dir), "branch", branch)
 	return r.Container.Push(ctx, r.Dir, branch)
 }
@@ -660,6 +683,8 @@ func (r *Runner) PushChanges(ctx context.Context, branch string) error {
 // KillContainer kills the md container for the given branch.
 func (r *Runner) KillContainer(ctx context.Context, branch string) error {
 	r.initDefaults()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer cancel()
 	return r.Container.Kill(ctx, r.Dir, branch)
 }
 

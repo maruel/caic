@@ -12,17 +12,6 @@ import (
 	"strings"
 )
 
-// CurrentBranch returns the current git branch name.
-func CurrentBranch(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--abbrev-ref", "HEAD")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
 // DefaultBranch returns the default branch of the origin remote (e.g. "main"
 // or "master"). It reads refs/remotes/origin/HEAD which is set by the initial
 // clone. If the symbolic ref is missing, it probes for common default branch
@@ -85,32 +74,6 @@ func CheckoutBranch(ctx context.Context, dir, name string) error {
 		return fmt.Errorf("git checkout %s: %w: %s", name, err, stderr.String())
 	}
 	return nil
-}
-
-// Push pushes the branch to origin. Returns an error if it fails.
-func Push(ctx context.Context, dir, branch string) error {
-	cmd := exec.CommandContext(ctx, "git", "push", "origin", branch)
-	cmd.Dir = dir
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("git push origin %s: %w: %s", branch, err, stderr.String())
-	}
-	return nil
-}
-
-// RepoName returns the repository directory name (last component of the
-// top-level path).
-func RepoName(ctx context.Context, dir string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	cmd.Dir = dir
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse --show-toplevel: %w", err)
-	}
-	top := strings.TrimSpace(string(out))
-	parts := strings.Split(top, "/")
-	return parts[len(parts)-1], nil
 }
 
 // MaxBranchSeqNum finds the highest sequence number N among branches matching
