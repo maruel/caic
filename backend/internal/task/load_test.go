@@ -146,7 +146,7 @@ func TestLoadLogs(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		tasks, err := LoadLogs(dir)
+		tasks, err := loadLogs(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -161,7 +161,7 @@ func TestLoadLogs(t *testing.T) {
 		}
 	})
 	t.Run("NotExist", func(t *testing.T) {
-		tasks, err := LoadLogs(filepath.Join(t.TempDir(), "nope"))
+		tasks, err := loadLogs(filepath.Join(t.TempDir(), "nope"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -173,7 +173,7 @@ func TestLoadLogs(t *testing.T) {
 		dir := t.TempDir()
 		writeLogFile(t, dir, "bad.jsonl", `{"type":"not_meta"}`)
 
-		tasks, err := LoadLogs(dir)
+		tasks, err := loadLogs(dir)
 		if err != nil {
 			t.Fatal(err)
 		}

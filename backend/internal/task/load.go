@@ -30,10 +30,10 @@ type LoadedTask struct {
 	Result            *Result
 }
 
-// LoadLogs scans logDir for *.jsonl files and reconstructs completed tasks.
+// loadLogs scans logDir for *.jsonl files and reconstructs completed tasks.
 // Files without a valid caic_meta header line are skipped. Returns tasks
 // sorted by StartedAt ascending.
-func LoadLogs(logDir string) ([]*LoadedTask, error) {
+func loadLogs(logDir string) ([]*LoadedTask, error) {
 	entries, err := os.ReadDir(logDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -70,7 +70,7 @@ func LoadTerminated(logDir string, n int) []*LoadedTask {
 	if logDir == "" || n <= 0 {
 		return nil
 	}
-	all, err := LoadLogs(logDir)
+	all, err := loadLogs(logDir)
 	if err != nil {
 		slog.Warn("failed to load logs for terminated tasks", "err", err)
 		return nil
@@ -195,7 +195,7 @@ func LoadBranchLogs(logDir, branch string) *LoadedTask {
 	if logDir == "" {
 		return nil
 	}
-	all, err := LoadLogs(logDir)
+	all, err := loadLogs(logDir)
 	if err != nil {
 		return nil
 	}
