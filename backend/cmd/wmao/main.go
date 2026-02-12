@@ -222,9 +222,9 @@ func (*fakeContainer) Diff(_ context.Context, _ string, _ ...string) (string, er
 	return "", nil
 }
 
-func (*fakeContainer) Pull(_ context.Context, _ string) error  { return nil }
-func (*fakeContainer) Push(_ context.Context, _ string) error  { return nil }
-func (*fakeContainer) Kill(_ context.Context, _ string) error  { return nil }
+func (*fakeContainer) Pull(_ context.Context, _ string) error            { return nil }
+func (*fakeContainer) Push(_ context.Context, _ string) error            { return nil }
+func (*fakeContainer) Kill(_ context.Context, _ string) error            { return nil }
 func (*fakeContainer) List(_ context.Context) ([]container.Entry, error) { return nil, nil }
 
 // fakeAgentStart creates a Session backed by a shell process that emits three

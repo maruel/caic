@@ -35,6 +35,8 @@ linters:
         - diagnostic
         - style
         - performance
+      disabled-checks:
+        - commentedOutCode
     revive:
       rules:
         - name: exported
