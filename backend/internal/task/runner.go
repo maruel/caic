@@ -38,6 +38,7 @@ type Result struct {
 	CostUSD     float64
 	DurationMs  int64
 	NumTurns    int
+	Usage       agent.Usage
 	AgentResult string
 	Err         error
 }
@@ -327,15 +328,17 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 		res.CostUSD = result.TotalCostUSD
 		res.DurationMs = result.DurationMs
 		res.NumTurns = result.NumTurns
+		res.Usage = result.Usage
 		res.AgentResult = result.Result
 	}
 	// Use accumulated live stats when they exceed the session result
 	// (e.g. adopted container after restart where the session only
 	// reflects the reconnected portion, not the full run).
-	if liveCost, liveTurns, liveDur := t.LiveStats(); liveCost > res.CostUSD {
+	if liveCost, liveTurns, liveDur, liveUsage := t.LiveStats(); liveCost > res.CostUSD {
 		res.CostUSD = liveCost
 		res.NumTurns = liveTurns
 		res.DurationMs = liveDur
+		res.Usage = liveUsage
 	}
 	writeLogTrailer(logW, &res)
 	if logW != nil {
@@ -484,13 +487,17 @@ func writeLogTrailer(w io.Writer, res *Result) {
 		return
 	}
 	mr := agent.MetaResultMessage{
-		MessageType: "caic_result",
-		State:       res.State.String(),
-		CostUSD:     res.CostUSD,
-		DurationMs:  res.DurationMs,
-		NumTurns:    res.NumTurns,
-		DiffStat:    res.DiffStat,
-		AgentResult: res.AgentResult,
+		MessageType:              "caic_result",
+		State:                    res.State.String(),
+		CostUSD:                  res.CostUSD,
+		DurationMs:               res.DurationMs,
+		NumTurns:                 res.NumTurns,
+		InputTokens:              res.Usage.InputTokens,
+		OutputTokens:             res.Usage.OutputTokens,
+		CacheCreationInputTokens: res.Usage.CacheCreationInputTokens,
+		CacheReadInputTokens:     res.Usage.CacheReadInputTokens,
+		DiffStat:                 res.DiffStat,
+		AgentResult:              res.AgentResult,
 	}
 	if res.Err != nil {
 		mr.Error = res.Err.Error()

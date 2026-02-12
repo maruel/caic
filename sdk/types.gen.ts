@@ -260,6 +260,10 @@ export interface TaskJSON {
   costUSD: number /* float64 */;
   durationMs: number /* int64 */;
   numTurns: number /* int */;
+  inputTokens: number /* int */;
+  outputTokens: number /* int */;
+  cacheCreationInputTokens: number /* int */;
+  cacheReadInputTokens: number /* int */;
   error?: string;
   result?: string;
   /**

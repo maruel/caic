@@ -559,7 +559,7 @@ func (s *Server) loadTerminatedTasks() error {
 		// Backfill result stats from restored messages when the trailer
 		// has zero cost (e.g. session exited without a final ResultMessage).
 		if lt.Result.CostUSD == 0 {
-			lt.Result.CostUSD, lt.Result.NumTurns, lt.Result.DurationMs = t.LiveStats()
+			lt.Result.CostUSD, lt.Result.NumTurns, lt.Result.DurationMs, lt.Result.Usage = t.LiveStats()
 		}
 		done := make(chan struct{})
 		close(done)
@@ -792,12 +792,21 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 		j.CostUSD = e.result.CostUSD
 		j.DurationMs = e.result.DurationMs
 		j.NumTurns = e.result.NumTurns
+		j.InputTokens = e.result.Usage.InputTokens
+		j.OutputTokens = e.result.Usage.OutputTokens
+		j.CacheCreationInputTokens = e.result.Usage.CacheCreationInputTokens
+		j.CacheReadInputTokens = e.result.Usage.CacheReadInputTokens
 		j.Result = e.result.AgentResult
 		if e.result.Err != nil {
 			j.Error = e.result.Err.Error()
 		}
 	} else {
-		j.CostUSD, j.NumTurns, j.DurationMs = e.task.LiveStats()
+		var usage agent.Usage
+		j.CostUSD, j.NumTurns, j.DurationMs, usage = e.task.LiveStats()
+		j.InputTokens = usage.InputTokens
+		j.OutputTokens = usage.OutputTokens
+		j.CacheCreationInputTokens = usage.CacheCreationInputTokens
+		j.CacheReadInputTokens = usage.CacheReadInputTokens
 	}
 	return j
 }

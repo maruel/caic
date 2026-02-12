@@ -163,14 +163,18 @@ func (m *MetaMessage) Validate() error {
 // MetaResultMessage is appended as the last line of a JSONL log file when a
 // task reaches a terminal state.
 type MetaResultMessage struct {
-	MessageType string       `json:"type"`
-	State       string       `json:"state"`
-	CostUSD     float64      `json:"cost_usd,omitempty"`
-	DurationMs  int64        `json:"duration_ms,omitempty"`
-	NumTurns    int          `json:"num_turns,omitempty"`
-	DiffStat    dto.DiffStat `json:"diff_stat,omitzero"`
-	Error       string       `json:"error,omitempty"`
-	AgentResult string       `json:"agent_result,omitempty"`
+	MessageType              string       `json:"type"`
+	State                    string       `json:"state"`
+	CostUSD                  float64      `json:"cost_usd,omitempty"`
+	DurationMs               int64        `json:"duration_ms,omitempty"`
+	NumTurns                 int          `json:"num_turns,omitempty"`
+	InputTokens              int          `json:"input_tokens,omitempty"`
+	OutputTokens             int          `json:"output_tokens,omitempty"`
+	CacheCreationInputTokens int          `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int          `json:"cache_read_input_tokens,omitempty"`
+	DiffStat                 dto.DiffStat `json:"diff_stat,omitzero"`
+	Error                    string       `json:"error,omitempty"`
+	AgentResult              string       `json:"agent_result,omitempty"`
 }
 
 // Type implements Message.

@@ -94,6 +94,7 @@ type Task struct {
 	liveCostUSD    float64
 	liveNumTurns   int
 	liveDurationMs int64
+	liveUsage      agent.Usage
 
 	// onResult is called when a ResultMessage arrives, before fan-out to
 	// subscribers. It returns the parsed diff stat. May be nil.
@@ -115,12 +116,12 @@ func (t *Task) SetOnResult(fn func() dto.DiffStat) {
 	t.onResult = fn
 }
 
-// LiveStats returns the latest cost, turn count, and duration accumulated
-// from ResultMessages received during execution.
-func (t *Task) LiveStats() (costUSD float64, numTurns int, durationMs int64) {
+// LiveStats returns the latest cost, turn count, duration, and token usage
+// accumulated from ResultMessages received during execution.
+func (t *Task) LiveStats() (costUSD float64, numTurns int, durationMs int64, usage agent.Usage) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.liveCostUSD, t.liveNumTurns, t.liveDurationMs
+	return t.liveCostUSD, t.liveNumTurns, t.liveDurationMs, t.liveUsage
 }
 
 // Messages returns a copy of all received agent messages.
@@ -148,12 +149,15 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	}
 	// Restore live stats from the last ResultMessage.
 	for i := len(msgs) - 1; i >= 0; i-- {
-		if rm, ok := msgs[i].(*agent.ResultMessage); ok {
-			t.liveCostUSD = rm.TotalCostUSD
-			t.liveNumTurns = rm.NumTurns
-			t.liveDurationMs = rm.DurationMs
-			break
+		rm, ok := msgs[i].(*agent.ResultMessage)
+		if !ok {
+			continue
 		}
+		t.liveCostUSD = rm.TotalCostUSD
+		t.liveNumTurns = rm.NumTurns
+		t.liveDurationMs = rm.DurationMs
+		t.liveUsage = rm.Usage
+		break
 	}
 	// Infer state: if the last message is a ResultMessage, the agent finished
 	// its turn and is waiting for user input (or asking a question). Only
@@ -195,6 +199,7 @@ func (t *Task) addMessage(m agent.Message) {
 		t.liveCostUSD = rm.TotalCostUSD
 		t.liveNumTurns = rm.NumTurns
 		t.liveDurationMs = rm.DurationMs
+		t.liveUsage = rm.Usage
 		if t.State == StateRunning {
 			if lastAssistantHasAsk(t.msgs) {
 				t.setState(StateAsking)

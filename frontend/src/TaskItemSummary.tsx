@@ -15,6 +15,7 @@ export interface TaskItemSummaryProps {
   costUSD: number;
   durationMs: number;
   numTurns: number;
+  inputTokens: number;
   containerUptimeMs?: number;
   error?: string;
   selected: boolean;
@@ -53,6 +54,9 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
         <div class={styles.metaRow}>
           <span class={styles.meta}>
             {props.claudeCodeVersion}{props.claudeCodeVersion && props.model ? " · " : ""}{props.model}
+            <Show when={props.inputTokens > 0}>
+              {" · "}{formatTokens(props.inputTokens)}
+            </Show>
             <Show when={props.costUSD > 0}>
               {" · "}${props.costUSD.toFixed(2)}
             </Show>
@@ -90,6 +94,12 @@ function formatUptime(ms: number): string {
   if (min < 60) return `${min}m ${sec % 60}s`;
   const hr = Math.floor(min / 60);
   return `${hr}h ${min % 60}m`;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}Mt`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}kt`;
+  return `${n}t`;
 }
 
 function stateColor(state: string): string {

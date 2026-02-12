@@ -132,13 +132,19 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 			}
 			lt.State = parseState(mr.State)
 			lt.Result = &Result{
-				Task:        lt.Prompt,
-				Repo:        lt.Repo,
-				Branch:      lt.Branch,
-				State:       lt.State,
-				CostUSD:     mr.CostUSD,
-				DurationMs:  mr.DurationMs,
-				NumTurns:    mr.NumTurns,
+				Task:       lt.Prompt,
+				Repo:       lt.Repo,
+				Branch:     lt.Branch,
+				State:      lt.State,
+				CostUSD:    mr.CostUSD,
+				DurationMs: mr.DurationMs,
+				NumTurns:   mr.NumTurns,
+				Usage: agent.Usage{
+					InputTokens:              mr.InputTokens,
+					OutputTokens:             mr.OutputTokens,
+					CacheCreationInputTokens: mr.CacheCreationInputTokens,
+					CacheReadInputTokens:     mr.CacheReadInputTokens,
+				},
 				DiffStat:    mr.DiffStat,
 				AgentResult: mr.AgentResult,
 			}

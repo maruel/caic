@@ -15,20 +15,24 @@ type RepoJSON struct {
 
 // TaskJSON is the JSON representation sent to the frontend.
 type TaskJSON struct {
-	ID             ksid.ID  `json:"id"`
-	Task           string   `json:"task"`
-	Repo           string   `json:"repo"`
-	RepoURL        string   `json:"repoURL,omitempty"`
-	Branch         string   `json:"branch"`
-	Container      string   `json:"container"`
-	State          string   `json:"state"`
-	StateUpdatedAt float64  `json:"stateUpdatedAt"` // Unix epoch seconds (ms precision) of last state change.
-	DiffStat       DiffStat `json:"diffStat,omitzero"`
-	CostUSD        float64  `json:"costUSD"`
-	DurationMs     int64    `json:"durationMs"`
-	NumTurns       int      `json:"numTurns"`
-	Error          string   `json:"error,omitempty"`
-	Result         string   `json:"result,omitempty"`
+	ID                       ksid.ID  `json:"id"`
+	Task                     string   `json:"task"`
+	Repo                     string   `json:"repo"`
+	RepoURL                  string   `json:"repoURL,omitempty"`
+	Branch                   string   `json:"branch"`
+	Container                string   `json:"container"`
+	State                    string   `json:"state"`
+	StateUpdatedAt           float64  `json:"stateUpdatedAt"` // Unix epoch seconds (ms precision) of last state change.
+	DiffStat                 DiffStat `json:"diffStat,omitzero"`
+	CostUSD                  float64  `json:"costUSD"`
+	DurationMs               int64    `json:"durationMs"`
+	NumTurns                 int      `json:"numTurns"`
+	InputTokens              int      `json:"inputTokens"`
+	OutputTokens             int      `json:"outputTokens"`
+	CacheCreationInputTokens int      `json:"cacheCreationInputTokens"`
+	CacheReadInputTokens     int      `json:"cacheReadInputTokens"`
+	Error                    string   `json:"error,omitempty"`
+	Result                   string   `json:"result,omitempty"`
 	// Per-task agent/container metadata.
 	Model             string `json:"model,omitempty"`
 	ClaudeCodeVersion string `json:"claudeCodeVersion,omitempty"`

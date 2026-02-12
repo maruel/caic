@@ -52,6 +52,7 @@ export default function TaskList(props: TaskListProps) {
               costUSD={t().costUSD}
               durationMs={t().durationMs}
               numTurns={t().numTurns}
+              inputTokens={t().inputTokens}
               containerUptimeMs={t().containerUptimeMs}
               error={t().error}
               selected={props.selectedId === t().id}
