@@ -68,7 +68,7 @@ func (cw *compressWriter) Write(b []byte) (int, error) {
 }
 
 // initOnce inspects response headers to decide whether to compress.
-// Called once before the first Write or WriteHeader.
+// Called once before the first Write, WriteHeader, or Flush.
 func (cw *compressWriter) initOnce() {
 	if cw.headerSent {
 		return
@@ -108,9 +108,10 @@ func (cw *compressWriter) finish() {
 	_ = cw.writer.Close()
 }
 
-// Flush flushes compressed data to the wire. When compression is active,
-// the compressor is flushed first to emit buffered compressed bytes.
+// Flush flushes compressed data to the wire. Calls initOnce so that
+// Content-Encoding is set before the first flush sends headers.
 func (cw *compressWriter) Flush() {
+	cw.initOnce()
 	if cw.writer != nil {
 		if f, ok := cw.writer.(interface{ Flush() error }); ok {
 			_ = f.Flush()

@@ -18,11 +18,15 @@ func jsonHandler() http.HandlerFunc {
 	}
 }
 
+// sseHandler mirrors the real SSE handlers: set headers, flush (sends
+// headers to the wire), then write event data and flush again.
 func sseHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
+		w.(http.Flusher).Flush()
 		_, _ = w.Write([]byte("event: ping\ndata: {}\n\n"))
+		w.(http.Flusher).Flush()
 	}
 }
 
