@@ -221,6 +221,65 @@ func (t *Task) addMessage(m agent.Message) {
 	}
 }
 
+// syntheticContextCleared creates a SystemMessage marking a context-clear
+// boundary. Injected into the message stream so SSE subscribers see the
+// marker before history is wiped.
+func syntheticContextCleared() *agent.SystemMessage {
+	return &agent.SystemMessage{
+		MessageType: "system",
+		Subtype:     "context_cleared",
+	}
+}
+
+// CloseSession gracefully shuts down the current agent session without
+// signaling doneCh (i.e., without triggering Kill). The caller must hold no
+// locks.
+func (t *Task) CloseSession() {
+	t.mu.Lock()
+	session := t.session
+	t.session = nil
+	msgCh := t.msgCh
+	t.msgCh = nil
+	logW := t.logW
+	t.logW = nil
+	t.mu.Unlock()
+
+	if session == nil {
+		return
+	}
+
+	// Graceful: close stdin, wait for exit with timeout.
+	session.Close()
+	timer := time.NewTimer(10 * time.Second)
+	select {
+	case <-session.Done():
+		timer.Stop()
+		_, _ = session.Wait()
+	case <-timer.C:
+	}
+
+	if msgCh != nil {
+		close(msgCh)
+	}
+	if logW != nil {
+		_ = logW.Close()
+	}
+}
+
+// ClearMessages injects a context_cleared boundary marker into the message
+// stream and resets live stats. Message history is preserved so that SSE
+// subscribers (including reconnecting clients) can see the full timeline.
+func (t *Task) ClearMessages() {
+	t.addMessage(syntheticContextCleared())
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.SessionID = ""
+	t.liveCostUSD = 0
+	t.liveNumTurns = 0
+	t.liveDurationMs = 0
+}
+
 // syntheticUserInput creates a UserMessage representing user-provided text
 // input. It is injected into the message stream so that the JSONL log and SSE
 // events contain an explicit record of every user message.

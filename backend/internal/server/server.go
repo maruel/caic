@@ -170,6 +170,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks", s.handleCreateTask(ctx))
 	mux.HandleFunc("GET /api/v1/tasks/{id}/events", s.handleTaskEvents)
 	mux.HandleFunc("POST /api/v1/tasks/{id}/input", handleWithTask(s, s.sendInput))
+	mux.HandleFunc("POST /api/v1/tasks/{id}/restart", handleWithTask(s, s.restartTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/terminate", handleWithTask(s, s.terminateTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/pull", handleWithTask(s, s.pullTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/push", handleWithTask(s, s.pushTask))
@@ -441,6 +442,21 @@ func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *dto.InputRe
 		return nil, dto.Conflict(err.Error())
 	}
 	return &dto.StatusResp{Status: "sent"}, nil
+}
+
+func (s *Server) restartTask(ctx context.Context, entry *taskEntry, req *dto.RestartReq) (*dto.StatusResp, error) {
+	t := entry.task
+	if t.State != task.StateWaiting && t.State != task.StateAsking {
+		return nil, dto.Conflict("task is not waiting or asking")
+	}
+	runner := s.runners[t.Repo]
+	if err := runner.RestartSession(ctx, t, req.Prompt); err != nil {
+		return nil, dto.InternalError(err.Error())
+	}
+	s.mu.Lock()
+	s.taskChanged()
+	s.mu.Unlock()
+	return &dto.StatusResp{Status: "restarted"}, nil
 }
 
 func (s *Server) terminateTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {

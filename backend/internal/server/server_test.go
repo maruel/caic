@@ -107,6 +107,50 @@ func TestHandleTaskInputEmptyPrompt(t *testing.T) {
 	}
 }
 
+func TestHandleRestart(t *testing.T) {
+	t.Run("NotWaiting", func(t *testing.T) {
+		s := newTestServer()
+		s.tasks["t1"] = &taskEntry{
+			task: &task.Task{Prompt: "test", State: task.StateRunning},
+			done: make(chan struct{}),
+		}
+
+		body := strings.NewReader(`{"prompt":"new plan"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/restart", body)
+		req.SetPathValue("id", "t1")
+		w := httptest.NewRecorder()
+		handleWithTask(s, s.restartTask)(w, req)
+		if w.Code != http.StatusConflict {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusConflict)
+		}
+		e := decodeError(t, w)
+		if e.Code != dto.CodeConflict {
+			t.Errorf("code = %q, want %q", e.Code, dto.CodeConflict)
+		}
+	})
+
+	t.Run("EmptyPrompt", func(t *testing.T) {
+		s := newTestServer()
+		s.tasks["t1"] = &taskEntry{
+			task: &task.Task{Prompt: "test", State: task.StateWaiting},
+			done: make(chan struct{}),
+		}
+
+		body := strings.NewReader(`{"prompt":""}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/restart", body)
+		req.SetPathValue("id", "t1")
+		w := httptest.NewRecorder()
+		handleWithTask(s, s.restartTask)(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+		}
+		e := decodeError(t, w)
+		if e.Code != dto.CodeBadRequest {
+			t.Errorf("code = %q, want %q", e.Code, dto.CodeBadRequest)
+		}
+	})
+}
+
 func TestHandleTerminateNotWaiting(t *testing.T) {
 	s := newTestServer()
 	s.tasks["t1"] = &taskEntry{

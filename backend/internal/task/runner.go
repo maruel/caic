@@ -421,6 +421,91 @@ func (r *Runner) PushChanges(ctx context.Context, branch string) error {
 	return r.Container.Push(ctx, r.Dir, branch)
 }
 
+// RestartSession closes the current agent session and starts a fresh one in
+// the same container with a new prompt. The container is NOT killed and the
+// Kill goroutine remains blocked on doneCh.
+func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) error {
+	r.initDefaults()
+
+	t.mu.Lock()
+	state := t.State
+	t.mu.Unlock()
+	if state != StateWaiting && state != StateAsking {
+		return fmt.Errorf("cannot restart in state %s", state)
+	}
+
+	// 1. Close current session without signaling doneCh.
+	t.CloseSession()
+
+	// 2. Clear in-memory messages (sends context_cleared to subscribers).
+	t.ClearMessages()
+
+	// 3. Update prompt and open new log segment.
+	t.Prompt = prompt
+	logW, err := r.openLog(t)
+	if err != nil {
+		t.mu.Lock()
+		t.setState(StateFailed)
+		t.mu.Unlock()
+		return fmt.Errorf("open log: %w", err)
+	}
+
+	// 4. Start new session.
+	t.mu.Lock()
+	t.setState(StateStarting)
+	t.mu.Unlock()
+
+	msgCh := make(chan agent.Message, 256)
+	go func() {
+		for m := range msgCh {
+			t.addMessage(m)
+		}
+	}()
+
+	maxTurns := t.MaxTurns
+	if maxTurns == 0 {
+		maxTurns = r.MaxTurns
+	}
+	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "maxTurns", maxTurns)
+	session, err := r.AgentStartFn(ctx, agent.Options{
+		Container: t.Container,
+		MaxTurns:  maxTurns,
+		Model:     t.Model,
+	}, msgCh, logW)
+	if err != nil {
+		_ = logW.Close()
+		close(msgCh)
+		t.mu.Lock()
+		t.setState(StateFailed)
+		t.mu.Unlock()
+		return fmt.Errorf("start session: %w", err)
+	}
+
+	// 5. Store new session, send prompt.
+	t.mu.Lock()
+	t.session = session
+	t.msgCh = msgCh
+	t.logW = logW
+	t.mu.Unlock()
+
+	t.SetOnResult(r.makeDiffStatFn(ctx, t))
+	t.addMessage(syntheticUserInput(prompt))
+	if err := session.Send(prompt); err != nil {
+		_ = logW.Close()
+		close(msgCh)
+		t.mu.Lock()
+		t.setState(StateFailed)
+		t.mu.Unlock()
+		return fmt.Errorf("send prompt: %w", err)
+	}
+
+	t.mu.Lock()
+	t.setState(StateRunning)
+	t.mu.Unlock()
+	slog.Info("agent restarted", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
+	return nil
+}
+
 // KillContainer kills the md container for the given branch.
 func (r *Runner) KillContainer(ctx context.Context, branch string) error {
 	r.initDefaults()

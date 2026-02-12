@@ -302,6 +302,12 @@ export interface InputReq {
   prompt: string;
 }
 /**
+ * RestartReq is the request body for POST /api/v1/tasks/{id}/restart.
+ */
+export interface RestartReq {
+  prompt: string;
+}
+/**
  * DiffFileStat describes changes to a single file.
  */
 export interface DiffFileStat {

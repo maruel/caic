@@ -63,6 +63,11 @@ type InputReq struct {
 	Prompt string `json:"prompt"`
 }
 
+// RestartReq is the request body for POST /api/v1/tasks/{id}/restart.
+type RestartReq struct {
+	Prompt string `json:"prompt"`
+}
+
 // DiffFileStat describes changes to a single file.
 type DiffFileStat struct {
 	Path    string `json:"path"`

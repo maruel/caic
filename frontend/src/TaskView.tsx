@@ -1,6 +1,6 @@
 // TaskView renders the real-time agent output stream for a single task.
 import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor, type JSX } from "solid-js";
-import { sendInput as apiSendInput, terminateTask as apiTerminateTask, pullTask as apiPullTask, pushTask as apiPushTask, taskEvents } from "@sdk/api.gen";
+import { sendInput as apiSendInput, restartTask as apiRestartTask, terminateTask as apiTerminateTask, pullTask as apiPullTask, pushTask as apiPushTask, taskEvents } from "@sdk/api.gen";
 import { Marked } from "marked";
 import AutoResizeTextarea from "./AutoResizeTextarea";
 import Button from "./Button";
@@ -53,7 +53,7 @@ interface Props {
 export default function TaskView(props: Props) {
   const [messages, setMessages] = createSignal<EventMessage[]>([]);
   const [sending, setSending] = createSignal(false);
-  const [pendingAction, setPendingAction] = createSignal<"pull" | "push" | "terminate" | null>(null);
+  const [pendingAction, setPendingAction] = createSignal<"pull" | "push" | "terminate" | "restart" | null>(null);
   const [actionError, setActionError] = createSignal<string | null>(null);
 
   createEffect(() => {
@@ -126,7 +126,7 @@ export default function TaskView(props: Props) {
 
   const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking";
 
-  async function runAction(name: "pull" | "push" | "terminate", fn: () => Promise<unknown>) {
+  async function runAction(name: "pull" | "push" | "terminate" | "restart", fn: () => Promise<unknown>) {
     if (pendingAction()) return;
     setPendingAction(name);
     setActionError(null);
@@ -207,7 +207,18 @@ export default function TaskView(props: Props) {
                           </Match>
                           <Match when={group().kind === "text" || group().kind === "other"}>
                             <For each={group().events}>
-                              {(ev) => <MessageItem ev={ev} />}
+                              {(ev) => (
+                                <>
+                                  <MessageItem ev={ev} />
+                                  <Show when={ev.result && turnHasExitPlanMode(turn()) && isWaiting()}>
+                                    <div class={styles.planAction}>
+                                      <Button variant="gray" loading={pendingAction() === "restart"} disabled={!!pendingAction() || !props.inputDraft.trim()} onClick={() => { const id = props.taskId; const prompt = props.inputDraft.trim(); const clearDraft = props.onInputDraft; runAction("restart", async () => { await apiRestartTask(id, { prompt }); clearDraft(""); }); }}>
+                                        Clear and execute plan
+                                      </Button>
+                                    </div>
+                                  </Show>
+                                </>
+                              )}
                             </For>
                           </Match>
                         </Switch>
@@ -258,6 +269,9 @@ function MessageItem(props: { ev: EventMessage }) {
             Session started &middot; {init.model} &middot; {init.claudeCodeVersion}
           </div>
         )}
+      </Match>
+      <Match when={props.ev.system?.subtype === "context_cleared"}>
+        <div class={styles.contextCleared}>Context cleared</div>
       </Match>
       <Match when={props.ev.system} keyed>
         {(sys) => (
@@ -464,6 +478,12 @@ function ToolMessageGroup(props: { toolCalls: ToolCall[] }) {
         </details>
       </Show>
     </Show>
+  );
+}
+
+function turnHasExitPlanMode(turn: Turn): boolean {
+  return turn.groups.some((g) =>
+    g.kind === "tool" && g.toolCalls.some((tc) => tc.use.name === "ExitPlanMode"),
   );
 }
 
