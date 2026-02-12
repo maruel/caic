@@ -469,13 +469,49 @@ function ElidedTurn(props: { turn: Turn }) {
   );
 }
 
+// Extracts a short, tool-specific detail string from tool input for display
+// in collapsed summaries (e.g. file path for Read, command for Bash).
+function toolCallDetail(name: string, input: Record<string, unknown>): string {
+  switch (name.toLowerCase()) {
+    case "read":
+    case "write":
+      return typeof input.file_path === "string" ? input.file_path.replace(/^.*\//, "") : "";
+    case "edit":
+      return typeof input.file_path === "string" ? input.file_path.replace(/^.*\//, "") : "";
+    case "bash":
+      if (typeof input.command === "string") {
+        const cmd = input.command.trimStart();
+        return cmd.length > 60 ? cmd.slice(0, 57) + "..." : cmd;
+      }
+      return "";
+    case "grep":
+      return typeof input.pattern === "string" ? input.pattern : "";
+    case "glob":
+      return typeof input.pattern === "string" ? input.pattern : "";
+    case "task":
+      return typeof input.description === "string" ? input.description : "";
+    case "webfetch":
+      return typeof input.url === "string" ? input.url : "";
+    case "websearch":
+      return typeof input.query === "string" ? input.query : "";
+    case "notebookedit":
+      return typeof input.notebook_path === "string" ? input.notebook_path.replace(/^.*\//, "") : "";
+    default:
+      return "";
+  }
+}
+
 function ToolCallBlock(props: { call: ToolCall }) {
   const duration = () => props.call.result?.durationMs ?? 0;
   const error = () => props.call.result?.error ?? "";
+  const detail = () => toolCallDetail(props.call.use.name, props.call.use.input ?? {});
   return (
     <details class={styles.toolBlock}>
       <summary>
         {props.call.use.name}
+        <Show when={detail()}>
+          <span class={styles.toolDetail}>{detail()}</span>
+        </Show>
         <Show when={duration() > 0}>
           <span class={styles.toolDuration}>{formatDuration(duration())}</span>
         </Show>
