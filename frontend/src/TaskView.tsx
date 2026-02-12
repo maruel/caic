@@ -454,8 +454,7 @@ function toolCountSummary(calls: ToolCall[]): string {
 function ToolMessageGroup(props: { toolCalls: ToolCall[] }) {
   const calls = () => props.toolCalls;
   const groupKey = () => "group:" + calls()[0]?.use.toolUseID;
-  // Default to open so expanding groups stay visible as new tool calls arrive.
-  const isOpen = () => detailsOpenState.get(groupKey()) ?? true;
+  const isOpen = () => detailsOpenState.get(groupKey()) ?? false;
   return (
     <Show when={calls().length > 0}>
       <Show when={calls().length > 1} fallback={
