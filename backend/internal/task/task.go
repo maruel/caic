@@ -115,8 +115,7 @@ type Task struct {
 	subs     []chan agent.Message // active SSE subscribers
 	session  *agent.Session
 	msgCh    chan agent.Message // message dispatch channel; closed by Terminate
-	logW     io.Writer          // current log file writer (for writing trailer)
-	closeLog func()             // closes the session log file
+	logW     io.WriteCloser     // session log file; nil when no log dir is configured
 	doneCh   chan struct{}      // closed when user calls Terminate
 	doneOnce sync.Once
 
@@ -329,12 +328,12 @@ func (t *Task) Done() <-chan struct{} {
 
 // Runner manages the serialization of setup and push operations.
 type Runner struct {
-	BaseBranch string
-	Dir        string        // Absolute path to the git repository.
-	MaxTurns   int
+	BaseBranch            string
+	Dir                   string // Absolute path to the git repository.
+	MaxTurns              int
 	GitTimeout            time.Duration // Timeout for git/container ops; defaults to 1 minute.
 	ContainerStartTimeout time.Duration // Timeout for container start (image pull); defaults to 1 hour.
-	LogDir                string        // If set, raw JSONL session logs are written here.
+	LogDir                string        // Directory for raw JSONL session logs (required).
 
 	// Container provides md container lifecycle operations. Must be set before
 	// calling Start.
@@ -405,12 +404,16 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		}
 	}()
 
-	logW, closeLog := r.openLog(t)
+	logW, err := r.openLog(t)
+	if err != nil {
+		close(msgCh)
+		return err
+	}
 
 	// Prefer attaching to a live relay (claude process still running).
-	relayAlive, err := agent.IsRelayRunning(ctx, t.Container)
-	if err != nil {
-		slog.Warn("relay check failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+	relayAlive, relayErr := agent.IsRelayRunning(ctx, t.Container)
+	if relayErr != nil {
+		slog.Warn("relay check failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", relayErr)
 	}
 
 	var session *agent.Session
@@ -442,7 +445,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		session, err = r.AgentStartFn(ctx, t.Container, maxTurns, msgCh, logW, t.SessionID)
 	}
 	if err != nil {
-		closeLog()
+		_ = logW.Close()
 		close(msgCh)
 		t.mu.Lock()
 		t.setState(StateWaiting)
@@ -454,7 +457,6 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 	t.session = session
 	t.msgCh = msgCh
 	t.logW = logW
-	t.closeLog = closeLog
 	t.mu.Unlock()
 	return nil
 }
@@ -498,12 +500,17 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	if maxTurns == 0 {
 		maxTurns = r.MaxTurns
 	}
-	logW, closeLog := r.openLog(t)
+	logW, err := r.openLog(t)
+	if err != nil {
+		close(msgCh)
+		t.setState(StateFailed)
+		return err
+	}
 
 	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "maxTurns", maxTurns)
 	session, err := r.AgentStartFn(ctx, name, maxTurns, msgCh, logW, "")
 	if err != nil {
-		closeLog()
+		_ = logW.Close()
 		close(msgCh)
 		t.setState(StateFailed)
 		slog.Warn("agent session failed to start", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
@@ -515,12 +522,11 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	t.session = session
 	t.msgCh = msgCh
 	t.logW = logW
-	t.closeLog = closeLog
 	t.mu.Unlock()
 
 	t.addMessage(syntheticUserInput(t.Prompt))
 	if err := session.Send(t.Prompt); err != nil {
-		closeLog()
+		_ = logW.Close()
 		close(msgCh)
 		t.setState(StateFailed)
 		return fmt.Errorf("write prompt: %w", err)
@@ -547,36 +553,40 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 	msgCh := t.msgCh
 	logW := t.logW
 	t.logW = nil
-	closeLog := t.closeLog
 	t.mu.Unlock()
 
 	name := t.Container
 
-	// Terminate agent session if one exists.
+	// Graceful shutdown: close stdin so the agent can emit a final
+	// ResultMessage with accurate cost/turns stats, then force-kill.
 	var result *agent.ResultMessage
 	if session != nil {
 		session.Close()
-		result, _ = session.Wait()
-	}
-	if msgCh != nil {
-		close(msgCh)
-	}
-
-	// finishLog writes the result trailer and closes the log file.
-	finishLog := func(res *Result) {
-		writeLogTrailer(logW, res)
-		if closeLog != nil {
-			closeLog()
+		timer := time.NewTimer(10 * time.Second)
+		select {
+		case <-session.Done():
+			timer.Stop()
+			result, _ = session.Wait()
+		case <-timer.C:
+			slog.Warn("agent session did not exit after stdin close, killing container", "repo", t.Repo, "branch", t.Branch)
 		}
 	}
 
-	// Kill container.
 	t.setState(StateTerminated)
 	slog.Info("killing container", "repo", t.Repo, "branch", t.Branch, "container", name)
 	if name != "" {
 		if err := r.KillContainer(ctx, t.Branch); err != nil {
 			slog.Warn("failed to kill container", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
 		}
+	}
+
+	// If the graceful wait timed out, wait for the session to drain now
+	// that the container is dead and the SSH connection is severed.
+	if session != nil && result == nil {
+		result, _ = session.Wait()
+	}
+	if msgCh != nil {
+		close(msgCh)
 	}
 
 	res := Result{
@@ -600,9 +610,10 @@ func (r *Runner) Kill(ctx context.Context, t *Task) Result {
 		res.NumTurns = liveTurns
 		res.DurationMs = liveDur
 	}
-	// waitErr is intentionally ignored: the user requested termination, so a
-	// missing result message or non-zero exit is expected, not an error.
-	finishLog(&res)
+	writeLogTrailer(logW, &res)
+	if logW != nil {
+		_ = logW.Close()
+	}
 	return res
 }
 
@@ -689,23 +700,17 @@ func (r *Runner) KillContainer(ctx context.Context, branch string) error {
 }
 
 // openLog creates a JSONL log file in LogDir and writes a metadata header as
-// the first line. Returns a nil writer and a no-op closer if LogDir is empty
-// or the file cannot be created.
-func (r *Runner) openLog(t *Task) (w io.Writer, closeFn func()) {
-	if r.LogDir == "" {
-		return nil, func() {}
-	}
+// the first line.
+func (r *Runner) openLog(t *Task) (io.WriteCloser, error) {
 	if err := os.MkdirAll(r.LogDir, 0o750); err != nil {
-		slog.Warn("failed to create log dir", "dir", r.LogDir, "err", err)
-		return nil, func() {}
+		return nil, fmt.Errorf("create log dir: %w", err)
 	}
 	safeRepo := strings.ReplaceAll(t.Repo, "/", "-")
 	safeBranch := strings.ReplaceAll(t.Branch, "/", "-")
 	name := t.ID.String() + "-" + safeRepo + "-" + safeBranch + ".jsonl"
 	f, err := os.OpenFile(filepath.Join(r.LogDir, name), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // name is derived from ksid, not arbitrary user input.
 	if err != nil {
-		slog.Warn("failed to create log file", "err", err)
-		return nil, func() {}
+		return nil, fmt.Errorf("create log file: %w", err)
 	}
 	// Write metadata header as the first line.
 	meta := agent.MetaMessage{
@@ -719,11 +724,10 @@ func (r *Runner) openLog(t *Task) (w io.Writer, closeFn func()) {
 	if data, err := json.Marshal(meta); err == nil {
 		_, _ = f.Write(append(data, '\n'))
 	}
-	return f, func() { _ = f.Close() }
+	return f, nil
 }
 
-// writeLogTrailer appends a MetaResultMessage to the log file. Must be called
-// before closeLog.
+// writeLogTrailer appends a MetaResultMessage to the log file.
 func writeLogTrailer(w io.Writer, res *Result) {
 	if w == nil {
 		return

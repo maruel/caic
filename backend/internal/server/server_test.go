@@ -555,12 +555,12 @@ func TestLoadTerminatedTasksBackfillsCostFromMessages(t *testing.T) {
 	}
 }
 
-func TestLoadTerminatedTasksEmptyLogDir(t *testing.T) {
+func TestLoadTerminatedTasksEmptyDir(t *testing.T) {
 	s := &Server{
 		runners: map[string]*task.Runner{},
 		tasks:   make(map[string]*taskEntry),
 		changed: make(chan struct{}),
-		logDir:  "",
+		logDir:  t.TempDir(),
 	}
 	s.loadTerminatedTasks()
 	if len(s.tasks) != 0 {

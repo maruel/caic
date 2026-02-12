@@ -513,9 +513,6 @@ func (s *Server) SetRunnerOps(c task.ContainerBackend, agentStart func(ctx conte
 // loadTerminatedTasks loads the last 10 terminated tasks from JSONL logs so
 // they appear in the UI immediately after a server restart.
 func (s *Server) loadTerminatedTasks() {
-	if s.logDir == "" {
-		return
-	}
 	loaded := task.LoadTerminated(s.logDir, 10)
 	if len(loaded) == 0 {
 		return

@@ -152,7 +152,8 @@ func serveFake(ctx context.Context, addr, rootDir string) error {
 		rootDir = filepath.Dir(clone)
 	}
 
-	srv, err := server.New(ctx, rootDir, 1, "")
+	logDir := filepath.Join(os.TempDir(), "caic-e2e-logs")
+	srv, err := server.New(ctx, rootDir, 1, logDir)
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}

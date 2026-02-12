@@ -13,27 +13,19 @@ import (
 )
 
 func TestOpenLog(t *testing.T) {
-	t.Run("EmptyDir", func(t *testing.T) {
-		r := &Runner{}
-		w, closeFn := r.openLog(&Task{Prompt: "test"})
-		defer closeFn()
-		if w != nil {
-			t.Error("expected nil writer when LogDir is empty")
-		}
-	})
 	t.Run("CreatesFile", func(t *testing.T) {
 		dir := t.TempDir()
 		logDir := filepath.Join(dir, "logs")
 		r := &Runner{LogDir: logDir}
 		tk := &Task{ID: ksid.NewID(), Prompt: "test", Repo: "org/repo", Branch: "caic/w0"}
-		w, closeFn := r.openLog(tk)
-		defer closeFn()
-		if w == nil {
-			t.Fatal("expected non-nil writer")
+		w, err := r.openLog(tk)
+		if err != nil {
+			t.Fatal(err)
 		}
+		defer func() { _ = w.Close() }()
 		// Write something and close.
 		_, _ = w.Write([]byte("test\n"))
-		closeFn()
+		_ = w.Close()
 
 		entries, err := os.ReadDir(logDir)
 		if err != nil {

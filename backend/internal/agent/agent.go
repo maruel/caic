@@ -113,6 +113,11 @@ func (s *Session) Close() {
 	})
 }
 
+// Done returns a channel that is closed when the agent process exits.
+func (s *Session) Done() <-chan struct{} {
+	return s.done
+}
+
 // Wait blocks until the agent process exits and returns the result.
 func (s *Session) Wait() (*ResultMessage, error) {
 	<-s.done
