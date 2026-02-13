@@ -20,6 +20,9 @@ type Backend struct{}
 
 var _ agent.Backend = (*Backend)(nil)
 
+// Wire is the wire format for Claude Code (stream-json over stdin/stdout).
+var Wire = agent.WireFormat{Write: WritePrompt, Parse: agent.ParseMessage}
+
 // Harness returns the harness identifier.
 func (b *Backend) Harness() agent.Harness { return agent.Claude }
 
@@ -51,7 +54,7 @@ func (b *Backend) Start(ctx context.Context, opts agent.Options, msgCh chan<- ag
 		return nil, fmt.Errorf("start relay: %w", err)
 	}
 
-	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, WritePrompt, agent.ParseMessage), nil
+	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire), nil
 }
 
 // AttachRelay connects to an already-running relay in the container.
@@ -74,7 +77,7 @@ func (b *Backend) AttachRelay(ctx context.Context, container string, offset int6
 		return nil, fmt.Errorf("attach relay: %w", err)
 	}
 
-	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, WritePrompt, agent.ParseMessage), nil
+	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire), nil
 }
 
 // ReadRelayOutput reads the complete output.jsonl from the container's relay

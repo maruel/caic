@@ -33,13 +33,19 @@ type WriteFn func(w io.Writer, prompt string, logW io.Writer) error
 // ParseFn decodes a single NDJSON line into a typed Message.
 type ParseFn func(line []byte) (Message, error)
 
+// WireFormat bundles the write and parse functions for a backend's wire
+// protocol. This ensures they are always paired correctly.
+type WireFormat struct {
+	Write WriteFn
+	Parse ParseFn
+}
+
 // Session manages a running agent process.
 type Session struct {
 	cmd       *exec.Cmd
 	stdin     io.WriteCloser
 	logW      io.Writer
 	writeFn   WriteFn
-	parseFn   ParseFn
 	mu        sync.Mutex // serializes stdin writes
 	closeOnce sync.Once
 	done      chan struct{} // closed when readMessages goroutine exits
@@ -49,21 +55,19 @@ type Session struct {
 
 // NewSession creates a Session from an already-started command. Messages read
 // from stdout are parsed and sent to msgCh. logW receives raw NDJSON lines
-// (may be nil). writeFn defines the wire format for sending prompts. parseFn
-// decodes each NDJSON line into a typed Message.
-func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer, writeFn WriteFn, parseFn ParseFn) *Session {
+// (may be nil). wire bundles the backend's write and parse functions.
+func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer, wire WireFormat) *Session {
 	s := &Session{
 		cmd:     cmd,
 		stdin:   stdin,
 		logW:    logW,
-		writeFn: writeFn,
-		parseFn: parseFn,
+		writeFn: wire.Write,
 		done:    make(chan struct{}),
 	}
 
 	go func() {
 		defer close(s.done)
-		result, parseErr := readMessages(stdout, msgCh, logW, parseFn)
+		result, parseErr := readMessages(stdout, msgCh, logW, wire.Parse)
 		waitErr := cmd.Wait()
 		// Store the result and first non-nil error.
 		s.result = result
