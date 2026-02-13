@@ -5,9 +5,26 @@ import (
 	"errors"
 	"fmt"
 	"time"
-
-	"github.com/maruel/caic/backend/internal/server/dto"
 )
+
+// Harness identifies the coding agent harness (e.g. Claude Code CLI, Gemini CLI).
+type Harness string
+
+// Supported agent harnesses.
+const (
+	Claude Harness = "claude"
+)
+
+// DiffFileStat describes changes to a single file.
+type DiffFileStat struct {
+	Path    string `json:"path"`
+	Added   int    `json:"added"`
+	Deleted int    `json:"deleted"`
+	Binary  bool   `json:"binary,omitempty"`
+}
+
+// DiffStat summarises the changes in a branch relative to its base.
+type DiffStat []DiffFileStat
 
 // Message is the interface for all Claude Code streaming JSON messages.
 type Message interface {
@@ -109,7 +126,7 @@ type ResultMessage struct {
 	Usage         Usage           `json:"usage"`
 	ModelUsage    json.RawMessage `json:"modelUsage"`
 	UUID          string          `json:"uuid"`
-	DiffStat      dto.DiffStat    `json:"diff_stat,omitzero"` // Set by caic after running container diff.
+	DiffStat      DiffStat        `json:"diff_stat,omitzero"` // Set by caic after running container diff.
 }
 
 // Type implements Message.
@@ -133,6 +150,7 @@ type MetaMessage struct {
 	Prompt      string    `json:"prompt"`
 	Repo        string    `json:"repo"`
 	Branch      string    `json:"branch"`
+	Harness     Harness   `json:"harness"`
 	Model       string    `json:"model,omitempty"`
 	StartedAt   time.Time `json:"started_at"`
 }
@@ -157,24 +175,27 @@ func (m *MetaMessage) Validate() error {
 	if m.Branch == "" {
 		return errors.New("missing branch")
 	}
+	if m.Harness == "" {
+		return errors.New("missing harness")
+	}
 	return nil
 }
 
 // MetaResultMessage is appended as the last line of a JSONL log file when a
 // task reaches a terminal state.
 type MetaResultMessage struct {
-	MessageType              string       `json:"type"`
-	State                    string       `json:"state"`
-	CostUSD                  float64      `json:"cost_usd,omitempty"`
-	DurationMs               int64        `json:"duration_ms,omitempty"`
-	NumTurns                 int          `json:"num_turns,omitempty"`
-	InputTokens              int          `json:"input_tokens,omitempty"`
-	OutputTokens             int          `json:"output_tokens,omitempty"`
-	CacheCreationInputTokens int          `json:"cache_creation_input_tokens,omitempty"`
-	CacheReadInputTokens     int          `json:"cache_read_input_tokens,omitempty"`
-	DiffStat                 dto.DiffStat `json:"diff_stat,omitzero"`
-	Error                    string       `json:"error,omitempty"`
-	AgentResult              string       `json:"agent_result,omitempty"`
+	MessageType              string   `json:"type"`
+	State                    string   `json:"state"`
+	CostUSD                  float64  `json:"cost_usd,omitempty"`
+	DurationMs               int64    `json:"duration_ms,omitempty"`
+	NumTurns                 int      `json:"num_turns,omitempty"`
+	InputTokens              int      `json:"input_tokens,omitempty"`
+	OutputTokens             int      `json:"output_tokens,omitempty"`
+	CacheCreationInputTokens int      `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int      `json:"cache_read_input_tokens,omitempty"`
+	DiffStat                 DiffStat `json:"diff_stat,omitzero"`
+	Error                    string   `json:"error,omitempty"`
+	AgentResult              string   `json:"agent_result,omitempty"`
 }
 
 // Type implements Message.

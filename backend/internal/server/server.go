@@ -255,7 +255,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest("unknown repo: " + req.Repo)
 	}
 
-	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Model: req.Model}
+	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: toAgentHarness(req.Harness), Model: req.Model}
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()
@@ -494,7 +494,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *dto.SyncRe
 	} else if len(issues) > 0 && !req.Force {
 		status = "blocked"
 	}
-	return &dto.SyncResp{Status: status, DiffStat: ds, SafetyIssues: issues}, nil
+	return &dto.SyncResp{Status: status, DiffStat: toDTODiffStat(ds), SafetyIssues: toDTOSafetyIssues(issues)}, nil
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
@@ -511,14 +511,14 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-// SetRunnerOps overrides container and agent operations on all runners.
-func (s *Server) SetRunnerOps(c task.ContainerBackend, ab agent.Backend) {
+// SetRunnerOps overrides container and agent backends on all runners.
+func (s *Server) SetRunnerOps(c task.ContainerBackend, backends map[agent.Harness]agent.Backend) {
 	for _, r := range s.runners {
 		if c != nil {
 			r.Container = c
 		}
-		if ab != nil {
-			r.AgentBackend = ab
+		if backends != nil {
+			r.Backends = backends
 		}
 	}
 }
@@ -553,6 +553,7 @@ func (s *Server) loadTerminatedTasks() error {
 			ID:        ksid.NewID(),
 			Prompt:    lt.Prompt,
 			Repo:      lt.Repo,
+			Harness:   lt.Harness,
 			Branch:    lt.Branch,
 			State:     lt.State,
 			StartedAt: lt.StartedAt,
@@ -655,6 +656,17 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	var startedAt time.Time
 	var stateUpdatedAt time.Time
 
+	// Read the harness from the container label (authoritative), falling
+	// back to the log file, then to Claude as the default.
+	harnessLabel, _ := container.LabelValue(ctx, c.Name, "harness")
+	harnessName := agent.Harness(harnessLabel)
+	if harnessName == "" && lt != nil {
+		harnessName = lt.Harness
+	}
+	if harnessName == "" {
+		harnessName = agent.Claude
+	}
+
 	// Check whether the relay daemon is alive in this container.
 	relayAlive, relayErr := agent.IsRelayRunning(ctx, c.Name)
 	if relayErr != nil {
@@ -665,7 +677,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	var relaySize int64
 	if relayAlive {
 		// Relay is alive — read authoritative output from container.
-		relayMsgs, relaySize, relayErr = runner.ReadRelayOutput(ctx, c.Name)
+		relayMsgs, relaySize, relayErr = runner.ReadRelayOutput(ctx, c.Name, harnessName)
 		if relayErr != nil {
 			slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", c.Name, "err", relayErr)
 			relayAlive = false
@@ -685,6 +697,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		ID:             taskID,
 		Prompt:         prompt,
 		Repo:           ri.RelPath,
+		Harness:        harnessName,
 		Branch:         branch,
 		Container:      c.Name,
 		State:          task.StateRunning,
@@ -784,6 +797,7 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 		Container:         e.task.Container,
 		State:             e.task.State.String(),
 		StateUpdatedAt:    float64(e.task.StateUpdatedAt.UnixMilli()) / 1e3,
+		Harness:           toDTOHarness(e.task.Harness),
 		Model:             e.task.Model,
 		ClaudeCodeVersion: e.task.ClaudeCodeVersion,
 		SessionID:         e.task.SessionID,
@@ -793,7 +807,7 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 		j.ContainerUptimeMs = time.Since(e.task.StartedAt).Milliseconds()
 	}
 	if e.result != nil {
-		j.DiffStat = e.result.DiffStat
+		j.DiffStat = toDTODiffStat(e.result.DiffStat)
 		j.CostUSD = e.result.CostUSD
 		j.DurationMs = e.result.DurationMs
 		j.NumTurns = e.result.NumTurns

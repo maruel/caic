@@ -3,7 +3,7 @@ package task
 import (
 	"testing"
 
-	"github.com/maruel/caic/backend/internal/server/dto"
+	"github.com/maruel/caic/backend/internal/agent"
 )
 
 func TestParseDiffNumstat(t *testing.T) {
@@ -13,7 +13,7 @@ func TestParseDiffNumstat(t *testing.T) {
 		if len(ds) != 2 {
 			t.Fatalf("files = %d, want 2", len(ds))
 		}
-		want := []dto.DiffFileStat{
+		want := []agent.DiffFileStat{
 			{Path: "src/main.go", Added: 10, Deleted: 3},
 			{Path: "src/util.go", Added: 5, Deleted: 0},
 		}

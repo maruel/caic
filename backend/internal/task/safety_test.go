@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/maruel/caic/backend/internal/server/dto"
+	"github.com/maruel/caic/backend/internal/agent"
 )
 
 func TestCheckSafety(t *testing.T) {
@@ -26,7 +26,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "add", "big.bin")
 		runGit(t, clone, "commit", "-m", "add binary")
 
-		ds := dto.DiffStat{{Path: "big.bin", Binary: true}}
+		ds := agent.DiffStat{{Path: "big.bin", Binary: true}}
 		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", ds)
 		if err != nil {
 			t.Fatal(err)
@@ -54,7 +54,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "add", "small.bin")
 		runGit(t, clone, "commit", "-m", "add small binary")
 
-		ds := dto.DiffStat{{Path: "small.bin", Binary: true}}
+		ds := agent.DiffStat{{Path: "small.bin", Binary: true}}
 		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", ds)
 		if err != nil {
 			t.Fatal(err)
@@ -150,7 +150,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "add", "clean.go")
 		runGit(t, clone, "commit", "-m", "add clean")
 
-		ds := dto.DiffStat{{Path: "clean.go", Added: 1}}
+		ds := agent.DiffStat{{Path: "clean.go", Added: 1}}
 		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", ds)
 		if err != nil {
 			t.Fatal(err)

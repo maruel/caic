@@ -217,7 +217,7 @@ func TestHandleCreateTaskReturnsID(t *testing.T) {
 	}
 	handler := handle(s.createTask)
 
-	body := strings.NewReader(`{"prompt":"test task","repo":"myrepo"}`)
+	body := strings.NewReader(`{"prompt":"test task","repo":"myrepo","harness":"claude"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 	w := httptest.NewRecorder()
 	handler(w, req)
@@ -256,7 +256,7 @@ func TestHandleCreateTaskUnknownRepo(t *testing.T) {
 	s := newTestServer(t)
 	handler := handle(s.createTask)
 
-	body := strings.NewReader(`{"prompt":"test","repo":"nonexistent"}`)
+	body := strings.NewReader(`{"prompt":"test","repo":"nonexistent","harness":"claude"}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 	w := httptest.NewRecorder()
 	handler(w, req)
@@ -274,7 +274,7 @@ func TestHandleCreateTaskUnknownField(t *testing.T) {
 	s := newTestServer(t)
 	handler := handle(s.createTask)
 
-	body := strings.NewReader(`{"prompt":"test","repo":"r","bogus":true}`)
+	body := strings.NewReader(`{"prompt":"test","repo":"r","harness":"claude","bogus":true}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 	w := httptest.NewRecorder()
 	handler(w, req)
@@ -349,7 +349,7 @@ func TestLoadTerminatedTasksOnStartup(t *testing.T) {
 	for i, state := range []string{"terminated", "failed", "terminated"} {
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: fmt.Sprintf("task %d", i), Repo: "r",
-			Branch: "caic/w" + strings.Repeat("0", i+1), StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
+			Branch: "caic/w" + strings.Repeat("0", i+1), Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
 		})
 		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: state, CostUSD: float64(i + 1)})
 		writeLogFile(t, logDir, fmt.Sprintf("%d.jsonl", i), meta, trailer)
@@ -406,7 +406,7 @@ func TestTerminatedTaskEventsAfterRestart(t *testing.T) {
 	// Write a terminated task log with real agent messages.
 	meta := mustJSON(t, agent.MetaMessage{
 		MessageType: "caic_meta", Version: 1, Prompt: "fix the bug",
-		Repo: "r", Branch: "caic/w0", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Repo: "r", Branch: "caic/w0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	initMsg := mustJSON(t, agent.SystemInitMessage{
 		MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",
@@ -521,7 +521,7 @@ func TestLoadTerminatedTasksCostInJSON(t *testing.T) {
 
 	meta := mustJSON(t, agent.MetaMessage{
 		MessageType: "caic_meta", Version: 1, Prompt: "fix bug",
-		Repo: "r", Branch: "caic/w0", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Repo: "r", Branch: "caic/w0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	initMsg := mustJSON(t, agent.SystemInitMessage{
 		MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",
@@ -578,7 +578,7 @@ func TestLoadTerminatedTasksBackfillsCostFromMessages(t *testing.T) {
 	// but the messages contain a ResultMessage with cost.
 	meta := mustJSON(t, agent.MetaMessage{
 		MessageType: "caic_meta", Version: 1, Prompt: "fix bug",
-		Repo: "r", Branch: "caic/w0", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		Repo: "r", Branch: "caic/w0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 	initMsg := mustJSON(t, agent.SystemInitMessage{
 		MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",

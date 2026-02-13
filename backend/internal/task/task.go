@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
-	"github.com/maruel/caic/backend/internal/server/dto"
 	"github.com/maruel/ksid"
 )
 
@@ -70,7 +69,8 @@ func (s State) String() string {
 type Task struct {
 	ID                ksid.ID
 	Prompt            string
-	Repo              string // Relative repo path (for display/API).
+	Repo              string        // Relative repo path (for display/API).
+	Harness           agent.Harness // Agent harness ("claude", "gemini", etc.).
 	MaxTurns          int
 	Branch            string
 	Container         string
@@ -101,7 +101,7 @@ type Task struct {
 
 	// onResult is called when a ResultMessage arrives, before fan-out to
 	// subscribers. It returns the parsed diff stat. May be nil.
-	onResult func() dto.DiffStat
+	onResult func() agent.DiffStat
 }
 
 // setState updates the state and records the transition time. The caller must
@@ -113,7 +113,7 @@ func (t *Task) setState(s State) {
 
 // SetOnResult registers a callback invoked when a ResultMessage arrives.
 // The callback returns the parsed diff stat to attach to the message.
-func (t *Task) SetOnResult(fn func() dto.DiffStat) {
+func (t *Task) SetOnResult(fn func() agent.DiffStat) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.onResult = fn

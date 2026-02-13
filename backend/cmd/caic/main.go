@@ -158,7 +158,8 @@ func serveFake(ctx context.Context, addr, rootDir string) error {
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}
-	srv.SetRunnerOps(&fakeContainer{}, &fakeBackend{})
+	fb := &fakeBackend{}
+	srv.SetRunnerOps(&fakeContainer{}, map[agent.Harness]agent.Backend{fb.Harness(): fb})
 
 	err = srv.ListenAndServe(ctx, addr)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -228,7 +229,7 @@ type fakeBackend struct{}
 
 var _ agent.Backend = (*fakeBackend)(nil)
 
-func (*fakeBackend) Name() string { return "fake" }
+func (*fakeBackend) Harness() agent.Harness { return "fake" }
 
 func (*fakeBackend) Start(_ context.Context, _ agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
 	script := `read line

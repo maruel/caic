@@ -47,6 +47,7 @@ export default function TaskList(props: TaskListProps) {
               repo={t().repo}
               repoURL={t().repoURL}
               branch={t().branch}
+              harness={t().harness}
               model={t().model}
               claudeCodeVersion={t().claudeCodeVersion}
               costUSD={t().costUSD}

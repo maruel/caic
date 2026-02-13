@@ -16,7 +16,6 @@ import (
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/agent/claude"
 	"github.com/maruel/caic/backend/internal/gitutil"
-	"github.com/maruel/caic/backend/internal/server/dto"
 )
 
 // ContainerBackend abstracts md container lifecycle operations for testability.
@@ -34,7 +33,7 @@ type Result struct {
 	Branch      string
 	Container   string
 	State       State
-	DiffStat    dto.DiffStat
+	DiffStat    agent.DiffStat
 	CostUSD     float64
 	DurationMs  int64
 	NumTurns    int
@@ -55,9 +54,9 @@ type Runner struct {
 	// Container provides md container lifecycle operations. Must be set before
 	// calling Start.
 	Container ContainerBackend
-	// AgentBackend launches and communicates with agent sessions. Defaults to
-	// the Claude Code backend.
-	AgentBackend agent.Backend
+	// Backends maps harness names to their Backend implementations. The runner
+	// selects the backend matching Task.Harness.
+	Backends map[agent.Harness]agent.Backend
 
 	initOnce sync.Once
 	branchMu sync.Mutex // Serializes operations that need a specific branch checked out (md commands).
@@ -66,8 +65,8 @@ type Runner struct {
 
 func (r *Runner) initDefaults() {
 	r.initOnce.Do(func() {
-		if r.AgentBackend == nil {
-			r.AgentBackend = &claude.Backend{}
+		if r.Backends == nil {
+			r.Backends = map[agent.Harness]agent.Backend{agent.Claude: &claude.Backend{}}
 		}
 		if r.GitTimeout == 0 {
 			r.GitTimeout = time.Minute
@@ -76,6 +75,11 @@ func (r *Runner) initDefaults() {
 			r.ContainerStartTimeout = time.Hour
 		}
 	})
+}
+
+// backend returns the Backend for the given agent name.
+func (r *Runner) backend(name agent.Harness) agent.Backend {
+	return r.Backends[name]
 }
 
 // Init sets nextID past any existing caic/w* branches so that restarts don't
@@ -145,7 +149,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 			t.setState(StateRunning)
 			t.mu.Unlock()
 		}
-		session, err = r.AgentBackend.AttachRelay(ctx, t.Container, t.RelayOffset, msgCh, logW)
+		session, err = r.backend(t.Harness).AttachRelay(ctx, t.Container, t.RelayOffset, msgCh, logW)
 		if err != nil {
 			slog.Warn("attach relay failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
 			relayAlive = false
@@ -160,7 +164,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		if maxTurns == 0 {
 			maxTurns = r.MaxTurns
 		}
-		session, err = r.AgentBackend.Start(ctx, agent.Options{
+		session, err = r.backend(t.Harness).Start(ctx, agent.Options{
 			Container:       t.Container,
 			MaxTurns:        maxTurns,
 			Model:           t.Model,
@@ -203,7 +207,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	// 1. Create branch + start container (serialized).
 	slog.Info("setting up task", "repo", t.Repo)
 	r.branchMu.Lock()
-	name, err := r.setup(ctx, t, []string{"caic=" + t.ID.String()})
+	name, err := r.setup(ctx, t, []string{"caic=" + t.ID.String(), "harness=" + string(t.Harness)})
 	r.branchMu.Unlock()
 	if err != nil {
 		t.setState(StateFailed)
@@ -231,8 +235,8 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 		return err
 	}
 
-	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "maxTurns", maxTurns)
-	session, err := r.AgentBackend.Start(ctx, agent.Options{
+	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "agent", t.Harness, "maxTurns", maxTurns)
+	session, err := r.backend(t.Harness).Start(ctx, agent.Options{
 		Container: name,
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
@@ -400,7 +404,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (string, e
 // SyncToOrigin fetches changes from the container, runs safety checks, and
 // pushes the container's remote-tracking ref to origin. If safety issues are
 // found and force is false, it returns the issues without pushing.
-func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, force bool) (dto.DiffStat, []dto.SafetyIssue, error) {
+func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, force bool) (agent.DiffStat, []SafetyIssue, error) {
 	r.initDefaults()
 	fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer fetchCancel()
@@ -477,8 +481,8 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) err
 	if maxTurns == 0 {
 		maxTurns = r.MaxTurns
 	}
-	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "maxTurns", maxTurns)
-	session, err := r.AgentBackend.Start(ctx, agent.Options{
+	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "agent", t.Harness, "maxTurns", maxTurns)
+	session, err := r.backend(t.Harness).Start(ctx, agent.Options{
 		Container: t.Container,
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
@@ -518,10 +522,10 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) err
 }
 
 // ReadRelayOutput reads the relay output.jsonl from the container using the
-// configured agent backend to parse messages.
-func (r *Runner) ReadRelayOutput(ctx context.Context, container string) ([]agent.Message, int64, error) {
+// backend matching agentName to parse messages.
+func (r *Runner) ReadRelayOutput(ctx context.Context, container string, agentName agent.Harness) ([]agent.Message, int64, error) {
 	r.initDefaults()
-	return r.AgentBackend.ReadRelayOutput(ctx, container)
+	return r.backend(agentName).ReadRelayOutput(ctx, container)
 }
 
 // KillContainer kills the md container for the given branch.
@@ -534,8 +538,8 @@ func (r *Runner) KillContainer(ctx context.Context, branch string) error {
 
 // makeDiffStatFn returns a callback that runs Diff("--numstat") for the task's
 // branch. The returned function is safe to call from addMessage.
-func (r *Runner) makeDiffStatFn(ctx context.Context, t *Task) func() dto.DiffStat {
-	return func() dto.DiffStat {
+func (r *Runner) makeDiffStatFn(ctx context.Context, t *Task) func() agent.DiffStat {
+	return func() agent.DiffStat {
 		if r.Container == nil {
 			return nil
 		}
@@ -546,7 +550,7 @@ func (r *Runner) makeDiffStatFn(ctx context.Context, t *Task) func() dto.DiffSta
 }
 
 // diffStat runs Diff("--numstat") and parses the output.
-func (r *Runner) diffStat(ctx context.Context, branch string) dto.DiffStat {
+func (r *Runner) diffStat(ctx context.Context, branch string) agent.DiffStat {
 	numstat, err := r.Container.Diff(ctx, r.Dir, branch, "--numstat")
 	if err != nil {
 		slog.Warn("diff numstat failed", "branch", branch, "err", err)
@@ -575,6 +579,7 @@ func (r *Runner) openLog(t *Task) (io.WriteCloser, error) {
 		Prompt:      t.Prompt,
 		Repo:        t.Repo,
 		Branch:      t.Branch,
+		Harness:     t.Harness,
 		Model:       t.Model,
 		StartedAt:   t.StartedAt,
 	}

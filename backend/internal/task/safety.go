@@ -11,8 +11,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/maruel/caic/backend/internal/server/dto"
+	"github.com/maruel/caic/backend/internal/agent"
 )
+
+// SafetyIssue describes a potential problem detected before pushing to origin.
+type SafetyIssue struct {
+	File   string
+	Kind   string // "large_binary" or "secret"
+	Detail string // Human-readable description.
+}
 
 // maxBinarySize is the threshold above which a binary file triggers a warning.
 const maxBinarySize = 500 * 1024 // 500 KB
@@ -37,8 +44,8 @@ type secretPattern struct {
 // CheckSafety scans the diff for large binary files and potential secrets.
 // It returns any issues found. A non-nil error indicates a git command failure,
 // not a safety problem.
-func CheckSafety(ctx context.Context, dir, branch, baseBranch string, ds dto.DiffStat) ([]dto.SafetyIssue, error) {
-	var issues []dto.SafetyIssue
+func CheckSafety(ctx context.Context, dir, branch, baseBranch string, ds agent.DiffStat) ([]SafetyIssue, error) {
+	var issues []SafetyIssue
 
 	// Check binary file sizes.
 	for _, f := range ds {
@@ -51,7 +58,7 @@ func CheckSafety(ctx context.Context, dir, branch, baseBranch string, ds dto.Dif
 			continue
 		}
 		if size > maxBinarySize {
-			issues = append(issues, dto.SafetyIssue{
+			issues = append(issues, SafetyIssue{
 				File:   f.Path,
 				Kind:   "large_binary",
 				Detail: fmt.Sprintf("binary file is %s (limit %s)", humanSize(size), humanSize(maxBinarySize)),
@@ -81,7 +88,7 @@ func gitCatFileSize(ctx context.Context, dir, branch, path string) (int64, error
 }
 
 // scanDiffForSecrets runs git diff and scans added lines for secret patterns.
-func scanDiffForSecrets(ctx context.Context, dir, branch, baseBranch string) ([]dto.SafetyIssue, error) {
+func scanDiffForSecrets(ctx context.Context, dir, branch, baseBranch string) ([]SafetyIssue, error) {
 	slog.Info("git diff for secrets", "branch", branch, "baseBranch", baseBranch)
 	cmd := exec.CommandContext(ctx, "git", "diff", "origin/"+baseBranch+"..."+branch) //nolint:gosec // branch names are from internal git state.
 	cmd.Dir = dir
@@ -92,7 +99,7 @@ func scanDiffForSecrets(ctx context.Context, dir, branch, baseBranch string) ([]
 		return nil, fmt.Errorf("git diff for secret scan: %w: %s", err, stderr.String())
 	}
 
-	var issues []dto.SafetyIssue
+	var issues []SafetyIssue
 	seen := make(map[string]bool) // dedupe by file+kind
 	var currentFile string
 
@@ -119,7 +126,7 @@ func scanDiffForSecrets(ctx context.Context, dir, branch, baseBranch string) ([]
 			}
 			seen[key] = true
 			slog.Warn("secret pattern matched", "file", currentFile, "pattern", sp.desc, "line", added)
-			issues = append(issues, dto.SafetyIssue{
+			issues = append(issues, SafetyIssue{
 				File:   currentFile,
 				Kind:   "secret",
 				Detail: fmt.Sprintf("possible %s detected", sp.desc),

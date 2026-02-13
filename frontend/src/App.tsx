@@ -171,7 +171,7 @@ export default function App() {
     localStorage.setItem("caic:lastRepo", repo);
     try {
       const model = selectedModel();
-      const data = await createTask({ prompt: p, repo, ...(model ? { model } : {}) });
+      const data = await createTask({ prompt: p, repo, harness: "claude", ...(model ? { model } : {}) });
       setPrompt("");
       navigate(taskPath(data.id, repo, "", p));
     } finally {

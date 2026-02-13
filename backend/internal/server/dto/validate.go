@@ -23,13 +23,16 @@ func (r *RestartReq) Validate() error { return nil }
 // Validate is a no-op for sync requests.
 func (SyncReq) Validate() error { return nil }
 
-// Validate checks that prompt and repo are non-empty.
+// Validate checks that prompt, repo, and harness are valid.
 func (r *CreateTaskReq) Validate() error {
 	if r.Prompt == "" {
 		return BadRequest("prompt is required")
 	}
 	if r.Repo == "" {
 		return BadRequest("repo is required")
+	}
+	if r.Harness == "" {
+		return BadRequest("harness is required")
 	}
 	return nil
 }

@@ -255,7 +255,7 @@ func TestConvertResult(t *testing.T) {
 		Subtype:       "success",
 		IsError:       false,
 		Result:        "done",
-		DiffStat:      dto.DiffStat{{Path: "a.go", Added: 10, Deleted: 3}},
+		DiffStat:      agent.DiffStat{{Path: "a.go", Added: 10, Deleted: 3}},
 		TotalCostUSD:  0.05,
 		DurationMs:    1234,
 		DurationAPIMs: 1200,

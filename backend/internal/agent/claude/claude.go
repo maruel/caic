@@ -20,8 +20,8 @@ type Backend struct{}
 
 var _ agent.Backend = (*Backend)(nil)
 
-// Name returns "claude".
-func (b *Backend) Name() string { return "claude" }
+// Harness returns the harness identifier.
+func (b *Backend) Harness() agent.Harness { return agent.Claude }
 
 // Start launches a Claude Code process via the relay daemon in the given
 // container. It deploys the relay script and starts claude via serve-attach.

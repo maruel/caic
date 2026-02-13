@@ -7,6 +7,7 @@ import (
 
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/server/dto"
+	"github.com/maruel/caic/backend/internal/task"
 )
 
 // toolTimingTracker computes per-tool-call duration by recording the timestamp
@@ -64,7 +65,7 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 				Subtype:       m.Subtype,
 				IsError:       m.IsError,
 				Result:        m.Result,
-				DiffStat:      m.DiffStat,
+				DiffStat:      toDTODiffStat(m.DiffStat),
 				TotalCostUSD:  m.TotalCostUSD,
 				DurationMs:    m.DurationMs,
 				DurationAPIMs: m.DurationAPIMs,
@@ -215,6 +216,41 @@ func extractUserInputText(raw json.RawMessage) string {
 		return msg.Content
 	}
 	return ""
+}
+
+// toDTOHarness converts agent.Harness to dto.Harness at the server boundary.
+func toDTOHarness(h agent.Harness) dto.Harness {
+	return dto.Harness(h)
+}
+
+// toAgentHarness converts dto.Harness to agent.Harness at the server boundary.
+func toAgentHarness(h dto.Harness) agent.Harness {
+	return agent.Harness(h)
+}
+
+// toDTOSafetyIssues converts []task.SafetyIssue to []dto.SafetyIssue at the
+// server boundary.
+func toDTOSafetyIssues(issues []task.SafetyIssue) []dto.SafetyIssue {
+	if len(issues) == 0 {
+		return nil
+	}
+	out := make([]dto.SafetyIssue, len(issues))
+	for i, si := range issues {
+		out[i] = dto.SafetyIssue{File: si.File, Kind: si.Kind, Detail: si.Detail}
+	}
+	return out
+}
+
+// toDTODiffStat converts agent.DiffStat to dto.DiffStat at the server boundary.
+func toDTODiffStat(ds agent.DiffStat) dto.DiffStat {
+	if len(ds) == 0 {
+		return nil
+	}
+	out := make(dto.DiffStat, len(ds))
+	for i, f := range ds {
+		out[i] = dto.DiffFileStat{Path: f.Path, Added: f.Added, Deleted: f.Deleted, Binary: f.Binary}
+	}
+	return out
 }
 
 // extractToolError checks if a UserMessage contains an error indicator.

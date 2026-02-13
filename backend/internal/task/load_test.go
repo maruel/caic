@@ -34,7 +34,7 @@ func mustJSON(t *testing.T, v any) string {
 func TestLoadLogs(t *testing.T) {
 	t.Run("Valid", func(t *testing.T) {
 		dir := t.TempDir()
-		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "task1", Repo: "r", Branch: "caic/w0"})
+		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "task1", Repo: "r", Branch: "caic/w0", Harness: "claude"})
 		asst := mustJSON(t, agent.AssistantMessage{MessageType: "assistant"})
 		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "terminated"})
 		writeLogFile(t, dir, "a.jsonl", meta, asst, trailer)
@@ -82,11 +82,11 @@ func TestLoadLogs(t *testing.T) {
 	t.Run("MultipleFiles", func(t *testing.T) {
 		dir := t.TempDir()
 
-		meta1 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "first", Repo: "r", Branch: "caic/w0", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)})
+		meta1 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "first", Repo: "r", Branch: "caic/w0", Harness: "claude", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)})
 		asst1 := mustJSON(t, agent.AssistantMessage{MessageType: "assistant"})
 		writeLogFile(t, dir, "a.jsonl", meta1, asst1)
 
-		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "second", Repo: "r", Branch: "caic/w0", StartedAt: time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)})
+		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "second", Repo: "r", Branch: "caic/w0", Harness: "claude", StartedAt: time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)})
 		init2 := mustJSON(t, agent.SystemInitMessage{MessageType: "system", Subtype: "init", SessionID: "sid-2"})
 		asst2 := mustJSON(t, agent.AssistantMessage{MessageType: "assistant"})
 		writeLogFile(t, dir, "b.jsonl", meta2, init2, asst2)

@@ -29,6 +29,6 @@ type Backend interface {
 	// Message. Used for log replay (load.go).
 	ParseMessage(line []byte) (Message, error)
 
-	// Name returns a human-readable backend name ("claude", "gemini", etc.)
-	Name() string
+	// Harness returns the harness identifier ("claude", "gemini", etc.)
+	Harness() Harness
 }

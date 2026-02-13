@@ -6,6 +6,15 @@ import "github.com/maruel/ksid"
 //go:generate go tool tygo generate --config ../../../../backend/tygo.yaml
 //go:generate go run github.com/maruel/caic/backend/internal/cmd/gen-api-client
 
+// Harness identifies the coding agent harness.
+// Values must match agent.Harness constants.
+type Harness string
+
+// Supported agent harnesses.
+const (
+	HarnessClaude Harness = "claude"
+)
+
 // RepoJSON is the JSON representation of a discovered repo.
 type RepoJSON struct {
 	Path       string `json:"path"`
@@ -33,12 +42,13 @@ type TaskJSON struct {
 	CacheReadInputTokens     int      `json:"cacheReadInputTokens"`
 	Error                    string   `json:"error,omitempty"`
 	Result                   string   `json:"result,omitempty"`
-	// Per-task agent/container metadata.
-	Model             string `json:"model,omitempty"`
-	ClaudeCodeVersion string `json:"claudeCodeVersion,omitempty"`
-	SessionID         string `json:"sessionID,omitempty"`
-	ContainerUptimeMs int64  `json:"containerUptimeMs,omitempty"`
-	InPlanMode        bool   `json:"inPlanMode,omitempty"`
+	// Per-task harness/container metadata.
+	Harness           Harness `json:"harness"`
+	Model             string  `json:"model,omitempty"`
+	ClaudeCodeVersion string  `json:"claudeCodeVersion,omitempty"`
+	SessionID         string  `json:"sessionID,omitempty"`
+	ContainerUptimeMs int64   `json:"containerUptimeMs,omitempty"`
+	InPlanMode        bool    `json:"inPlanMode,omitempty"`
 }
 
 // StatusResp is a common response for mutation endpoints.
@@ -54,9 +64,10 @@ type CreateTaskResp struct {
 
 // CreateTaskReq is the request body for POST /api/v1/tasks.
 type CreateTaskReq struct {
-	Prompt string `json:"prompt"`
-	Repo   string `json:"repo"`
-	Model  string `json:"model,omitempty"`
+	Prompt  string  `json:"prompt"`
+	Repo    string  `json:"repo"`
+	Model   string  `json:"model,omitempty"`
+	Harness Harness `json:"harness"`
 }
 
 // InputReq is the request body for POST /api/v1/tasks/{id}/input.

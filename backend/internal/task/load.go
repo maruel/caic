@@ -23,6 +23,7 @@ type LoadedTask struct {
 	Prompt            string
 	Repo              string
 	Branch            string
+	Harness           agent.Harness
 	StartedAt         time.Time
 	LastStateUpdateAt time.Time // Derived from log file mtime; best-effort for adopt.
 	State             State
@@ -104,6 +105,7 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 		Prompt:            meta.Prompt,
 		Repo:              meta.Repo,
 		Branch:            meta.Branch,
+		Harness:           meta.Harness,
 		StartedAt:         meta.StartedAt,
 		LastStateUpdateAt: mtime,
 		State:             StateFailed, // default if no trailer

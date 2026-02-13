@@ -237,6 +237,15 @@ Exported request and response types for the caic API.
 */
 
 /**
+ * Harness identifies the coding agent harness.
+ * Values must match agent.Harness constants.
+ */
+export type Harness = string;
+/**
+ * Supported agent harnesses.
+ */
+export const HarnessClaude: Harness = "claude";
+/**
  * RepoJSON is the JSON representation of a discovered repo.
  */
 export interface RepoJSON {
@@ -267,8 +276,9 @@ export interface TaskJSON {
   error?: string;
   result?: string;
   /**
-   * Per-task agent/container metadata.
+   * Per-task harness/container metadata.
    */
+  harness: Harness;
   model?: string;
   claudeCodeVersion?: string;
   sessionID?: string;
@@ -295,6 +305,7 @@ export interface CreateTaskReq {
   prompt: string;
   repo: string;
   model?: string;
+  harness: Harness;
 }
 /**
  * InputReq is the request body for POST /api/v1/tasks/{id}/input.

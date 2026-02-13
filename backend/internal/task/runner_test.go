@@ -48,7 +48,7 @@ type testBackend struct {
 	capturedCtx context.Context
 }
 
-func (b *testBackend) Name() string { return "test" }
+func (b *testBackend) Harness() agent.Harness { return "test" }
 
 func (b *testBackend) Start(ctx context.Context, _ agent.Options, msgCh chan<- agent.Message, _ io.Writer) (*agent.Session, error) {
 	b.capturedCtx = ctx
@@ -192,14 +192,15 @@ func TestRestartSession(t *testing.T) {
 	backend := &testBackend{}
 
 	r := &Runner{
-		LogDir:       logDir,
-		AgentBackend: backend,
+		LogDir:   logDir,
+		Backends: map[agent.Harness]agent.Backend{"test": backend},
 	}
 
 	tk := &Task{
 		ID:        ksid.NewID(),
 		Prompt:    "old prompt",
 		Repo:      "org/repo",
+		Harness:   "test",
 		Branch:    "caic/w0",
 		Container: "fake-container",
 		State:     StateWaiting,
