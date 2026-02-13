@@ -556,6 +556,28 @@ a.headerRepo:hover {
   color: #28a745;
 }
 
+.safetyWarning {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.safetyWarning strong {
+  color: #856404;
+}
+
+.safetyWarning ul {
+  margin: 0.25rem 0 0.5rem;
+  padding-left: 1.25rem;
+}
+
+.safetyWarning li {
+  margin-bottom: 0.15rem;
+}
+
 /* Mobile: <=768px */
 @media (max-width: 768px) {
   .inputForm {

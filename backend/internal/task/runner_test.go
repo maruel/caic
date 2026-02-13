@@ -189,11 +189,11 @@ func TestRunner(t *testing.T) {
 
 func TestRestartSession(t *testing.T) {
 	logDir := t.TempDir()
-	tb := &testBackend{}
+	backend := &testBackend{}
 
 	r := &Runner{
 		LogDir:       logDir,
-		AgentBackend: tb,
+		AgentBackend: backend,
 	}
 
 	tk := &Task{
@@ -219,8 +219,8 @@ func TestRestartSession(t *testing.T) {
 	// The context passed to AgentBackend.Start must still be valid after
 	// RestartSession returns (it must not be a request-scoped context).
 	select {
-	case <-tb.capturedCtx.Done():
-		t.Error("context passed to AgentBackend.Start was canceled; must use a long-lived context")
+	case <-backend.capturedCtx.Done():
+		t.Error("context passed to AgentBackend was canceled; must use a long-lived context")
 	default:
 	}
 
@@ -228,7 +228,7 @@ func TestRestartSession(t *testing.T) {
 	// is still alive (not canceled by a short-lived HTTP request context).
 	time.Sleep(50 * time.Millisecond)
 	select {
-	case <-tb.capturedCtx.Done():
+	case <-backend.capturedCtx.Done():
 		t.Error("context was canceled shortly after RestartSession returned")
 	default:
 	}
@@ -240,7 +240,7 @@ func TestRestartSession(t *testing.T) {
 // initTestRepo creates a bare "remote" and a local clone with one commit on
 // baseBranch. Returns the clone directory. origin points to the bare repo so
 // git fetch/push work locally.
-func initTestRepo(t *testing.T, baseBranch string) string {
+func initTestRepo(t *testing.T, baseBranch string) string { //nolint:unparam // baseBranch is parameterized for clarity.
 	t.Helper()
 	dir := t.TempDir()
 	bare := filepath.Join(dir, "remote.git")

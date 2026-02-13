@@ -207,6 +207,7 @@ func (t *Task) addMessage(m agent.Message) {
 		t.ClaudeCodeVersion = init.Version
 	}
 	// Track plan mode and plan file from tool_use events.
+	// Capture plan file path from Write tool_use targeting .claude/plans/.
 	if am, ok := m.(*agent.AssistantMessage); ok {
 		t.trackPlanState(am)
 	}

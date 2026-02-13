@@ -23,8 +23,7 @@ import (
 type ContainerBackend interface {
 	Start(ctx context.Context, dir, branch string, labels []string) (name string, err error)
 	Diff(ctx context.Context, dir, branch string, args ...string) (string, error)
-	Pull(ctx context.Context, dir, branch string) error
-	Push(ctx context.Context, dir, branch string) error
+	Fetch(ctx context.Context, dir, branch string) error
 	Kill(ctx context.Context, dir, branch string) error
 }
 
@@ -398,29 +397,39 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (string, e
 	return name, nil
 }
 
-// PullChanges runs md diff + md pull for the given branch. Returns the diff
-// stat and the first error encountered.
-func (r *Runner) PullChanges(ctx context.Context, branch string) (dto.DiffStat, error) {
+// SyncToOrigin fetches changes from the container, runs safety checks, and
+// pushes the container's remote-tracking ref to origin. If safety issues are
+// found and force is false, it returns the issues without pushing.
+func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, force bool) (dto.DiffStat, []dto.SafetyIssue, error) {
 	r.initDefaults()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
-	defer cancel()
+	fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer fetchCancel()
 	r.branchMu.Lock()
-	defer r.branchMu.Unlock()
-	ds := r.diffStat(ctx, branch)
-	slog.Info("pulling changes", "repo", filepath.Base(r.Dir), "branch", branch)
-	if err := r.Container.Pull(ctx, r.Dir, branch); err != nil {
-		return ds, err
+	ds := r.diffStat(fetchCtx, branch)
+	slog.Info("fetching changes", "repo", filepath.Base(r.Dir), "branch", branch)
+	if err := r.Container.Fetch(fetchCtx, r.Dir, branch); err != nil {
+		r.branchMu.Unlock()
+		return ds, nil, err
 	}
-	return ds, nil
-}
+	r.branchMu.Unlock()
 
-// PushChanges pushes local changes into the container.
-func (r *Runner) PushChanges(ctx context.Context, branch string) error {
-	r.initDefaults()
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
-	defer cancel()
-	slog.Info("pushing changes to container", "repo", filepath.Base(r.Dir), "branch", branch)
-	return r.Container.Push(ctx, r.Dir, branch)
+	ref := "refs/remotes/" + container + "/" + branch
+	safetyCtx, safetyCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer safetyCancel()
+	issues, err := CheckSafety(safetyCtx, r.Dir, branch, r.BaseBranch, ds)
+	if err != nil {
+		return ds, issues, fmt.Errorf("safety check: %w", err)
+	}
+	if len(issues) > 0 && !force {
+		return ds, issues, nil
+	}
+
+	pushCtx, pushCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer pushCancel()
+	if err := gitutil.PushRef(pushCtx, r.Dir, ref, branch); err != nil {
+		return ds, issues, fmt.Errorf("push to origin: %w", err)
+	}
+	return ds, issues, nil
 }
 
 // RestartSession closes the current agent session and starts a fresh one in

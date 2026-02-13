@@ -20,6 +20,9 @@ func (r *InputReq) Validate() error {
 // Validate is a no-op; prompt is optional (read from container plan file if empty).
 func (r *RestartReq) Validate() error { return nil }
 
+// Validate is a no-op for sync requests.
+func (SyncReq) Validate() error { return nil }
+
 // Validate checks that prompt and repo are non-empty.
 func (r *CreateTaskReq) Validate() error {
 	if r.Prompt == "" {

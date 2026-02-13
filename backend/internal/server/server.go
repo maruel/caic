@@ -55,6 +55,7 @@ type Server struct {
 type mdBackend struct{ client *md.Client }
 
 func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string) (string, error) {
+	slog.Info("md start", "dir", dir, "branch", branch)
 	c := b.client.Container(dir, branch)
 	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, Labels: labels}); err != nil {
 		return "", err
@@ -63,6 +64,7 @@ func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []stri
 }
 
 func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string) (string, error) {
+	slog.Info("md diff", "dir", dir, "branch", branch, "args", args)
 	var stdout bytes.Buffer
 	if err := b.client.Container(dir, branch).Diff(ctx, &stdout, io.Discard, args); err != nil {
 		return "", err
@@ -70,15 +72,13 @@ func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string
 	return stdout.String(), nil
 }
 
-func (b *mdBackend) Pull(ctx context.Context, dir, branch string) error {
-	return b.client.Container(dir, branch).Pull(ctx, os.Getenv("ASK_PROVIDER"), os.Getenv("ASK_MODEL"))
-}
-
-func (b *mdBackend) Push(ctx context.Context, dir, branch string) error {
-	return b.client.Container(dir, branch).Push(ctx)
+func (b *mdBackend) Fetch(ctx context.Context, dir, branch string) error {
+	slog.Info("md fetch", "dir", dir, "branch", branch)
+	return b.client.Container(dir, branch).Fetch(ctx, os.Getenv("ASK_PROVIDER"), os.Getenv("ASK_MODEL"))
 }
 
 func (b *mdBackend) Kill(ctx context.Context, dir, branch string) error {
+	slog.Info("md kill", "dir", dir, "branch", branch)
 	return b.client.Container(dir, branch).Kill(ctx)
 }
 
@@ -174,8 +174,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/input", handleWithTask(s, s.sendInput))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/restart", handleWithTask(s, s.restartTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/terminate", handleWithTask(s, s.terminateTask))
-	mux.HandleFunc("POST /api/v1/tasks/{id}/pull", handleWithTask(s, s.pullTask))
-	mux.HandleFunc("POST /api/v1/tasks/{id}/push", handleWithTask(s, s.pushTask))
+	mux.HandleFunc("POST /api/v1/tasks/{id}/sync", handleWithTask(s, s.syncTask))
 	mux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
 	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
 
@@ -475,7 +474,7 @@ func (s *Server) terminateTask(ctx context.Context, entry *taskEntry, _ *dto.Emp
 	return &dto.StatusResp{Status: "terminated"}, nil
 }
 
-func (s *Server) pullTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.PullResp, error) {
+func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *dto.SyncReq) (*dto.SyncResp, error) {
 	t := entry.task
 	switch t.State {
 	case task.StatePending:
@@ -485,27 +484,17 @@ func (s *Server) pullTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq
 	case task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StatePulling, task.StatePushing:
 	}
 	runner := s.runners[t.Repo]
-	diffStat, err := runner.PullChanges(ctx, t.Branch)
+	ds, issues, err := runner.SyncToOrigin(ctx, t.Branch, t.Container, req.Force)
 	if err != nil {
 		return nil, dto.InternalError(err.Error())
 	}
-	return &dto.PullResp{Status: "pulled", DiffStat: diffStat}, nil
-}
-
-func (s *Server) pushTask(ctx context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
-	t := entry.task
-	switch t.State {
-	case task.StatePending:
-		return nil, dto.Conflict("task has no container yet")
-	case task.StateTerminating, task.StateFailed, task.StateTerminated:
-		return nil, dto.Conflict("task is in a terminal state")
-	case task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StatePulling, task.StatePushing:
+	status := "synced"
+	if len(ds) == 0 {
+		status = "empty"
+	} else if len(issues) > 0 && !req.Force {
+		status = "blocked"
 	}
-	runner := s.runners[t.Repo]
-	if err := runner.PushChanges(ctx, t.Branch); err != nil {
-		return nil, dto.InternalError(err.Error())
-	}
-	return &dto.StatusResp{Status: "pushed"}, nil
+	return &dto.SyncResp{Status: status, DiffStat: ds, SafetyIssues: issues}, nil
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {

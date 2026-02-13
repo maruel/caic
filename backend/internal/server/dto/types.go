@@ -80,10 +80,23 @@ type DiffFileStat struct {
 // DiffStat summarises the changes in a branch relative to its base.
 type DiffStat []DiffFileStat
 
-// PullResp is the response for POST /api/v1/tasks/{id}/pull.
-type PullResp struct {
-	Status   string   `json:"status"`
-	DiffStat DiffStat `json:"diffStat,omitzero"`
+// SafetyIssue describes a potential problem detected before pushing to origin.
+type SafetyIssue struct {
+	File   string `json:"file"`
+	Kind   string `json:"kind"`   // "large_binary" or "secret"
+	Detail string `json:"detail"` // Human-readable description.
+}
+
+// SyncReq is the request body for POST /api/v1/tasks/{id}/sync.
+type SyncReq struct {
+	Force bool `json:"force,omitempty"`
+}
+
+// SyncResp is the response for POST /api/v1/tasks/{id}/sync.
+type SyncResp struct {
+	Status       string        `json:"status"` // "synced", "blocked", or "empty"
+	DiffStat     DiffStat      `json:"diffStat,omitzero"`
+	SafetyIssues []SafetyIssue `json:"safetyIssues,omitempty"`
 }
 
 // UsageWindow represents a single quota window (5-hour or 7-day).

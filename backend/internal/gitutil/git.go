@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,6 +43,7 @@ func DefaultBranch(ctx context.Context, dir string) (string, error) {
 
 // Fetch fetches the latest refs from origin.
 func Fetch(ctx context.Context, dir string) error {
+	slog.Info("git fetch", "dir", dir)
 	cmd := exec.CommandContext(ctx, "git", "fetch", "origin")
 	cmd.Dir = dir
 	var stderr bytes.Buffer
@@ -54,6 +56,7 @@ func Fetch(ctx context.Context, dir string) error {
 
 // CreateBranch creates a new branch from startPoint and checks it out.
 func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
+	slog.Info("git create branch", "branch", name, "startPoint", startPoint)
 	cmd := exec.CommandContext(ctx, "git", "checkout", "-b", name, startPoint)
 	cmd.Dir = dir
 	var stderr bytes.Buffer
@@ -66,6 +69,7 @@ func CreateBranch(ctx context.Context, dir, name, startPoint string) error {
 
 // CheckoutBranch switches to an existing branch.
 func CheckoutBranch(ctx context.Context, dir, name string) error {
+	slog.Info("git checkout", "branch", name)
 	cmd := exec.CommandContext(ctx, "git", "checkout", name)
 	cmd.Dir = dir
 	var stderr bytes.Buffer
@@ -144,6 +148,21 @@ func RemoteToHTTPS(raw string) string {
 		return strings.TrimSuffix(raw, ".git")
 	}
 	return raw
+}
+
+// PushRef pushes a local ref to the origin remote as the given branch.
+// ref can be a remote-tracking ref (e.g. "container/branch"), a branch
+// name, or any valid git ref.
+func PushRef(ctx context.Context, dir, ref, branch string) error {
+	slog.Info("git push", "ref", ref, "branch", branch)
+	cmd := exec.CommandContext(ctx, "git", "push", "origin", ref+":refs/heads/"+branch) //nolint:gosec // ref and branch are from internal git state.
+	cmd.Dir = dir
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("git push origin %s:%s: %w: %s", ref, branch, err, stderr.String())
+	}
+	return nil
 }
 
 // DiscoverRepos recursively walks root up to maxDepth levels, returning

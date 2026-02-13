@@ -219,9 +219,8 @@ func (*fakeContainer) Diff(_ context.Context, _, _ string, _ ...string) (string,
 	return "", nil
 }
 
-func (*fakeContainer) Pull(_ context.Context, _, _ string) error { return nil }
-func (*fakeContainer) Push(_ context.Context, _, _ string) error { return nil }
-func (*fakeContainer) Kill(_ context.Context, _, _ string) error { return nil }
+func (*fakeContainer) Fetch(_ context.Context, _, _ string) error { return nil }
+func (*fakeContainer) Kill(_ context.Context, _, _ string) error  { return nil }
 
 // fakeBackend implements agent.Backend with a shell process that emits three
 // JSON messages (init, assistant, result) then exits.

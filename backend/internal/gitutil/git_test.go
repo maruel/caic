@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -172,6 +173,65 @@ func TestDefaultBranch(t *testing.T) {
 	}
 	if got != "main" {
 		t.Fatalf("got %q after deleting symbolic ref, want %q", got, "main")
+	}
+}
+
+func TestPushRef(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	bare := filepath.Join(dir, "remote.git")
+	clone := filepath.Join(dir, "clone")
+
+	// Set up bare remote + clone with initial commit.
+	type gitCmd struct {
+		dir  string
+		args []string
+	}
+	for _, c := range []gitCmd{
+		{"", []string{"init", "--bare", "--initial-branch=main", bare}},
+		{"", []string{"clone", bare, clone}},
+		{clone, []string{"-c", "user.name=Test", "-c", "user.email=test@test", "commit", "--allow-empty", "-m", "init"}},
+		{clone, []string{"push", "origin", "main"}},
+		{clone, []string{"checkout", "-b", "caic/w0"}},
+	} {
+		cmd := exec.CommandContext(ctx, "git", c.args...) //nolint:gosec // test helper, args are constant.
+		if c.dir != "" {
+			cmd.Dir = c.dir
+		}
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", c.args, err, out)
+		}
+	}
+
+	// Add a commit on the branch.
+	if err := os.WriteFile(filepath.Join(clone, "new.txt"), []byte("data\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.CommandContext(ctx, "git", "add", ".")
+	cmd.Dir = clone
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, out)
+	}
+	cmd = exec.CommandContext(ctx, "git", "-c", "user.name=Test", "-c", "user.email=test@test", "commit", "-m", "add file")
+	cmd.Dir = clone
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+
+	// Push the local branch ref to origin as caic/w0.
+	if err := PushRef(ctx, clone, "caic/w0", "caic/w0"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify the branch exists on the remote.
+	cmd = exec.CommandContext(ctx, "git", "branch", "--list", "caic/w0")
+	cmd.Dir = bare
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), "caic/w0") {
+		t.Errorf("branch caic/w0 not found on remote, got: %q", string(out))
 	}
 }
 

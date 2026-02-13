@@ -322,11 +322,26 @@ export interface DiffFileStat {
  */
 export type DiffStat = DiffFileStat[];
 /**
- * PullResp is the response for POST /api/v1/tasks/{id}/pull.
+ * SafetyIssue describes a potential problem detected before pushing to origin.
  */
-export interface PullResp {
-  status: string;
+export interface SafetyIssue {
+  file: string;
+  kind: string; // "large_binary" or "secret"
+  detail: string; // Human-readable description.
+}
+/**
+ * SyncReq is the request body for POST /api/v1/tasks/{id}/sync.
+ */
+export interface SyncReq {
+  force?: boolean;
+}
+/**
+ * SyncResp is the response for POST /api/v1/tasks/{id}/sync.
+ */
+export interface SyncResp {
+  status: string; // "synced", "blocked", or "empty"
   diffStat?: DiffStat;
+  safetyIssues?: SafetyIssue[];
 }
 /**
  * UsageWindow represents a single quota window (5-hour or 7-day).

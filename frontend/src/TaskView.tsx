@@ -1,6 +1,7 @@
 // TaskView renders the real-time agent output stream for a single task.
 import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor, type JSX } from "solid-js";
-import { sendInput as apiSendInput, restartTask as apiRestartTask, terminateTask as apiTerminateTask, pullTask as apiPullTask, pushTask as apiPushTask, taskEvents } from "@sdk/api.gen";
+import { sendInput as apiSendInput, restartTask as apiRestartTask, terminateTask as apiTerminateTask, syncTask as apiSyncTask, taskEvents } from "@sdk/api.gen";
+import type { SafetyIssue } from "@sdk/types.gen";
 import { Marked } from "marked";
 import AutoResizeTextarea from "./AutoResizeTextarea";
 import Button from "./Button";
@@ -57,8 +58,9 @@ interface Props {
 export default function TaskView(props: Props) {
   const [messages, setMessages] = createSignal<EventMessage[]>([]);
   const [sending, setSending] = createSignal(false);
-  const [pendingAction, setPendingAction] = createSignal<"pull" | "push" | "terminate" | "restart" | null>(null);
+  const [pendingAction, setPendingAction] = createSignal<"sync" | "terminate" | "restart" | null>(null);
   const [actionError, setActionError] = createSignal<string | null>(null);
+  const [safetyIssues, setSafetyIssues] = createSignal<SafetyIssue[]>([]);
 
   createEffect(() => {
     const id = props.taskId;
@@ -130,7 +132,26 @@ export default function TaskView(props: Props) {
 
   const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking";
 
-  async function runAction(name: "pull" | "push" | "terminate" | "restart", fn: () => Promise<unknown>) {
+  async function doSync(force: boolean) {
+    if (pendingAction()) return;
+    setPendingAction("sync");
+    setActionError(null);
+    setSafetyIssues([]);
+    try {
+      const resp = await apiSyncTask(props.taskId, { force });
+      if (resp.status === "blocked" && resp.safetyIssues?.length) {
+        setSafetyIssues(resp.safetyIssues);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      setActionError(`sync failed: ${msg}`);
+      setTimeout(() => setActionError(null), 5000);
+    } finally {
+      setPendingAction(null);
+    }
+  }
+
+  async function runAction(name: "sync" | "terminate" | "restart", fn: () => Promise<unknown>) {
     if (pendingAction()) return;
     setPendingAction(name);
     setActionError(null);
@@ -265,10 +286,20 @@ export default function TaskView(props: Props) {
             class={styles.textInput}
           />
           <Button type="submit" disabled={sending() || !props.inputDraft.trim()}>Send</Button>
-          <Button type="button" variant="gray" loading={pendingAction() === "pull"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("pull", () => apiPullTask(id)); }}>Pull</Button>
-          <Button type="button" variant="gray" loading={pendingAction() === "push"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("push", () => apiPushTask(id)); }}>Push</Button>
+          <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction()} onClick={() => doSync(false)}>Sync</Button>
           <Button type="button" variant="red" loading={pendingAction() === "terminate"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate"><DeleteIcon width="1.1em" height="1.1em" /></Button>
         </form>
+        <Show when={safetyIssues().length > 0}>
+          <div class={styles.safetyWarning}>
+            <strong>Safety issues detected:</strong>
+            <ul>
+              <For each={safetyIssues()}>
+                {(issue) => <li><strong>{issue.file}</strong>: {issue.detail} ({issue.kind})</li>}
+              </For>
+            </ul>
+            <Button type="button" variant="red" loading={pendingAction() === "sync"} disabled={!!pendingAction()} onClick={() => { setSafetyIssues([]); doSync(true); }}>Force Sync</Button>
+          </div>
+        </Show>
         <Show when={actionError()}>
           <div class={styles.actionError}>{actionError()}</div>
         </Show>
