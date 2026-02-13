@@ -18,6 +18,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/lmittmann/tint"
 	"github.com/maruel/caic/backend/internal/agent"
+	"github.com/maruel/caic/backend/internal/agent/claude"
 	"github.com/maruel/caic/backend/internal/server"
 	"github.com/maruel/caic/backend/internal/task"
 	"github.com/mattn/go-colorable"
@@ -157,7 +158,7 @@ func serveFake(ctx context.Context, addr, rootDir string) error {
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}
-	srv.SetRunnerOps(&fakeContainer{}, fakeAgentStart)
+	srv.SetRunnerOps(&fakeContainer{}, &fakeBackend{})
 
 	err = srv.ListenAndServe(ctx, addr)
 	if errors.Is(err, http.ErrServerClosed) {
@@ -222,9 +223,15 @@ func (*fakeContainer) Pull(_ context.Context, _, _ string) error { return nil }
 func (*fakeContainer) Push(_ context.Context, _, _ string) error { return nil }
 func (*fakeContainer) Kill(_ context.Context, _, _ string) error { return nil }
 
-// fakeAgentStart creates a Session backed by a shell process that emits three
+// fakeBackend implements agent.Backend with a shell process that emits three
 // JSON messages (init, assistant, result) then exits.
-func fakeAgentStart(_ context.Context, _ agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
+type fakeBackend struct{}
+
+var _ agent.Backend = (*fakeBackend)(nil)
+
+func (*fakeBackend) Name() string { return "fake" }
+
+func (*fakeBackend) Start(_ context.Context, _ agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
 	script := `read line
 echo '{"type":"system","subtype":"init","session_id":"test-session","cwd":"/workspace","model":"fake-model","claude_code_version":"0.0.0-test"}'
 echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I completed the requested task."}]}}'
@@ -243,7 +250,19 @@ echo '{"type":"result","subtype":"success","result":"All done.","num_turns":1,"t
 	if err := cmd.Start(); err != nil {
 		return nil, err
 	}
-	return agent.NewSession(cmd, stdin, stdout, msgCh, logW), nil
+	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, claude.WritePrompt), nil
+}
+
+func (*fakeBackend) AttachRelay(context.Context, string, int64, chan<- agent.Message, io.Writer) (*agent.Session, error) {
+	return nil, errors.New("fake backend does not support relay")
+}
+
+func (*fakeBackend) ReadRelayOutput(context.Context, string) ([]agent.Message, int64, error) {
+	return nil, 0, errors.New("fake backend does not support relay")
+}
+
+func (*fakeBackend) ParseMessage(line []byte) (agent.Message, error) {
+	return agent.ParseMessage(line)
 }
 
 // cacheDir returns the caic log/cache directory, using $XDG_CACHE_HOME/caic/

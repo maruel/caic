@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
+	"github.com/maruel/caic/backend/internal/agent/claude"
 	"github.com/maruel/caic/backend/internal/gitutil"
 	"github.com/maruel/caic/backend/internal/server/dto"
 )
@@ -55,8 +56,9 @@ type Runner struct {
 	// Container provides md container lifecycle operations. Must be set before
 	// calling Start.
 	Container ContainerBackend
-	// AgentStartFn launches an agent session. Defaults to agent.StartWithRelay.
-	AgentStartFn func(ctx context.Context, opts agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error)
+	// AgentBackend launches and communicates with agent sessions. Defaults to
+	// the Claude Code backend.
+	AgentBackend agent.Backend
 
 	initOnce sync.Once
 	branchMu sync.Mutex // Serializes operations that need a specific branch checked out (md commands).
@@ -65,8 +67,8 @@ type Runner struct {
 
 func (r *Runner) initDefaults() {
 	r.initOnce.Do(func() {
-		if r.AgentStartFn == nil {
-			r.AgentStartFn = agent.StartWithRelay
+		if r.AgentBackend == nil {
+			r.AgentBackend = &claude.Backend{}
 		}
 		if r.GitTimeout == 0 {
 			r.GitTimeout = time.Minute
@@ -144,7 +146,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 			t.setState(StateRunning)
 			t.mu.Unlock()
 		}
-		session, err = agent.AttachRelay(ctx, t.Container, t.RelayOffset, msgCh, logW)
+		session, err = r.AgentBackend.AttachRelay(ctx, t.Container, t.RelayOffset, msgCh, logW)
 		if err != nil {
 			slog.Warn("attach relay failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
 			relayAlive = false
@@ -159,7 +161,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		if maxTurns == 0 {
 			maxTurns = r.MaxTurns
 		}
-		session, err = r.AgentStartFn(ctx, agent.Options{
+		session, err = r.AgentBackend.Start(ctx, agent.Options{
 			Container:       t.Container,
 			MaxTurns:        maxTurns,
 			Model:           t.Model,
@@ -231,7 +233,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 	}
 
 	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "maxTurns", maxTurns)
-	session, err := r.AgentStartFn(ctx, agent.Options{
+	session, err := r.AgentBackend.Start(ctx, agent.Options{
 		Container: name,
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
@@ -467,7 +469,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) err
 		maxTurns = r.MaxTurns
 	}
 	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "maxTurns", maxTurns)
-	session, err := r.AgentStartFn(ctx, agent.Options{
+	session, err := r.AgentBackend.Start(ctx, agent.Options{
 		Container: t.Container,
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
@@ -504,6 +506,13 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) err
 	t.mu.Unlock()
 	slog.Info("agent restarted", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
 	return nil
+}
+
+// ReadRelayOutput reads the relay output.jsonl from the container using the
+// configured agent backend to parse messages.
+func (r *Runner) ReadRelayOutput(ctx context.Context, container string) ([]agent.Message, int64, error) {
+	r.initDefaults()
+	return r.AgentBackend.ReadRelayOutput(ctx, container)
 }
 
 // KillContainer kills the md container for the given branch.

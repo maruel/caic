@@ -2,6 +2,8 @@ package task
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -13,6 +15,63 @@ import (
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/ksid"
 )
+
+// testWriteFn is a simple WriteFn for testing.
+func testWriteFn(w io.Writer, prompt string, logW io.Writer) error {
+	msg := struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"message"`
+	}{Type: "user"}
+	msg.Message.Role = "user"
+	msg.Message.Content = prompt
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	if _, err := w.Write(data); err != nil {
+		return err
+	}
+	if logW != nil {
+		_, _ = logW.Write(data)
+	}
+	return nil
+}
+
+// testBackend implements agent.Backend for tests. It launches a "cat" process
+// that blocks until stdin is closed. capturedCtx records the context passed
+// to Start so tests can assert context lifetime.
+type testBackend struct {
+	capturedCtx context.Context
+}
+
+func (b *testBackend) Name() string { return "test" }
+
+func (b *testBackend) Start(ctx context.Context, _ agent.Options, msgCh chan<- agent.Message, _ io.Writer) (*agent.Session, error) {
+	b.capturedCtx = ctx
+	cmd := exec.CommandContext(ctx, "cat")
+	stdin, _ := cmd.StdinPipe()
+	stdout, _ := cmd.StdoutPipe()
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return agent.NewSession(cmd, stdin, stdout, msgCh, nil, testWriteFn), nil
+}
+
+func (b *testBackend) AttachRelay(context.Context, string, int64, chan<- agent.Message, io.Writer) (*agent.Session, error) {
+	return nil, errors.New("test backend does not support relay")
+}
+
+func (b *testBackend) ReadRelayOutput(context.Context, string) ([]agent.Message, int64, error) {
+	return nil, 0, errors.New("test backend does not support relay")
+}
+
+func (b *testBackend) ParseMessage(line []byte) (agent.Message, error) {
+	return agent.ParseMessage(line)
+}
 
 func TestRunner(t *testing.T) {
 	t.Run("Init", func(t *testing.T) {
@@ -130,24 +189,11 @@ func TestRunner(t *testing.T) {
 
 func TestRestartSession(t *testing.T) {
 	logDir := t.TempDir()
-	// fakeAgentStart returns a session backed by "cat" that blocks until stdin
-	// is closed. It records the context it was called with so we can assert it
-	// is still alive after RestartSession returns.
-	var capturedCtx context.Context
-	fakeAgentStart := func(ctx context.Context, _ agent.Options, msgCh chan<- agent.Message, _ io.Writer) (*agent.Session, error) {
-		capturedCtx = ctx
-		cmd := exec.CommandContext(ctx, "cat")
-		stdin, _ := cmd.StdinPipe()
-		stdout, _ := cmd.StdoutPipe()
-		if err := cmd.Start(); err != nil {
-			return nil, err
-		}
-		return agent.NewSession(cmd, stdin, stdout, msgCh, nil), nil
-	}
+	tb := &testBackend{}
 
 	r := &Runner{
 		LogDir:       logDir,
-		AgentStartFn: fakeAgentStart,
+		AgentBackend: tb,
 	}
 
 	tk := &Task{
@@ -170,11 +216,11 @@ func TestRestartSession(t *testing.T) {
 		t.Errorf("prompt = %q, want %q", tk.Prompt, "new plan")
 	}
 
-	// The context passed to AgentStartFn must still be valid after
+	// The context passed to AgentBackend.Start must still be valid after
 	// RestartSession returns (it must not be a request-scoped context).
 	select {
-	case <-capturedCtx.Done():
-		t.Error("context passed to AgentStartFn was canceled; must use a long-lived context")
+	case <-tb.capturedCtx.Done():
+		t.Error("context passed to AgentBackend.Start was canceled; must use a long-lived context")
 	default:
 	}
 
@@ -182,7 +228,7 @@ func TestRestartSession(t *testing.T) {
 	// is still alive (not canceled by a short-lived HTTP request context).
 	time.Sleep(50 * time.Millisecond)
 	select {
-	case <-capturedCtx.Done():
+	case <-tb.capturedCtx.Done():
 		t.Error("context was canceled shortly after RestartSession returned")
 	default:
 	}

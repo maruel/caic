@@ -2,24 +2,36 @@ package agent
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"strings"
 	"testing"
 	"time"
 )
 
-func TestWriteMessageLog(t *testing.T) {
-	var buf bytes.Buffer
-	var logBuf bytes.Buffer
-	if err := writeMessage(&buf, "hello", &logBuf); err != nil {
-		t.Fatal(err)
+// testWriteFn is a simple WriteFn for testing that writes JSON user messages.
+func testWriteFn(w io.Writer, prompt string, logW io.Writer) error {
+	msg := struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"message"`
+	}{Type: "user"}
+	msg.Message.Role = "user"
+	msg.Message.Content = prompt
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
 	}
-	if buf.String() != logBuf.String() {
-		t.Errorf("stdin and log differ:\nstdin: %q\nlog:   %q", buf.String(), logBuf.String())
+	data = append(data, '\n')
+	if _, err := w.Write(data); err != nil {
+		return err
 	}
-	if !strings.Contains(buf.String(), `"content":"hello"`) {
-		t.Errorf("unexpected output: %s", buf.String())
+	if logW != nil {
+		_, _ = logW.Write(data)
 	}
+	return nil
 }
 
 func TestSessionLifecycle(t *testing.T) {
@@ -28,9 +40,10 @@ func TestSessionLifecycle(t *testing.T) {
 	stdoutR, stdoutW := io.Pipe()
 
 	s := &Session{
-		stdin: stdinW,
-		logW:  nil,
-		done:  make(chan struct{}),
+		stdin:   stdinW,
+		logW:    nil,
+		writeFn: testWriteFn,
+		done:    make(chan struct{}),
 	}
 
 	msgCh := make(chan Message, 16)
@@ -118,8 +131,9 @@ func TestSessionLifecycle(t *testing.T) {
 func TestSessionClose(t *testing.T) {
 	_, stdinW := io.Pipe()
 	s := &Session{
-		stdin: stdinW,
-		done:  make(chan struct{}),
+		stdin:   stdinW,
+		writeFn: testWriteFn,
+		done:    make(chan struct{}),
 	}
 	// Close should be idempotent.
 	s.Close()

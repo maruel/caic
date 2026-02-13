@@ -523,13 +523,13 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
 }
 
 // SetRunnerOps overrides container and agent operations on all runners.
-func (s *Server) SetRunnerOps(c task.ContainerBackend, agentStart func(ctx context.Context, opts agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error)) {
+func (s *Server) SetRunnerOps(c task.ContainerBackend, ab agent.Backend) {
 	for _, r := range s.runners {
 		if c != nil {
 			r.Container = c
 		}
-		if agentStart != nil {
-			r.AgentStartFn = agentStart
+		if ab != nil {
+			r.AgentBackend = ab
 		}
 	}
 }
@@ -676,7 +676,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	var relaySize int64
 	if relayAlive {
 		// Relay is alive — read authoritative output from container.
-		relayMsgs, relaySize, relayErr = agent.ReadRelayOutput(ctx, c.Name)
+		relayMsgs, relaySize, relayErr = runner.ReadRelayOutput(ctx, c.Name)
 		if relayErr != nil {
 			slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", c.Name, "err", relayErr)
 			relayAlive = false

@@ -1,5 +1,40 @@
 # Multi-Agent Abstraction Plan for CAIC
 
+## Completed: Backend Interface + Claude Subpackage
+
+Step 1 is done. The `agent.Backend` interface is extracted and the Claude-specific code lives in `agent/claude/`.
+
+### What was done
+
+- **`agent/backend.go`** — `Backend` interface with `Start`, `AttachRelay`, `ReadRelayOutput`, `ParseMessage`, `Name`
+- **`agent/claude/claude.go`** — Claude Code backend: launches `claude -p` via relay, parses Claude NDJSON, writes Claude stdin format
+- **`agent/agent.go`** — Now contains only shared infrastructure: `Session` (with pluggable `WriteFn`), `ParseMessage`, `Options`, relay utilities (`DeployRelay`, `IsRelayRunning`, `HasRelayDir`, `ReadPlan`), message types
+- **`task/runner.go`** — `AgentStartFn func(...)` replaced with `AgentBackend agent.Backend`; defaults to `&claude.Backend{}`; added `ReadRelayOutput` convenience method
+- **`server/server.go`** — `SetRunnerOps` takes `agent.Backend` instead of a start function; `adoptOne` uses `runner.ReadRelayOutput` instead of `agent.ReadRelayOutput`
+- **`cmd/caic/main.go`** — `fakeAgentStart` func replaced with `fakeBackend` struct implementing `agent.Backend`
+
+### Key design decisions
+
+- **`WriteFn` on `Session`** instead of `WritePrompt` on `Backend`. `Session.Send(prompt)` still works, but each backend provides its own `WriteFn` to `NewSession`. This avoids changing `task.Task.SendInput` or storing the backend on the task.
+- **Relay utilities stay in `agent/`** — `DeployRelay`, `IsRelayRunning`, `HasRelayDir`, `ReadPlan` are process-agnostic (they just check files/sockets over SSH). But `ReadRelayOutput` moved to `Backend` since it needs backend-specific parsing.
+- **Relay path constants exported** — `agent.RelayDir`, `agent.RelayScriptPath`, `agent.RelaySockPath`, `agent.RelayOutputPath` are now exported so `claude/` can reference them.
+
+### Current file layout
+
+```
+agent/
+  agent.go       — Session (writeFn-pluggable), Options, ParseMessage, readMessages, relay utils
+  backend.go     — Backend interface
+  types.go       — Message interface + all message types (unchanged)
+  agent_test.go  — Session/parse tests (updated for writeFn)
+  claude/
+    claude.go       — Backend impl: Start (relay deploy + serve-attach), AttachRelay, ReadRelayOutput, ParseMessage, WritePrompt, buildArgs, slogWriter
+    claude_test.go  — WritePrompt test
+  relay/
+    embed.go     — relay.py embed (unchanged)
+    relay.py     — unchanged
+```
+
 ## Feasibility: Gemini CLI
 
 **Verdict: Yes, feasible.** Gemini CLI supports:
@@ -16,138 +51,23 @@
 4. **Result/stats schema differs** — Gemini reports `stats.models`/`stats.tools` vs Claude's `ResultMessage` with `total_cost_usd`/`usage`
 5. **Session management** — Gemini stores sessions in `~/.gemini/tmp/`, Claude in its own location. Both support `--resume`.
 
-## Current Claude-Coupled Code
+## Remaining Implementation Steps
 
-Three layers are coupled to Claude Code's specific protocol:
+### 2. Add `agent` field to task creation DTO — plumb through server/runner
 
-### Layer 1: Process Launch (`agent/agent.go`)
-- `Start()`, `StartWithRelay()` hardcode `claude -p --input-format stream-json --output-format stream-json --verbose --dangerously-skip-permissions`
-- Input format: `{"type":"user","message":{"role":"user","content":"..."}}`
-- The relay.py is Claude-agnostic (it just bridges stdin/stdout/socket) — **reusable as-is**
+- Add `Agent string` to `dto.CreateTaskReq` (default `"claude"`)
+- Store agent name on `task.Task`
+- `server.Server` holds a `map[string]agent.Backend` registry (currently just `{"claude": &claude.Backend{}}`)
+- Runner uses the backend from the registry for the task's agent
+- `task/load.go` — `agent.ParseMessage` in `loadLogFile` currently uses the package-level function. For multi-backend log replay, the log needs to record which backend produced it (add `Agent` field to `MetaMessage`), and `LoadLogs` must accept a backend registry or parse function map.
 
-### Layer 2: Message Parsing (`agent/types.go`, `agent/agent.go:ParseMessage`)
-- `Message` interface + concrete types (`AssistantMessage`, `UserMessage`, `ResultMessage`, etc.)
-- `ParseMessage()` decodes Claude Code's specific NDJSON envelope (`type`, `subtype`)
-- Content blocks assume Anthropic API format (`text`, `tool_use` with `id`/`name`/`input`)
+### 3. Implement Gemini backend — `agent/gemini/`
 
-### Layer 3: Event Conversion (`server/eventconv.go`)
-- `convertMessage()` maps `agent.Message` → `dto.EventMessage`
-- Hardcodes Claude-specific tool names: `"AskUserQuestion"`, `"TodoWrite"`
-- Extracts Claude-specific fields: `parent_tool_use_id`, `Usage` structure
-
-### Layer 4: Task State Machine (`task/task.go`)
-- `addMessage()` inspects `*agent.SystemInitMessage` for `SessionID`, `Model`, `ClaudeCodeVersion`
-- `lastAssistantHasAsk()` checks for `"AskUserQuestion"` tool name
-- `RestoreMessages()` relies on Claude message types
-
-## Proposed Abstraction
-
-### Principle: Normalize at the boundary
-
-Each agent backend translates its native wire format into a **shared internal message model** (the existing `agent.Message` types). The rest of the system (task, eventconv, SSE, frontend) remains unchanged.
-
-### Architecture
-
-```
-┌─────────────────┐     ┌─────────────────┐
-│  Claude Backend │     │  Gemini Backend  │     (future: Kilo, Aider, ...)
-│                 │     │                  │
-│  Launches       │     │  Launches        │
-│  claude -p ...  │     │  gemini -p ...   │
-│                 │     │                  │
-│  Parses Claude  │     │  Parses Gemini   │
-│  NDJSON format  │     │  NDJSON format   │
-│                 │     │                  │
-│  Emits          │     │  Emits           │
-│  agent.Message  │     │  agent.Message   │
-└────────┬────────┘     └────────┬─────────┘
-         │                       │
-         └───────────┬───────────┘
-                     │
-              agent.Message (shared)
-                     │
-         ┌───────────┴───────────┐
-         │  task / eventconv /   │
-         │  SSE / frontend       │
-         │  (unchanged)          │
-         └───────────────────────┘
-```
-
-### Interface Design
-
-```go
-// Package agent
-
-// Backend launches and communicates with a coding agent process.
-type Backend interface {
-    // Start launches the agent in the given container. Messages are emitted
-    // to msgCh as agent.Message (normalized). logW receives raw wire-format
-    // lines for debugging/replay.
-    Start(ctx context.Context, opts Options, msgCh chan<- Message, logW io.Writer) (*Session, error)
-
-    // WritePrompt sends a user prompt to the running session.
-    WritePrompt(session *Session, prompt string, logW io.Writer) error
-
-    // ParseMessage decodes a single wire-format line into a normalized Message.
-    // Used for log replay (load.go).
-    ParseMessage(line []byte) (Message, error)
-
-    // Name returns a human-readable backend name ("claude", "gemini", etc.)
-    Name() string
-}
-```
-
-**Why this shape:**
-- `Start` replaces the current `AgentStartFn` signature — same contract but now includes the wire-format translation
-- `WritePrompt` replaces `writeMessage()` — each backend knows its own stdin format
-- `ParseMessage` is needed for log replay (currently `agent.ParseMessage` is called from `task/load.go`)
-- The relay.py infrastructure stays in the Claude backend since it's process-generic
-
-### What changes per package
-
-#### `agent/` package — split into sub-packages
-
-```
-agent/
-  message.go       — Message interface + shared types (unchanged)
-  session.go       — Session struct (unchanged, process-agnostic)
-  backend.go       — Backend interface definition
-  claude/
-    claude.go       — Start, WritePrompt, ParseMessage for Claude Code
-    relay.go        — relay.py deployment (moved from agent.go)
-  gemini/
-    gemini.go       — Start, WritePrompt, ParseMessage for Gemini CLI
-    translate.go    — Gemini stream-json → agent.Message translation
-```
-
-#### `task/runner.go` — minimal changes
-- `AgentStartFn` field → `AgentBackend agent.Backend` field
-- Calls `r.AgentBackend.Start(...)` instead of `r.AgentStartFn(...)`
-- Calls `r.AgentBackend.WritePrompt(session, prompt, logW)` instead of `session.Send(prompt)`
-- Log replay calls `r.AgentBackend.ParseMessage(line)` instead of `agent.ParseMessage(line)`
-
-#### `task/task.go` — minor changes
-- `SendInput()` needs access to the backend's `WritePrompt` — either stored on Task or passed through
-- `addMessage()` — the Claude-specific field extraction (`SessionID`, `Model`, `ClaudeCodeVersion`) already works through the `Message` interface; Gemini backend would populate `SystemInitMessage` with equivalent data
-- `lastAssistantHasAsk()` — works via `ContentBlock.Name == "AskUserQuestion"`. Gemini's equivalent tool is `ask_user`. The **Gemini backend's translator** maps `ask_user` → `AskUserQuestion` in the normalized message, so this code stays unchanged.
-
-#### `server/eventconv.go` — unchanged
-- Already works with `agent.Message` interface. As long as backends normalize to the same message types, no changes needed.
-
-#### `dto/types.go`, `dto/events.go` — unchanged
-- Agent-agnostic. They define the SSE/API contract, not the wire format.
-
-#### `server/server.go` — add backend selection
-- Task creation request gets a new optional `agent` field (default: `"claude"`)
-- Server holds a `map[string]agent.Backend` registry
-- Runner selection uses the backend matching the requested agent
-
-#### Frontend — minimal changes
-- Task creation form gets an agent selector dropdown
-- `EventInit` already has `Model` and `ClaudeCodeVersion`; rename `ClaudeCodeVersion` → `AgentVersion` in dto
-- Display the agent name in the task header
-
-### Gemini Backend: Translation Rules
+Create `agent/gemini/gemini.go` implementing `agent.Backend`:
+- `Start`: launches `gemini -p --output-format stream-json --yolo [-m model]`
+- `WritePrompt`: Gemini's stdin format (needs empirical capture — may differ from Claude's)
+- `ParseMessage`: translates Gemini stream-json events → `agent.Message`
+- Tool name mapping: `read_file`→`Read`, `run_shell_command`→`Bash`, etc.
 
 | Gemini stream-json event | Normalized agent.Message |
 |---|---|
@@ -171,22 +91,28 @@ Tool name mapping table:
 | `ask_user` | `AskUserQuestion` |
 | `write_todos` | `TodoWrite` |
 
-### Implementation Order
+### 4. Frontend: agent selector
 
-1. **Extract `Backend` interface + move Claude code into `agent/claude/`** — pure refactor, no behavior change
-2. **Add `agent` field to task creation DTO** — plumb through server/runner
-3. **Implement Gemini backend** — `agent/gemini/` with stream-json parsing and translation
-4. **Frontend: agent selector** — dropdown in task creation, agent name in task header
-5. **Rename `ClaudeCodeVersion` → `AgentVersion`** throughout dto/frontend
+- Task creation form gets an agent selector dropdown
+- `EventInit` already has `Model` and `ClaudeCodeVersion`; rename `ClaudeCodeVersion` → `AgentVersion` in dto
+- Display the agent name in the task header
 
-### Risk Assessment
+### 5. Rename `ClaudeCodeVersion` → `AgentVersion` throughout dto/frontend
+
+Touch points:
+- `agent/types.go`: `SystemInitMessage.Version` JSON tag `claude_code_version`
+- `server/dto/events.go`: `EventInit.ClaudeCodeVersion`
+- `task/task.go`: `Task.ClaudeCodeVersion`, `addMessage`, `RestoreMessages`
+- Frontend: wherever `ClaudeCodeVersion` appears in the TypeScript types and UI
+
+## Risk Assessment
 
 - **Gemini stream-json format is under-documented.** Need to empirically capture output from `gemini -p "hello" --output-format stream-json` and reverse-engineer the event schema. The format was stabilized in v0.20+ but exact field names need validation.
 - **Relay compatibility.** The relay.py is process-agnostic (stdin/stdout bridge), so it should work with Gemini CLI unchanged. The only assumption is that the child process reads stdin and writes stdout — both CLIs do this.
 - **Cost tracking.** Gemini has a free tier (no cost). The `ResultMessage.TotalCostUSD` would be 0 or derived from Gemini's stats if available.
 - **Session resume.** Gemini's `--resume` works differently (local file-based sessions). Need to verify it works in a container where `~/.gemini/` persists.
 
-### Non-Goals (for now)
+## Non-Goals (for now)
 - MCP server integration (both CLIs support it, but not needed for the core abstraction)
 - Multiple simultaneous backends in a single task
 - Backend-specific settings UI (model lists, API key management)
