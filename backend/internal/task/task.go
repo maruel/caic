@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -78,6 +79,7 @@ type Task struct {
 	SessionID         string    // Claude Code session ID, captured from SystemInitMessage.
 	Model             string    // Model name, captured from SystemInitMessage.
 	ClaudeCodeVersion string    // Claude Code version, captured from SystemInitMessage.
+	PlanFile          string    // Path to plan file inside container, captured from Write tool_use.
 	StartedAt         time.Time
 	RelayOffset       int64 // Bytes received from relay output.jsonl, for reconnect.
 
@@ -196,6 +198,19 @@ func (t *Task) addMessage(m agent.Message) {
 		t.SessionID = init.SessionID
 		t.Model = init.Model
 		t.ClaudeCodeVersion = init.Version
+	}
+	// Capture plan file path from Write tool_use targeting .claude/plans/.
+	if am, ok := m.(*agent.AssistantMessage); ok {
+		for _, b := range am.Message.Content {
+			if b.Type == "tool_use" && b.Name == "Write" {
+				var input struct {
+					FilePath string `json:"file_path"`
+				}
+				if json.Unmarshal(b.Input, &input) == nil && strings.Contains(input.FilePath, ".claude/plans/") {
+					t.PlanFile = input.FilePath
+				}
+			}
+		}
 	}
 	// Transition to waiting/asking when a result arrives while running.
 	if rm, ok := m.(*agent.ResultMessage); ok {

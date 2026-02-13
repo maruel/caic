@@ -261,10 +261,32 @@ def _read_line(conn):
     return buf.decode()
 
 
+def read_plan(path=None):
+    """Print the content of a plan file.
+
+    If path is given, read that file directly. Otherwise find the most recently
+    modified .md file in ~/.claude/plans/.
+    """
+    if path:
+        with open(path) as f:
+            sys.stdout.write(f.read())
+        return
+    plans_dir = os.path.expanduser("~/.claude/plans")
+    if not os.path.isdir(plans_dir):
+        sys.exit(1)
+    files = [os.path.join(plans_dir, f) for f in os.listdir(plans_dir) if f.endswith(".md")]
+    if not files:
+        sys.exit(1)
+    latest = max(files, key=os.path.getmtime)
+    with open(latest) as f:
+        sys.stdout.write(f.read())
+
+
 def main():
     if len(sys.argv) < 2:
         print("usage: relay.py serve-attach -- <cmd...>", file=sys.stderr)
         print("       relay.py attach [--offset N]", file=sys.stderr)
+        print("       relay.py read-plan [path]", file=sys.stderr)
         sys.exit(1)
 
     mode = sys.argv[1]
@@ -289,6 +311,9 @@ def main():
             if idx + 1 < len(sys.argv):
                 offset = int(sys.argv[idx + 1])
         attach_client(offset=offset)
+
+    elif mode == "read-plan":
+        read_plan(sys.argv[2] if len(sys.argv) > 2 else None)
 
     else:
         print(f"relay.py: unknown mode {mode!r}", file=sys.stderr)

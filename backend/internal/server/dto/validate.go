@@ -17,13 +17,8 @@ func (r *InputReq) Validate() error {
 	return nil
 }
 
-// Validate checks that the prompt is non-empty.
-func (r *RestartReq) Validate() error {
-	if r.Prompt == "" {
-		return BadRequest("prompt is required")
-	}
-	return nil
-}
+// Validate is a no-op; prompt is optional (read from container plan file if empty).
+func (r *RestartReq) Validate() error { return nil }
 
 // Validate checks that prompt and repo are non-empty.
 func (r *CreateTaskReq) Validate() error {

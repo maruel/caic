@@ -437,10 +437,19 @@ func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *dto.Resta
 	if t.State != task.StateWaiting && t.State != task.StateAsking {
 		return nil, dto.Conflict("task is not waiting or asking")
 	}
+	prompt := req.Prompt
+	if prompt == "" {
+		// Read the plan file from the container.
+		plan, err := agent.ReadPlan(s.ctx, t.Container, t.PlanFile) //nolint:contextcheck // intentionally using server context
+		if err != nil {
+			return nil, dto.BadRequest("no prompt provided and failed to read plan from container: " + err.Error())
+		}
+		prompt = plan
+	}
 	runner := s.runners[t.Repo]
 	// Use the server-lifetime context, not the HTTP request context.
 	// The new agent session must outlive this request.
-	if err := runner.RestartSession(s.ctx, t, req.Prompt); err != nil { //nolint:contextcheck // intentionally using server context
+	if err := runner.RestartSession(s.ctx, t, prompt); err != nil { //nolint:contextcheck // intentionally using server context
 		return nil, dto.InternalError(err.Error())
 	}
 	s.mu.Lock()

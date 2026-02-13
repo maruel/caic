@@ -176,6 +176,15 @@ export default function TaskView(props: Props) {
             }
           }
 
+          function clearAndExecutePlan() {
+            const prompt = props.inputDraft.trim();
+            // eslint-disable-next-line solid/reactivity -- only called from onClick
+            runAction("restart", async () => {
+              await apiRestartTask(props.taskId, { prompt });
+              props.onInputDraft("");
+            });
+          }
+
           return (
             <Index each={turns()}>
               {(turn, turnIdx) => {
@@ -212,7 +221,7 @@ export default function TaskView(props: Props) {
                                   <MessageItem ev={ev} />
                                   <Show when={ev.result && turnHasExitPlanMode(turn()) && isWaiting()}>
                                     <div class={styles.planAction}>
-                                      <Button variant="gray" loading={pendingAction() === "restart"} disabled={!!pendingAction() || !props.inputDraft.trim()} onClick={() => { const id = props.taskId; const prompt = props.inputDraft.trim(); const clearDraft = props.onInputDraft; runAction("restart", async () => { await apiRestartTask(id, { prompt }); clearDraft(""); }); }}>
+                                      <Button variant="gray" loading={pendingAction() === "restart"} disabled={!!pendingAction()} onClick={() => clearAndExecutePlan()}>
                                         Clear and execute plan
                                       </Button>
                                     </div>
@@ -485,6 +494,7 @@ function turnHasExitPlanMode(turn: Turn): boolean {
     g.kind === "tool" && g.toolCalls.some((tc) => tc.use.name === "ExitPlanMode"),
   );
 }
+
 
 function turnSummary(turn: Turn): string {
   const parts: string[] = [];

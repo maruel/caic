@@ -444,3 +444,19 @@ func ReadRelayOutput(ctx context.Context, container string) (msgs []Message, siz
 	}
 	return msgs, size, scanner.Err()
 }
+
+// ReadPlan reads a plan file from the container by invoking relay.py read-plan
+// over SSH. If planFile is non-empty, that specific file is read; otherwise the
+// most recently modified .md file in ~/.claude/plans/ is used.
+func ReadPlan(ctx context.Context, container, planFile string) (string, error) {
+	args := []string{container, "python3", relayScriptPath, "read-plan"}
+	if planFile != "" {
+		args = append(args, planFile)
+	}
+	cmd := exec.CommandContext(ctx, "ssh", args...) //nolint:gosec // args are not user-controlled.
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("read plan: %w", err)
+	}
+	return string(out), nil
+}
