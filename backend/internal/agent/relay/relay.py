@@ -60,12 +60,11 @@ def serve(cmd_args, work_dir):
     with open(PID_PATH, "w") as f:
         f.write(str(os.getpid()))
 
-    # Change to the working directory before starting the subprocess.
-    os.chdir(work_dir)
-
-    # Start the subprocess.
+    # Start the subprocess in the working directory that contains the git
+    # repository so the harness (claude, gemini) picks up the right project.
     proc = subprocess.Popen(
         cmd_args,
+        cwd=work_dir,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
