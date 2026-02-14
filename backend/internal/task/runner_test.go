@@ -199,9 +199,9 @@ func TestRunner(t *testing.T) {
 			dir  string
 			want string
 		}{
-			{"/home/maruel/src/caic", "/home/user/caic"},
-			{"/home/alice/projects/myrepo", "/home/user/myrepo"},
-			{"/opt/repos/foo", "/home/user/foo"},
+			{"/home/maruel/src/caic", "/home/user/src/caic"},
+			{"/home/alice/projects/myrepo", "/home/user/src/myrepo"},
+			{"/opt/repos/foo", "/home/user/src/foo"},
 		}
 		for _, tc := range tests {
 			r := &Runner{Dir: tc.dir}

@@ -87,9 +87,9 @@ func (r *Runner) backend(name agent.Harness) agent.Backend {
 }
 
 // containerDir returns the working directory path inside an md container.
-// md always mounts repos at /home/user/<basename>.
+// md always mounts repos at /home/user/src/<basename>.
 func (r *Runner) containerDir() string {
-	return "/home/user/" + filepath.Base(r.Dir)
+	return "/home/user/src/" + filepath.Base(r.Dir)
 }
 
 // Init sets nextID past any existing caic/w* branches so that restarts don't

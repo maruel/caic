@@ -144,7 +144,7 @@ FunctionDeclaration(
         "Requires a prompt describing what to do and a repo path.",
     parameters = mapOf(
         "prompt" to Schema.string("What the agent should do"),
-        "repo" to Schema.string("Repository path, e.g. '/home/user/myproject'"),
+        "repo" to Schema.string("Repository path, e.g. '/home/user/src/myproject'"),
         "model" to Schema.string("Optional model: 'opus', 'sonnet', 'haiku', or empty for default"),
         "harness" to Schema.string("Agent harness: 'claude' (default) or 'gemini'"),
     ),
@@ -1173,7 +1173,7 @@ User: [taps mic]
 User: "Hey, start a task on the backend repo to fix the flaky auth test"
 
 Gemini: "I'll create a task on the backend repo to fix the flaky auth test."
-  → calls create_task(prompt="fix the flaky auth test", repo="/home/user/backend")
+  → calls create_task(prompt="fix the flaky auth test", repo="/home/user/src/backend")
   → [screen navigates to new task detail]
 Gemini: "Task created and running."
 

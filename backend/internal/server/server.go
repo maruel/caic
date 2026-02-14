@@ -58,7 +58,7 @@ type mdBackend struct{ client *md.Client }
 func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string) (string, error) {
 	slog.Info("md start", "dir", dir, "branch", branch)
 	c := b.client.Container(dir, branch)
-	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, Labels: labels}); err != nil {
+	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, BaseImage: md.DefaultBaseImage + ":latest", Labels: labels}); err != nil {
 		return "", err
 	}
 	return c.Name, nil
@@ -118,7 +118,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 		usage:    newUsageFetcher(ctx),
 	}
 
-	mdClient, err := container.New("")
+	mdClient, err := container.New()
 	if err != nil {
 		return nil, fmt.Errorf("init container library: %w", err)
 	}

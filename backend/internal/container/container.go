@@ -12,8 +12,8 @@ import (
 )
 
 // New creates an md.Client for container operations.
-func New(tag string) (*md.Client, error) {
-	c, err := md.New(tag)
+func New() (*md.Client, error) {
+	c, err := md.New()
 	if err != nil {
 		return nil, err
 	}
