@@ -32,7 +32,7 @@
 }
 
 .collapseBtn {
-  border: 1px solid #ddd;
+  border: none;
   background: none;
   cursor: pointer;
   color: #555;
@@ -47,7 +47,7 @@
 }
 
 .expandBtn {
-  border: 1px solid #ddd;
+  border: none;
   background: none;
   cursor: pointer;
   color: #555;
