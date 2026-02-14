@@ -287,7 +287,7 @@ export default function TaskView(props: Props) {
           />
           <Button type="submit" disabled={sending() || !props.inputDraft.trim()}>Send</Button>
           <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction()} onClick={() => doSync(false)}>Sync</Button>
-          <Button type="button" variant="red" loading={pendingAction() === "terminate"} disabled={!!pendingAction()} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate"><DeleteIcon width="1.1em" height="1.1em" /></Button>
+          <Button type="button" variant="red" loading={pendingAction() === "terminate" || props.taskState === "terminating"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate"><DeleteIcon width="1.1em" height="1.1em" /></Button>
         </form>
         <Show when={safetyIssues().length > 0}>
           <div class={styles.safetyWarning}>
