@@ -26,6 +26,9 @@ var Wire agent.WireFormat = &Backend{}
 // Harness returns the harness identifier.
 func (b *Backend) Harness() agent.Harness { return agent.Gemini }
 
+// Models returns the model names supported by Gemini CLI.
+func (b *Backend) Models() []string { return []string{"gemini-2.5-pro", "gemini-2.5-flash"} }
+
 // Start launches a Gemini CLI process via the relay daemon in the given
 // container.
 func (b *Backend) Start(ctx context.Context, opts agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {

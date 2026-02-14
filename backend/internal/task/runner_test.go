@@ -48,6 +48,8 @@ func (b *testBackend) ParseMessage(line []byte) (agent.Message, error) {
 	return agent.ParseMessage(line)
 }
 
+func (b *testBackend) Models() []string { return []string{"test-model"} }
+
 // testWire implements agent.WireFormat for testing.
 type testWire struct{}
 

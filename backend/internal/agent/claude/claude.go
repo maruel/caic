@@ -26,6 +26,9 @@ var Wire agent.WireFormat = &Backend{}
 // Harness returns the harness identifier.
 func (b *Backend) Harness() agent.Harness { return agent.Claude }
 
+// Models returns the model aliases supported by Claude Code CLI.
+func (b *Backend) Models() []string { return []string{"opus", "sonnet", "haiku"} }
+
 // Start launches a Claude Code process via the relay daemon in the given
 // container. It deploys the relay script and starts claude via serve-attach.
 func (b *Backend) Start(ctx context.Context, opts agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {

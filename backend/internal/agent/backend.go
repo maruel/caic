@@ -31,4 +31,7 @@ type Backend interface {
 
 	// Harness returns the harness identifier ("claude", "gemini", etc.)
 	Harness() Harness
+
+	// Models returns the list of model names supported by this backend.
+	Models() []string
 }

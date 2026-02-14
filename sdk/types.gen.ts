@@ -254,6 +254,7 @@ export const HarnessGemini: Harness = "gemini";
  */
 export interface HarnessJSON {
   name: string;
+  models: string[];
 }
 /**
  * RepoJSON is the JSON representation of a discovered repo.

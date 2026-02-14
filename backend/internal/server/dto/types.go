@@ -18,7 +18,8 @@ const (
 
 // HarnessJSON is the JSON representation of an available harness.
 type HarnessJSON struct {
-	Name string `json:"name"`
+	Name   string   `json:"name"`
+	Models []string `json:"models"`
 }
 
 // RepoJSON is the JSON representation of a discovered repo.

@@ -41,6 +41,8 @@ func (stubBackend) ParseMessage([]byte) (agent.Message, error) {
 	return nil, errors.New("stub")
 }
 
+func (stubBackend) Models() []string { return []string{"m1", "m2"} }
+
 func decodeError(t *testing.T, w *httptest.ResponseRecorder) dto.ErrorDetails {
 	t.Helper()
 	var resp dto.ErrorResponse
@@ -344,6 +346,70 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		if !strings.Contains(e.Message, "nonexistent") {
 			t.Errorf("message = %q, want it to mention the unknown harness", e.Message)
+		}
+	})
+
+	t.Run("InvalidModel", func(t *testing.T) {
+		s := &Server{
+			ctx: t.Context(),
+			runners: map[string]*task.Runner{
+				"myrepo": {
+					BaseBranch: "main",
+					Dir:        t.TempDir(),
+					Backends:   map[agent.Harness]agent.Backend{"stub": stubBackend{}},
+				},
+			},
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+		}
+		handler := handle(s.createTask)
+
+		body := strings.NewReader(`{"prompt":"test","repo":"myrepo","harness":"stub","model":"nonexistent"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+		}
+		e := decodeError(t, w)
+		if e.Code != dto.CodeBadRequest {
+			t.Errorf("code = %q, want %q", e.Code, dto.CodeBadRequest)
+		}
+		if !strings.Contains(e.Message, "nonexistent") {
+			t.Errorf("message = %q, want it to mention the invalid model", e.Message)
+		}
+	})
+
+	t.Run("ValidModel", func(t *testing.T) {
+		s := &Server{
+			ctx: t.Context(),
+			runners: map[string]*task.Runner{
+				"myrepo": {
+					BaseBranch: "main",
+					Dir:        t.TempDir(),
+					Backends:   map[agent.Harness]agent.Backend{"stub": stubBackend{}},
+				},
+			},
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+		}
+		handler := handle(s.createTask)
+
+		body := strings.NewReader(`{"prompt":"test","repo":"myrepo","harness":"stub","model":"m1"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+		var resp dto.CreateTaskResp
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.ID == 0 {
+			t.Error("response has zero 'id' field")
 		}
 	})
 

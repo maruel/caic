@@ -265,6 +265,8 @@ func (*fakeBackend) ParseMessage(line []byte) (agent.Message, error) {
 	return agent.ParseMessage(line)
 }
 
+func (*fakeBackend) Models() []string { return []string{"fake-model"} }
+
 // cacheDir returns the caic log/cache directory, using $XDG_CACHE_HOME/caic/
 // with a fallback to ~/.cache/caic/.
 func cacheDir() string {

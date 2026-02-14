@@ -208,7 +208,12 @@ export default function App() {
         <Show when={harnesses().length > 1}>
           <select
             value={selectedHarness()}
-            onChange={(e) => setSelectedHarness(e.currentTarget.value)}
+            onChange={(e) => {
+              const h = e.currentTarget.value;
+              setSelectedHarness(h);
+              const models = harnesses().find((x) => x.name === h)?.models ?? [];
+              if (!models.includes(selectedModel())) setSelectedModel("");
+            }}
             disabled={submitting()}
             class={styles.modelSelect}
           >
@@ -217,17 +222,19 @@ export default function App() {
             </For>
           </select>
         </Show>
-        <select
-          value={selectedModel()}
-          onChange={(e) => setSelectedModel(e.currentTarget.value)}
-          disabled={submitting()}
-          class={styles.modelSelect}
-        >
-          <option value="">Default model</option>
-          <option value="opus">Opus</option>
-          <option value="sonnet">Sonnet</option>
-          <option value="haiku">Haiku</option>
-        </select>
+        <Show when={(harnesses().find((h) => h.name === selectedHarness())?.models ?? []).length > 0}>
+          <select
+            value={selectedModel()}
+            onChange={(e) => setSelectedModel(e.currentTarget.value)}
+            disabled={submitting()}
+            class={styles.modelSelect}
+          >
+            <option value="">Default model</option>
+            <For each={harnesses().find((h) => h.name === selectedHarness())?.models ?? []}>
+              {(m) => <option value={m}>{m}</option>}
+            </For>
+          </select>
+        </Show>
         <AutoResizeTextarea
           value={prompt()}
           onInput={setPrompt}

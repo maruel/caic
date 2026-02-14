@@ -233,16 +233,16 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 }
 
 func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.HarnessJSON, error) {
-	// Collect unique harness names from all runners.
-	seen := make(map[agent.Harness]struct{})
+	// Collect unique harness backends from all runners.
+	seen := make(map[agent.Harness]agent.Backend)
 	for _, r := range s.runners {
-		for h := range r.Backends {
-			seen[h] = struct{}{}
+		for h, b := range r.Backends {
+			seen[h] = b
 		}
 	}
 	out := make([]dto.HarnessJSON, 0, len(seen))
-	for h := range seen {
-		out = append(out, dto.HarnessJSON{Name: string(h)})
+	for h, b := range seen {
+		out = append(out, dto.HarnessJSON{Name: string(h), Models: b.Models()})
 	}
 	slices.SortFunc(out, func(a, b dto.HarnessJSON) int {
 		return strings.Compare(a.Name, b.Name)
@@ -276,8 +276,13 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 	}
 
 	harness := toAgentHarness(req.Harness)
-	if _, ok := runner.Backends[harness]; !ok {
+	backend, ok := runner.Backends[harness]
+	if !ok {
 		return nil, dto.BadRequest("unknown harness: " + string(req.Harness))
+	}
+
+	if req.Model != "" && !slices.Contains(backend.Models(), req.Model) {
+		return nil, dto.BadRequest("unsupported model for " + string(req.Harness) + ": " + req.Model)
 	}
 
 	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model}
