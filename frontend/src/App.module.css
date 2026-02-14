@@ -56,7 +56,32 @@
 
 .repoSelect,
 .modelSelect {
-  padding: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  font: inherit;
+  font-size: 0.9rem;
+  border: none;
+  border-radius: 4px;
+  background: #f0f0f0;
+  color: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.repoSelect:hover:not(:disabled),
+.modelSelect:hover:not(:disabled) {
+  background: #e4e4e4;
+}
+
+.repoSelect:focus,
+.modelSelect:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.3);
+}
+
+.repoSelect:disabled,
+.modelSelect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .promptInput {
@@ -67,6 +92,14 @@
   line-height: 1.4;
   max-height: 10rem;
   overflow-y: auto;
+  border: none;
+  border-radius: 4px;
+  background: #f0f0f0;
+}
+
+.promptInput:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(74, 144, 217, 0.3);
 }
 
 .layout {
