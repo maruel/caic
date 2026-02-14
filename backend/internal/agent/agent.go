@@ -71,13 +71,16 @@ func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh cha
 		s.result = result
 		switch {
 		case result != nil:
-			// Got a proper result — ignore exit errors.
+			slog.Info("agent session completed", "result", result.Subtype)
 		case parseErr != nil:
 			s.err = fmt.Errorf("parse: %w", parseErr)
+			slog.Error("agent session parse error", "err", parseErr)
 		case waitErr != nil:
 			s.err = fmt.Errorf("agent exited: %w", waitErr)
+			slog.Error("agent session exited with error", "err", waitErr)
 		default:
 			s.err = errors.New("agent exited without a result message")
+			slog.Error("agent session exited without result message")
 		}
 	}()
 
@@ -117,12 +120,15 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 	// Agents can produce long lines (e.g., base64 images in tool results).
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
 
+	slog.Debug("readMessages: started reading agent stdout")
+	var n int
 	var result *ResultMessage
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
 		}
+		n++
 		if logW != nil {
 			_, _ = logW.Write(line)
 			_, _ = logW.Write([]byte{'\n'})
@@ -132,6 +138,9 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 			slog.Warn("skipping unparseable message", "err", err, "line", string(line))
 			continue
 		}
+		if n <= 3 {
+			slog.Debug("readMessages: parsed message", "n", n, "type", fmt.Sprintf("%T", msg))
+		}
 		if msgCh != nil {
 			msgCh <- msg
 		}
@@ -139,6 +148,7 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 			result = rm
 		}
 	}
+	slog.Debug("readMessages: loop exited", "linesRead", n, "hasResult", result != nil, "scanErr", scanner.Err())
 	return result, scanner.Err()
 }
 

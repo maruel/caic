@@ -39,6 +39,7 @@ func (b *Backend) Start(ctx context.Context, opts agent.Options, msgCh chan<- ag
 	sshArgs = append(sshArgs, opts.Container, "python3", agent.RelayScriptPath, "serve-attach", "--")
 	sshArgs = append(sshArgs, geminiArgs...)
 
+	slog.Info("gemini: launching via relay", "container", opts.Container, "args", geminiArgs)
 	cmd := exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // args are not user-controlled.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
