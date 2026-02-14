@@ -155,16 +155,30 @@ export default function TaskView(props: Props) {
     if (pendingAction()) return;
     setPendingAction(name);
     setActionError(null);
+    let failed = false;
     try {
       await fn();
     } catch (e) {
+      failed = true;
       const msg = e instanceof Error ? e.message : "Unknown error";
       setActionError(`${name} failed: ${msg}`);
       setTimeout(() => setActionError(null), 5000);
     } finally {
-      setPendingAction(null);
+      // For terminate, keep pendingAction set until the server state catches
+      // up to "terminating" — clearing it immediately causes a spinner flicker
+      // in the gap before the SSE state update arrives.
+      if (failed || name !== "terminate") {
+        setPendingAction(null);
+      }
     }
   }
+
+  // Clear stale "terminate" pendingAction once the server state reflects it.
+  createEffect(() => {
+    if (pendingAction() === "terminate" && (props.taskState === "terminating" || props.taskState === "terminated" || props.taskState === "failed")) {
+      setPendingAction(null);
+    }
+  });
 
   return (
     <div class={styles.container}>
@@ -286,7 +300,7 @@ export default function TaskView(props: Props) {
             class={styles.textInput}
           />
           <Button type="submit" disabled={sending() || !props.inputDraft.trim()}>Send</Button>
-          <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction()} onClick={() => doSync(false)}>Sync</Button>
+          <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => doSync(false)}>Sync</Button>
           <Button type="button" variant="red" loading={pendingAction() === "terminate" || props.taskState === "terminating"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => { const id = props.taskId; runAction("terminate", () => apiTerminateTask(id)); }} title="Terminate"><DeleteIcon width="1.1em" height="1.1em" /></Button>
         </form>
         <Show when={safetyIssues().length > 0}>
