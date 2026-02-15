@@ -152,7 +152,7 @@ The app obtains short-lived ephemeral tokens from the backend:
 1. App calls `GET /api/v1/voice/token` on the caic backend
 2. Backend calls Gemini's `POST /v1alpha/auth_tokens` with its API key
 3. Backend returns the ephemeral token to the app
-4. App uses the token as the API key for the Google AI Client SDK
+4. App passes the token as `access_token` query param on the WebSocket URL
 
 Token defaults: 1 min to start a session (`newSessionExpireTime`), 30 min for the
 session itself (`expireTime`), single use. The app refreshes before expiry.
@@ -164,11 +164,46 @@ See `sdk-design.md` for the backend endpoint spec.
 Direct WebSocket connection to the Gemini Live API using OkHttp. No Firebase
 dependency, no Google SDK dependency. The protocol is JSON over WebSocket.
 
-Configured with:
-- Ephemeral token from caic backend (not a raw API key)
-- Native audio I/O (PCM 16kHz in, 24kHz out)
-- System instruction (caic domain + tools)
-- Function declarations for all caic operations
+#### Why not Firebase AI Logic SDK?
+
+The Firebase SDK's `startAudioConversation()` handles AudioRecord/AudioTrack
+setup and the base64 encode/decode loop (~100 lines of straightforward Android
+audio plumbing). But it requires a Firebase project + `google-services.json`,
+and critically does **not** support:
+- Ephemeral tokens (our auth model)
+- VAD parameter configuration (sensitivity, silence duration, barge-in mode)
+- Session resumption
+- Context window compression
+
+Going raw gives us full access to the Live API's VAD tuning and ephemeral token
+auth, at the cost of implementing the audio plumbing ourselves.
+
+#### What we implement (that Firebase SDK would handle)
+
+1. **AudioRecord** setup: PCM 16-bit, 16kHz, mono. Recording loop on
+   `Dispatchers.IO`, reads into ~4KB buffers.
+2. **Base64 encode** PCM chunks → send as `realtimeInput.mediaChunks[].data`
+   with `mimeType: "audio/pcm;rate=16000"`.
+3. **AudioTrack** setup: PCM 16-bit, 24kHz, mono. Playback on a dedicated thread.
+4. **Base64 decode** incoming `serverContent.modelTurn.parts[].inlineData.data`
+   → write to AudioTrack.
+5. **WebSocket lifecycle**: connect, send/receive JSON frames, handle close/error.
+   OkHttp's `WebSocketListener` covers this well.
+6. **toolCall dispatch**: parse `toolCall.functionCalls[]`, execute handler,
+   send `toolResponse.functionResponses[]` back.
+
+#### What the server handles (no client implementation needed)
+
+- **VAD**: server-side voice activity detection is on by default. The server
+  detects speech onset/offset from the raw PCM stream. Configurable in setup:
+  - `realtimeInputConfig.automaticActivityDetection.startOfSpeechSensitivity`:
+    `HIGH` (default) or `LOW`
+  - `endOfSpeechSensitivity`: how much silence = end of turn
+  - `silenceDuration`: explicit silence threshold
+  - `prefixPadding`: min speech duration before committing
+- **Barge-in**: `realtimeInputConfig.activityHandling`:
+  `START_OF_ACTIVITY_INTERRUPTS` (default) or `NO_INTERRUPTION`
+- **Turn-taking**: fully server-managed based on VAD signals
 
 #### WebSocket endpoint
 
@@ -191,6 +226,12 @@ must be `setup`:
       "responseModalities": ["AUDIO"],
       "speechConfig": { "voiceConfig": { "prebuiltVoiceConfig": { "voiceName": "ORUS" } } }
     },
+    "realtimeInputConfig": {
+      "automaticActivityDetection": {
+        "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH"
+      },
+      "activityHandling": "START_OF_ACTIVITY_INTERRUPTS"
+    },
     "systemInstruction": { "parts": [{ "text": "..." }] },
     "tools": [{ "functionDeclarations": [...] }]
   }
@@ -199,11 +240,19 @@ must be `setup`:
 
 Server responds with `setupComplete`, then bidirectional streaming begins.
 
-Client sends audio as `realtimeInput` with base64 PCM chunks. Server sends
-`serverContent` (audio/text) and `toolCall` messages. Client responds to tool
-calls with `toolResponse`.
+**Client → Server messages**:
+- `realtimeInput`: base64 PCM audio chunks
+- `toolResponse`: results of function calls
+- `clientContent`: text input (optional)
 
-See the WebSocket API reference for full message schemas.
+**Server → Client messages**:
+- `setupComplete`: session ready
+- `serverContent`: audio/text response chunks
+- `toolCall`: function call requests with name + args
+- `toolCallCancellation`: cancel in-flight tool calls (on barge-in)
+
+See the [WebSocket API reference](https://ai.google.dev/api/live) for full
+message schemas.
 
 ### System Instruction
 
