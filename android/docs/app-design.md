@@ -20,7 +20,7 @@ configure the server and verify voice actions. Full screen mode comes later.
 | UI | Jetpack Compose + Material 3 |
 | Architecture | MVVM (ViewModel + StateFlow) |
 | Networking | caic Kotlin SDK (OkHttp + kotlinx.serialization) |
-| Voice | Gemini Live API via Firebase AI Logic |
+| Voice | Gemini Live API via Google AI Client SDK + ephemeral tokens |
 | DI | Hilt |
 | Navigation | Compose Navigation (type-safe) |
 | Background | Foreground Service + coroutines |
@@ -144,23 +144,43 @@ object PreferenceKeys {
 }
 ```
 
+### Authentication: Ephemeral Tokens
+
+The Gemini API key lives on the caic backend server, never on the Android device.
+The app obtains short-lived ephemeral tokens from the backend:
+
+1. App calls `GET /api/v1/voice/token` on the caic backend
+2. Backend calls Gemini's `POST /v1alpha/auth_tokens` with its API key
+3. Backend returns the ephemeral token to the app
+4. App uses the token as the API key for the Google AI Client SDK
+
+Token defaults: 1 min to start a session (`newSessionExpireTime`), 30 min for the
+session itself (`expireTime`), single use. The app refreshes before expiry.
+
+See `sdk-design.md` for the backend endpoint spec.
+
 ### Gemini Live Session
 
-Single session via Firebase AI Logic. Configured with:
+Single session via Google AI Client SDK (`com.google.ai.client.generativeai`).
+No Firebase dependency. Configured with:
+- Ephemeral token from caic backend (not a raw API key)
 - Native audio I/O (PCM 16kHz in, 24kHz out)
 - System instruction (caic domain + tools)
 - Function declarations for all caic operations
-- `NON_BLOCKING` behavior for long-running tools
 
 ```kotlin
-val liveModel = Firebase.ai(backend = GenerativeBackend.googleAI()).liveModel(
-    modelName = "gemini-2.5-flash-native-audio-preview-12-2025",
-    generationConfig = liveGenerationConfig {
-        responseModality = ResponseModality.AUDIO
-        speechConfig = SpeechConfig(voice = Voice("ORUS"))
-    },
-    systemInstruction = content { text(SYSTEM_INSTRUCTION) },
-    tools = listOf(Tool.functionDeclarations(caicFunctionDeclarations)),
+// Fetch ephemeral token from caic backend
+val tokenResp = apiClient.getVoiceToken()
+
+val client = GoogleGenAI(apiKey = tokenResp.token)
+val session = client.live.connect(
+    model = "gemini-2.5-flash-native-audio-preview-12-2025",
+    config = LiveConnectConfig(
+        responseModalities = listOf(Modality.AUDIO),
+        speechConfig = SpeechConfig(voice = Voice("ORUS")),
+        systemInstruction = Content(parts = listOf(Part.text(SYSTEM_INSTRUCTION))),
+        tools = listOf(Tool.functionDeclarations(caicFunctionDeclarations)),
+    ),
 )
 ```
 
@@ -207,10 +227,11 @@ Behavior guidelines:
 
 Owns Gemini Live session lifecycle. Bridges voice ↔ caic API.
 
-- `connect()` → create session
+- `connect()` → fetch ephemeral token from backend → create Live session
 - `startConversation()` → bidirectional audio with `handleFunctionCall` callback
 - `handleFunctionCall(call)` → dispatch to handler by name → return `FunctionResponsePart`
 - `disconnect()` → stop session
+- Token refresh: re-fetch before `expireTime` if session is long-lived
 
 ### Task Monitoring & Proactive Notifications
 
@@ -547,7 +568,6 @@ implementation("androidx.datastore:datastore-preferences:1.1.2")
 implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.28.0")
 implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.28.0")
 
-// Firebase AI Logic (Phase 1 — voice mode)
-implementation(platform("com.google.firebase:firebase-bom:34.9.0"))
-implementation("com.google.firebase:firebase-ai")
+// Google AI Client SDK (Phase 1 — voice mode, no Firebase needed)
+implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 ```

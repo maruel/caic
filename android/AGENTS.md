@@ -58,11 +58,14 @@ Lint is strict: `warningsAsErrors = true`, `maxIssues: 0`.
 The app's unique value is voice control. Screen mode is secondary (the web
 frontend already exists). Follow the design docs in this order:
 
-1. **SDK module** (`docs/sdk-design.md`): types + API client, unit tested on JVM
-2. **Voice mode** (`docs/app-design.md` Phase 1): Gemini Live session, function
-   declarations, tool handlers, VoiceSessionManager, voice overlay UI, task
-   monitoring with proactive notifications. Minimal screen: settings (server URL)
-   + a simple task list sufficient to verify voice actions are working.
+1. **SDK module** (`docs/sdk-design.md`): types + API client (including
+   `getVoiceToken()` for ephemeral Gemini tokens), unit tested on JVM.
+   Also add `GET /api/v1/voice/token` backend endpoint.
+2. **Voice mode** (`docs/app-design.md` Phase 1): Google AI Client SDK with
+   ephemeral tokens (no Firebase), function declarations, tool handlers,
+   VoiceSessionManager, voice overlay UI, task monitoring with proactive
+   notifications. Minimal screen: settings (server URL) + a simple task list
+   sufficient to verify voice actions are working.
 3. **Screen mode** (`docs/app-design.md` Phase 2): full Compose UI with feature
    parity to the web frontend — TaskDetail, message grouping, tool call display,
    turn elision, background service, notifications.

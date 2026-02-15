@@ -101,6 +101,8 @@ Event types: `EventMessage` (discriminated on `kind`), `EventInit`, `EventText`,
 `EventToolUse`, `EventToolResult`, `EventAsk`, `AskQuestion`, `AskOption`,
 `EventUsage`, `EventResult`, `EventSystem`, `EventUserInput`, `EventTodo`, `TodoItem`.
 
+Voice types: `VoiceTokenResp`.
+
 Error types: `ErrorResponse`, `ErrorDetails`.
 
 ## API Client (`ApiClient.kt`)
@@ -124,6 +126,7 @@ Generated `suspend` functions, one per `dto.Route`:
 | POST | `/api/v1/tasks/{id}/terminate` | `terminateTask(id)` | — | `StatusResp` |
 | POST | `/api/v1/tasks/{id}/sync` | `syncTask(id, req)` | `SyncReq` | `SyncResp` |
 | GET | `/api/v1/usage` | `getUsage()` | — | `UsageResp` |
+| GET | `/api/v1/voice/token` | `getVoiceToken()` | — | `VoiceTokenResp` |
 
 ### SSE Endpoints
 
@@ -149,6 +152,50 @@ This matches the web frontend's backoff logic in `App.tsx` and `TaskView.tsx`.
 
 `ApiException(statusCode, code, message, details?)` thrown for non-200 responses.
 Callers branch on `code` (from `ErrorCodes`).
+
+## Voice Token Endpoint (Backend)
+
+New backend endpoint that proxies ephemeral token creation from the Gemini API.
+The Gemini API key stays on the server; the app only receives short-lived tokens.
+
+### Backend: `GET /api/v1/voice/token`
+
+Response:
+```json
+{
+  "token": "auth_tokens/4969d96da97639001864...",
+  "expiresAt": "2025-06-15T12:30:00Z"
+}
+```
+
+Go types:
+```go
+type VoiceTokenResp struct {
+    Token     string `json:"token"`
+    ExpiresAt string `json:"expiresAt"`
+}
+```
+
+Backend implementation:
+1. Read Gemini API key from environment (`GEMINI_API_KEY`)
+2. POST to `https://generativelanguage.googleapis.com/v1alpha/auth_tokens`
+   with `x-goog-api-key` header
+3. Request body: `{"config": {"uses": 1, "expireTime": "<now+30m>", "newSessionExpireTime": "<now+2m>"}}`
+4. Return the token name and expiry to the app
+
+Add to `dto.Routes`:
+```go
+{Name: "getVoiceToken", Method: "GET", Path: "/api/v1/voice/token", RespType: "VoiceTokenResp"},
+```
+
+Kotlin type (generated):
+```kotlin
+@Serializable
+data class VoiceTokenResp(
+    val token: String,
+    val expiresAt: String,
+)
+```
 
 ## Testing
 
