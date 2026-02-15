@@ -24,7 +24,7 @@ jobs:
         run: make android-test
       - name: Upload lint results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: lint-results
           path: |
@@ -33,7 +33,7 @@ jobs:
           retention-days: 14
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: test-results
           path: android/app/build/reports/tests/
