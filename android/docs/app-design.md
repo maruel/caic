@@ -8,6 +8,10 @@ The caic Android companion app has two interaction modes:
 
 Both share state. Voice actions update the screen; screen navigation is visible to voice.
 
+**Priority**: Voice mode is the app's unique value — the web frontend already covers
+screen mode. Get voice working end-to-end first, with just enough screen UI to
+configure the server and verify voice actions. Full screen mode comes later.
+
 ## Technology Stack
 
 | Layer | Technology |
@@ -105,79 +109,22 @@ android/app/src/main/kotlin/com/fghbuild/caic/
 
 ---
 
-## Phase 1: Screen Mode — State Management
+## Phase 1: Voice Mode
 
-### TaskListViewModel
+Voice mode is the primary deliverable. This phase produces a working app where the
+user can manage all coding agents by voice, with a minimal screen UI for setup and
+verification.
 
-```kotlin
-data class TaskListState(
-    val tasks: List<TaskJSON> = emptyList(),
-    val usage: UsageResp? = null,
-    val connected: Boolean = false,
-    val reconnecting: Boolean = false,
-    val selectedHarness: Harness = Harnesses.Claude,
-    val selectedRepo: String = "",
-    val selectedModel: String = "",
-    val repos: List<RepoJSON> = emptyList(),
-    val harnesses: List<HarnessJSON> = emptyList(),
-    val submitting: Boolean = false,
-    val error: String? = null,
-)
-```
+### Minimal Screen UI (Phase 1 only)
 
-Subscribes to `/api/v1/events` SSE on init. On `"tasks"` events: update task list.
-On `"usage"` events: update usage. Reconnection uses SDK's backoff wrapper.
+Just enough UI to support voice development and testing:
 
-### TaskDetailViewModel
+- **Settings screen**: server URL input, test connection, voice toggle, voice selector
+- **Task list screen**: simple list of tasks (name, state dot, cost) — verifies that
+  voice create/terminate/sync actions are reflected on screen
+- No TaskDetail screen yet (voice handles all task interaction)
 
-```kotlin
-data class TaskDetailState(
-    val task: TaskJSON? = null,
-    val messages: List<EventMessage> = emptyList(),
-    val turns: List<Turn> = emptyList(),
-    val todos: List<TodoItem> = emptyList(),
-    val sending: Boolean = false,
-    val pendingAction: String? = null,  // "sync" | "terminate" | "restart"
-    val actionError: String? = null,
-    val safetyIssues: List<SafetyIssue> = emptyList(),
-    val inputDraft: String = "",
-    val isReady: Boolean = false,
-)
-```
-
-#### SSE Buffer-and-Swap
-
-Match web frontend (`TaskView.tsx`): buffer events until `system` event with
-subtype `"ready"`, then swap atomically. Prevents flash of empty content during replay.
-
-#### Message Grouping
-
-Replicate web frontend grouping into `MessageGroup` and `Turn`:
-
-```kotlin
-data class ToolCall(val use: EventToolUse, val result: EventToolResult? = null)
-
-data class MessageGroup(
-    val kind: GroupKind,  // TEXT, TOOL, ASK, USER_INPUT, OTHER
-    val events: List<EventMessage>,
-    val toolCalls: List<ToolCall> = emptyList(),
-    val ask: EventAsk? = null,
-    val answerText: String? = null,
-)
-
-data class Turn(val groups: List<MessageGroup>, val toolCount: Int, val textCount: Int)
-```
-
-Grouping rules:
-1. Consecutive `text` events → one `TEXT` group
-2. `toolUse` starts `TOOL` group; `toolResult` paired by `toolUseID`
-3. `usage` events append to preceding group
-4. `ask` → `ASK` group; next `userInput` becomes answer
-5. `result` events are turn boundaries
-
-Recomputed as derived value when `messages` changes.
-
-### SettingsViewModel
+### Settings State & DataStore
 
 ```kotlin
 data class SettingsState(
@@ -186,11 +133,7 @@ data class SettingsState(
     val voiceEnabled: Boolean = true,
     val voiceName: String = "ORUS",
 )
-```
 
-### DataStore Keys
-
-```kotlin
 object PreferenceKeys {
     val SERVER_URL = stringPreferencesKey("server_url")
     val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
@@ -200,182 +143,6 @@ object PreferenceKeys {
     val VOICE_NAME = stringPreferencesKey("voice_name")
 }
 ```
-
----
-
-## Phase 1: Screen Mode — Screens
-
-### TaskList Screen
-
-Main screen. Mirrors sidebar + creation form from web frontend.
-
-**Layout**: TopAppBar ("caic" + settings gear), repo dropdown, model dropdown,
-prompt input, "Create Task" button, scrollable task card list, usage bar.
-
-**Task Card** (mirrors `TaskItemSummary.tsx`):
-- State indicator dot: `running`→green, `asking`→blue, `failed`→red,
-  `terminating`→orange, `terminated`→gray, default→yellow
-- Title (first line of prompt), cost, duration
-- Repo/branch, harness badge (if not claude), model badge
-- Error text in red, plan mode "P" badge
-
-**Token formatting** (match `TaskItemSummary.tsx`):
-- `>= 1_000_000` → `"${n/1_000_000}Mt"`
-- `>= 1_000` → `"${n/1_000}kt"`
-- else → `"${n}t"`
-
-**Elapsed time**: tick every second via `LaunchedEffect`, format as `"15s"`, `"2m 30s"`, `"1h 15m"`.
-
-**Pull-to-refresh**: triggers full task list reload.
-
-### TaskDetail Screen
-
-Real-time agent output for one task. Mirrors `TaskView.tsx`.
-
-**Layout**: TopAppBar (back + task title + plan badge), subtitle (repo, branch, state),
-scrollable message list, todo panel, input bar + action buttons.
-
-**Message rendering by event kind**:
-
-| Kind | Rendering |
-|------|-----------|
-| `init` | System chip: "Model: claude-opus-4-6, v1.2.3" |
-| `text` | Markdown (CommonMark via compose-markdown) |
-| `toolUse`+`toolResult` | Expandable card: name, summary, duration, error icon |
-| `ask` | Question card with option chips, multi-select, "Other" text field |
-| `usage` | Compact token summary inline |
-| `result` | Result card: success/error, diff stat, cost, duration, turns |
-| `system` | System chip (dimmed); `context_cleared` → divider |
-| `userInput` | User message bubble (right-aligned) |
-| `todo` | Updates todo panel (not inline) |
-
-**Tool call display** (mirrors `ToolCallBlock`):
-- Summary: tool name + extracted detail + duration + error icon
-- Detail extraction: filename for Read/Edit/Write, command for Bash,
-  URL for WebFetch, pattern for Grep/Glob
-- Expandable body: input as key-value or JSON
-
-**Turn elision** (mirrors `ElidedTurn`):
-- Previous turns → single tappable row: "N messages, M tool calls"
-- Tap expands inline. Current (last) turn always expanded.
-
-**Ask questions** (mirrors `AskQuestionGroup`):
-- Header chip, option chips (single/multi-select), "Other" text field
-- Submit sends formatted answer via `sendInput`
-- After submission: show selected answer (dimmed)
-
-**Input bar**: visible when `waiting`/`asking`. TextField + send button.
-Disabled with spinner when `sending`.
-
-**Action buttons**:
-- **Sync**: `syncTask()`. If `"blocked"` → safety issues dialog with force option.
-- **Terminate**: `terminateTask()` with confirmation dialog.
-- **Restart**: `restartTask(prompt)`. Only for terminal states.
-- Loading indicator + disable other buttons while in flight (`pendingAction`).
-- Errors → Snackbar, auto-dismiss 5s.
-
-**Safety issues dialog**: list each `SafetyIssue` (file, kind icon, detail).
-"Cancel" + "Force Sync" buttons.
-
-### Settings Screen
-
-Server URL (editable, validated), "Test Connection" button (`listHarnesses()`),
-voice toggle + voice selector, notification toggle, version info.
-
-Default empty server URL → setup prompt on first launch.
-
----
-
-## Phase 1: Screen Mode — Utilities
-
-### State Colors
-
-```kotlin
-fun stateColor(state: String): Color = when (state) {
-    "running" -> Color(0xFFD4EDDA)
-    "asking" -> Color(0xFFCCE5FF)
-    "failed" -> Color(0xFFF8D7DA)
-    "terminating" -> Color(0xFFFDE2C8)
-    "terminated" -> Color(0xFFE2E3E5)
-    else -> Color(0xFFFFF3CD)
-}
-```
-
-### State Detection
-
-```kotlin
-val activeStates = setOf("running", "branching", "provisioning",
-    "starting", "waiting", "asking", "terminating")
-val waitingStates = setOf("waiting", "asking")
-```
-
-### Formatting
-
-```kotlin
-fun formatTokens(n: Int): String  // see above
-fun formatDuration(ms: Long): String  // "3.1s", "120ms"
-fun formatElapsed(ms: Long): String   // "1h 15m", "2m 30s", "15s"
-fun formatCost(usd: Double): String   // "$1.23", "<$0.01"
-```
-
-### Tool Call Detail Extraction
-
-```kotlin
-fun toolCallDetail(name: String, input: JsonElement): String?
-// Read/Edit/Write → file_path
-// Bash → command (truncated 60 chars)
-// Grep/Glob → pattern
-// WebFetch → url
-// Task → description
-```
-
-### Markdown
-
-Library: `com.mikepenz:multiplatform-markdown-renderer-m3:0.28.0` (+coil3 variant).
-Config: GFM + line breaks (matching web frontend's `marked` with `{ breaks: true, gfm: true }`).
-
----
-
-## Phase 1: Screen Mode — Background Service & Notifications
-
-### Foreground Service
-
-`TaskMonitorService` maintains `/api/v1/events` SSE when backgrounded.
-Detects state transitions → Android notifications + voice context updates.
-
-**Notification triggers**:
-- `asking`/`waiting` → "Task needs your input"
-- `failed` → "Task failed" with error snippet
-- `terminated` with result → "Task completed"
-
-Tapping opens `TaskDetail` via deep link.
-
-**Lifecycle**: starts on app launch (if server URL configured), `START_STICKY`,
-persistent notification shows connection status.
-
-### Notification Channels
-
-```kotlin
-object NotificationChannels {
-    const val MONITOR = "task_monitor"       // Foreground service (silent)
-    const val TASK_ALERTS = "task_alerts"    // State changes (default importance)
-}
-```
-
-### Permissions
-
-```xml
-<uses-permission android:name="android.permission.RECORD_AUDIO" />
-<uses-permission android:name="android.permission.INTERNET" />
-<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-```
-
-`RECORD_AUDIO` runtime permission on first mic tap.
-
----
-
-## Phase 2: Voice Mode
 
 ### Gemini Live Session
 
@@ -507,6 +274,243 @@ Swipe down or "End" to disconnect.
    foreground service continues SSE
 5. App foregrounded → reconnect if previously active
 
+### Background SSE & Notifications
+
+`TaskMonitorService` foreground service maintains `/api/v1/events` SSE when
+backgrounded. Detects state transitions → Android notifications + voice context.
+
+**Notification triggers**:
+- `asking`/`waiting` → "Task needs your input"
+- `failed` → "Task failed" with error snippet
+- `terminated` with result → "Task completed"
+
+Tapping opens `TaskDetail` via deep link.
+
+**Lifecycle**: starts on app launch (if server URL configured), `START_STICKY`,
+persistent notification shows connection status.
+
+```kotlin
+object NotificationChannels {
+    const val MONITOR = "task_monitor"       // Foreground service (silent)
+    const val TASK_ALERTS = "task_alerts"    // State changes (default importance)
+}
+```
+
+### Permissions
+
+```xml
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+```
+
+`RECORD_AUDIO` runtime permission on first mic tap.
+
+---
+
+## Phase 2: Screen Mode
+
+Full Compose UI with feature parity to the web frontend. Lower priority — the web
+frontend already provides this functionality. Implement after voice mode is working.
+
+### TaskListViewModel
+
+```kotlin
+data class TaskListState(
+    val tasks: List<TaskJSON> = emptyList(),
+    val usage: UsageResp? = null,
+    val connected: Boolean = false,
+    val reconnecting: Boolean = false,
+    val selectedHarness: Harness = Harnesses.Claude,
+    val selectedRepo: String = "",
+    val selectedModel: String = "",
+    val repos: List<RepoJSON> = emptyList(),
+    val harnesses: List<HarnessJSON> = emptyList(),
+    val submitting: Boolean = false,
+    val error: String? = null,
+)
+```
+
+Subscribes to `/api/v1/events` SSE on init. On `"tasks"` events: update task list.
+On `"usage"` events: update usage. Reconnection uses SDK's backoff wrapper.
+
+### TaskDetailViewModel
+
+```kotlin
+data class TaskDetailState(
+    val task: TaskJSON? = null,
+    val messages: List<EventMessage> = emptyList(),
+    val turns: List<Turn> = emptyList(),
+    val todos: List<TodoItem> = emptyList(),
+    val sending: Boolean = false,
+    val pendingAction: String? = null,  // "sync" | "terminate" | "restart"
+    val actionError: String? = null,
+    val safetyIssues: List<SafetyIssue> = emptyList(),
+    val inputDraft: String = "",
+    val isReady: Boolean = false,
+)
+```
+
+#### SSE Buffer-and-Swap
+
+Match web frontend (`TaskView.tsx`): buffer events until `system` event with
+subtype `"ready"`, then swap atomically. Prevents flash of empty content during replay.
+
+#### Message Grouping
+
+Replicate web frontend grouping into `MessageGroup` and `Turn`:
+
+```kotlin
+data class ToolCall(val use: EventToolUse, val result: EventToolResult? = null)
+
+data class MessageGroup(
+    val kind: GroupKind,  // TEXT, TOOL, ASK, USER_INPUT, OTHER
+    val events: List<EventMessage>,
+    val toolCalls: List<ToolCall> = emptyList(),
+    val ask: EventAsk? = null,
+    val answerText: String? = null,
+)
+
+data class Turn(val groups: List<MessageGroup>, val toolCount: Int, val textCount: Int)
+```
+
+Grouping rules:
+1. Consecutive `text` events → one `TEXT` group
+2. `toolUse` starts `TOOL` group; `toolResult` paired by `toolUseID`
+3. `usage` events append to preceding group
+4. `ask` → `ASK` group; next `userInput` becomes answer
+5. `result` events are turn boundaries
+
+Recomputed as derived value when `messages` changes.
+
+### TaskList Screen
+
+Main screen. Mirrors sidebar + creation form from web frontend.
+
+**Layout**: TopAppBar ("caic" + settings gear), repo dropdown, model dropdown,
+prompt input, "Create Task" button, scrollable task card list, usage bar.
+
+**Task Card** (mirrors `TaskItemSummary.tsx`):
+- State indicator dot: `running`→green, `asking`→blue, `failed`→red,
+  `terminating`→orange, `terminated`→gray, default→yellow
+- Title (first line of prompt), cost, duration
+- Repo/branch, harness badge (if not claude), model badge
+- Error text in red, plan mode "P" badge
+
+**Token formatting** (match `TaskItemSummary.tsx`):
+- `>= 1_000_000` → `"${n/1_000_000}Mt"`
+- `>= 1_000` → `"${n/1_000}kt"`
+- else → `"${n}t"`
+
+**Elapsed time**: tick every second via `LaunchedEffect`, format as `"15s"`, `"2m 30s"`, `"1h 15m"`.
+
+**Pull-to-refresh**: triggers full task list reload.
+
+### TaskDetail Screen
+
+Real-time agent output for one task. Mirrors `TaskView.tsx`.
+
+**Layout**: TopAppBar (back + task title + plan badge), subtitle (repo, branch, state),
+scrollable message list, todo panel, input bar + action buttons.
+
+**Message rendering by event kind**:
+
+| Kind | Rendering |
+|------|-----------|
+| `init` | System chip: "Model: claude-opus-4-6, v1.2.3" |
+| `text` | Markdown (CommonMark via compose-markdown) |
+| `toolUse`+`toolResult` | Expandable card: name, summary, duration, error icon |
+| `ask` | Question card with option chips, multi-select, "Other" text field |
+| `usage` | Compact token summary inline |
+| `result` | Result card: success/error, diff stat, cost, duration, turns |
+| `system` | System chip (dimmed); `context_cleared` → divider |
+| `userInput` | User message bubble (right-aligned) |
+| `todo` | Updates todo panel (not inline) |
+
+**Tool call display** (mirrors `ToolCallBlock`):
+- Summary: tool name + extracted detail + duration + error icon
+- Detail extraction: filename for Read/Edit/Write, command for Bash,
+  URL for WebFetch, pattern for Grep/Glob
+- Expandable body: input as key-value or JSON
+
+**Turn elision** (mirrors `ElidedTurn`):
+- Previous turns → single tappable row: "N messages, M tool calls"
+- Tap expands inline. Current (last) turn always expanded.
+
+**Ask questions** (mirrors `AskQuestionGroup`):
+- Header chip, option chips (single/multi-select), "Other" text field
+- Submit sends formatted answer via `sendInput`
+- After submission: show selected answer (dimmed)
+
+**Input bar**: visible when `waiting`/`asking`. TextField + send button.
+Disabled with spinner when `sending`.
+
+**Action buttons**:
+- **Sync**: `syncTask()`. If `"blocked"` → safety issues dialog with force option.
+- **Terminate**: `terminateTask()` with confirmation dialog.
+- **Restart**: `restartTask(prompt)`. Only for terminal states.
+- Loading indicator + disable other buttons while in flight (`pendingAction`).
+- Errors → Snackbar, auto-dismiss 5s.
+
+**Safety issues dialog**: list each `SafetyIssue` (file, kind icon, detail).
+"Cancel" + "Force Sync" buttons.
+
+### Settings Screen
+
+Server URL (editable, validated), "Test Connection" button (`listHarnesses()`),
+voice toggle + voice selector, notification toggle, version info.
+
+Default empty server URL → setup prompt on first launch.
+
+### Utilities
+
+#### State Colors
+
+```kotlin
+fun stateColor(state: String): Color = when (state) {
+    "running" -> Color(0xFFD4EDDA)
+    "asking" -> Color(0xFFCCE5FF)
+    "failed" -> Color(0xFFF8D7DA)
+    "terminating" -> Color(0xFFFDE2C8)
+    "terminated" -> Color(0xFFE2E3E5)
+    else -> Color(0xFFFFF3CD)
+}
+```
+
+#### State Detection
+
+```kotlin
+val activeStates = setOf("running", "branching", "provisioning",
+    "starting", "waiting", "asking", "terminating")
+val waitingStates = setOf("waiting", "asking")
+```
+
+#### Formatting
+
+```kotlin
+fun formatTokens(n: Int): String  // see above
+fun formatDuration(ms: Long): String  // "3.1s", "120ms"
+fun formatElapsed(ms: Long): String   // "1h 15m", "2m 30s", "15s"
+fun formatCost(usd: Double): String   // "$1.23", "<$0.01"
+```
+
+#### Tool Call Detail Extraction
+
+```kotlin
+fun toolCallDetail(name: String, input: JsonElement): String?
+// Read/Edit/Write → file_path
+// Bash → command (truncated 60 chars)
+// Grep/Glob → pattern
+// WebFetch → url
+// Task → description
+```
+
+#### Markdown
+
+Library: `com.mikepenz:multiplatform-markdown-renderer-m3:0.28.0` (+coil3 variant).
+Config: GFM + line breaks (matching web frontend's `marked` with `{ breaks: true, gfm: true }`).
+
 ---
 
 ## Build Configuration
@@ -539,11 +543,11 @@ implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
 // DataStore
 implementation("androidx.datastore:datastore-preferences:1.1.2")
 
-// Markdown
+// Markdown (Phase 2)
 implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.28.0")
 implementation("com.mikepenz:multiplatform-markdown-renderer-coil3:0.28.0")
 
-// Firebase AI Logic (voice mode)
+// Firebase AI Logic (Phase 1 — voice mode)
 implementation(platform("com.google.firebase:firebase-bom:34.9.0"))
 implementation("com.google.firebase:firebase-ai")
 ```

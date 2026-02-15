@@ -55,10 +55,16 @@ Lint is strict: `warningsAsErrors = true`, `maxIssues: 0`.
 
 ## Implementation Order
 
-Follow the design docs in this order:
+The app's unique value is voice control. Screen mode is secondary (the web
+frontend already exists). Follow the design docs in this order:
 
 1. **SDK module** (`docs/sdk-design.md`): types + API client, unit tested on JVM
-2. **Screen mode** (`docs/app-design.md` §Screens): Compose UI with real data
-3. **Voice mode** (`docs/app-design.md` §Voice): Gemini Live integration
+2. **Voice mode** (`docs/app-design.md` Phase 1): Gemini Live session, function
+   declarations, tool handlers, VoiceSessionManager, voice overlay UI, task
+   monitoring with proactive notifications. Minimal screen: settings (server URL)
+   + a simple task list sufficient to verify voice actions are working.
+3. **Screen mode** (`docs/app-design.md` Phase 2): full Compose UI with feature
+   parity to the web frontend — TaskDetail, message grouping, tool call display,
+   turn elision, background service, notifications.
 
 Each step should build, lint, and test clean before proceeding.
