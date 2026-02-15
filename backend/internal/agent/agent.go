@@ -66,21 +66,16 @@ func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh cha
 
 	go func() {
 		defer close(s.done)
-		rr := readMessages(stdout, msgCh, logW, wire.ParseMessage)
+		result, parseErr := readMessages(stdout, msgCh, logW, wire.ParseMessage)
 		waitErr := cmd.Wait()
 		// Store the result and first non-nil error.
-		s.result = rr.result
+		s.result = result
 		switch {
-		case rr.result != nil:
-			slog.Info("agent session completed", "result", rr.result.Subtype)
-		case rr.err != nil:
-			s.err = fmt.Errorf("parse: %w", rr.err)
-			slog.Error("agent session parse error", "err", rr.err)
-		case rr.relayExit != nil && rr.relayExit.Code != 0:
-			s.err = relayExitError(rr.relayExit)
-			slog.Error("harness exited", "code", rr.relayExit.Code, "signal", rr.relayExit.Signal)
-		case rr.relayExit != nil && rr.relayExit.Code == 0:
-			slog.Info("relay subprocess exited cleanly (result in historical data)")
+		case result != nil:
+			slog.Info("agent session completed", "result", result.Subtype)
+		case parseErr != nil:
+			s.err = fmt.Errorf("parse: %w", parseErr)
+			slog.Error("agent session parse error", "err", parseErr)
 		case waitErr != nil:
 			s.err = fmt.Errorf("agent exited: %w", waitErr)
 			slog.Error("agent session exited with error", "err", waitErr)
@@ -119,34 +114,22 @@ func (s *Session) Wait() (*ResultMessage, error) {
 	return s.result, s.err
 }
 
-// readResult holds the output of readMessages.
-type readResult struct {
-	result    *ResultMessage
-	relayExit *RelayExitMessage
-	err       error
-}
-
 // readMessages reads NDJSON lines from r, dispatches to msgCh, and returns
 // the terminal ResultMessage. If logW is non-nil, each raw line is written to it.
-func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn func([]byte) (Message, error)) readResult {
+func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn func([]byte) (Message, error)) (*ResultMessage, error) {
 	scanner := bufio.NewScanner(r)
 	// Agents can produce long lines (e.g., base64 images in tool results).
 	scanner.Buffer(make([]byte, 0, 1<<20), 1<<20)
 
 	slog.Debug("readMessages: started reading agent stdout")
 	var n int
-	var out readResult
+	var result *ResultMessage
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
 			continue
 		}
 		n++
-		// Intercept relay_exit before logging or backend-specific parsing.
-		if re, ok := parseRelayExit(line); ok {
-			out.relayExit = re
-			continue
-		}
 		if logW != nil {
 			_, _ = logW.Write(line)
 			_, _ = logW.Write([]byte{'\n'})
@@ -163,42 +146,11 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 			msgCh <- msg
 		}
 		if rm, ok := msg.(*ResultMessage); ok {
-			out.result = rm
+			result = rm
 		}
 	}
-	out.err = scanner.Err()
-	slog.Debug("readMessages: loop exited", "linesRead", n, "hasResult", out.result != nil, "relayExit", out.relayExit != nil, "scanErr", out.err)
-	return out
-}
-
-// parseRelayExit tries to decode a relay_exit JSON line. Returns nil, false
-// for non-matching lines.
-func parseRelayExit(line []byte) (*RelayExitMessage, bool) {
-	// TODO(maruel): This code should be refactored.
-
-	// Quick prefix check to avoid unmarshal overhead on every line.
-	if !bytes.Contains(line, []byte(`"relay_exit"`)) {
-		return nil, false
-	}
-	var m RelayExitMessage
-	if err := json.Unmarshal(line, &m); err != nil || m.MessageType != "relay_exit" {
-		return nil, false
-	}
-	return &m, true
-}
-
-// IsRelayExit reports whether the NDJSON line is a relay_exit message.
-func IsRelayExit(line []byte) bool {
-	_, ok := parseRelayExit(line)
-	return ok
-}
-
-// relayExitError returns a descriptive error from a RelayExitMessage.
-func relayExitError(re *RelayExitMessage) error {
-	if re.Signal != nil {
-		return fmt.Errorf("harness killed by signal %d", *re.Signal)
-	}
-	return fmt.Errorf("harness exited with code %d", re.Code)
+	slog.Debug("readMessages: loop exited", "linesRead", n, "hasResult", result != nil, "scanErr", scanner.Err())
+	return result, scanner.Err()
 }
 
 // ParseMessage decodes a single NDJSON line into a typed Message.

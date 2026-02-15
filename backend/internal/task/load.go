@@ -128,10 +128,6 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 			continue
 		}
 
-		if envelope.Type == "relay_exit" {
-			continue
-		}
-
 		if envelope.Type == "caic_result" {
 			var mr agent.MetaResultMessage
 			rd := json.NewDecoder(bytes.NewReader(line))
