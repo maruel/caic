@@ -3,14 +3,12 @@ package com.fghbuild.caic.voice
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.caic.sdk.ApiException
 import com.caic.sdk.TaskJSON
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-import java.io.IOException
 import javax.inject.Inject
 
 @HiltViewModel
@@ -36,17 +34,7 @@ class VoiceViewModel @Inject constructor(
     }
 
     fun connect() {
-        viewModelScope.launch {
-            try {
-                voiceSessionManager.connect()
-            } catch (e: ApiException) {
-                voiceSessionManager.setError(e.message ?: "API error")
-            } catch (e: IOException) {
-                voiceSessionManager.setError(e.message ?: "Connection failed")
-            } catch (e: IllegalArgumentException) {
-                voiceSessionManager.setError(e.message ?: "Invalid configuration")
-            }
-        }
+        voiceSessionManager.connect()
     }
 
     fun startListening() {

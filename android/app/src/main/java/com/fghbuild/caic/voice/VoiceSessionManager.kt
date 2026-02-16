@@ -14,6 +14,7 @@ import android.util.Base64
 import com.caic.sdk.ApiClient
 import com.fghbuild.caic.data.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -73,33 +74,54 @@ class VoiceSessionManager @Inject constructor(
     var onSetActiveTask: ((String) -> Unit)? = null
 
     fun setError(message: String) {
+        stopAudio()
         _state.update { it.copy(connected = false, error = message) }
     }
 
-    suspend fun connect() {
-        val settings = settingsRepository.settings.value
-        require(settings.serverURL.isNotBlank()) { "Server URL is not configured" }
+    @Suppress("TooGenericExceptionCaught") // Error boundary: surface all failures to UI.
+    fun connect() {
+        scope.launch {
+            try {
+                val settings = settingsRepository.settings.value
+                if (settings.serverURL.isBlank()) {
+                    setError("Server URL is not configured")
+                    return@launch
+                }
 
-        val apiClient = ApiClient(settings.serverURL)
-        functionHandlers = FunctionHandlers(apiClient).also {
-            it.onSetActiveTask = onSetActiveTask
+                val apiClient = ApiClient(settings.serverURL)
+                functionHandlers = FunctionHandlers(apiClient).also {
+                    it.onSetActiveTask = onSetActiveTask
+                }
+
+                val tokenResp = apiClient.getVoiceToken()
+                val wsUrl = "wss://generativelanguage.googleapis.com/ws/" +
+                    "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent" +
+                    "?access_token=${tokenResp.token}"
+
+                val request = Request.Builder().url(wsUrl).build()
+                webSocket = client.newWebSocket(request, createWebSocketListener())
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                setError(e.message ?: "Connection failed")
+            }
         }
-
-        val tokenResp = apiClient.getVoiceToken()
-        val wsUrl = "wss://generativelanguage.googleapis.com/ws/" +
-            "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent" +
-            "?access_token=${tokenResp.token}"
-
-        val request = Request.Builder().url(wsUrl).build()
-        webSocket = client.newWebSocket(request, createWebSocketListener())
     }
 
+    @Suppress("TooGenericExceptionCaught") // Error boundary: surface all failures to UI.
     fun startAudio() {
-        routeToBluetoothScoIfAvailable()
-        setupAudioRecord()
-        setupAudioTrack()
-        startRecording()
-        _state.update { it.copy(listening = true) }
+        try {
+            routeToBluetoothScoIfAvailable()
+            setupAudioRecord()
+            check(audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
+                "Microphone initialization failed"
+            }
+            setupAudioTrack()
+            startRecording()
+            _state.update { it.copy(listening = true) }
+        } catch (e: Exception) {
+            setError(e.message ?: "Audio setup failed")
+        }
     }
 
     fun stopAudio() {
@@ -248,7 +270,7 @@ class VoiceSessionManager @Inject constructor(
             t: Throwable,
             response: Response?,
         ) {
-            _state.update { it.copy(connected = false, error = t.message) }
+            setError(t.message ?: "WebSocket connection failed")
         }
 
         override fun onClosed(
@@ -260,21 +282,28 @@ class VoiceSessionManager @Inject constructor(
         }
     }
 
+    @Suppress("TooGenericExceptionCaught") // Error boundary: malformed messages must not crash.
     private suspend fun handleServerMessage(text: String) {
-        val msg = json.decodeFromString<JsonElement>(text).jsonObject
-        when {
-            "setupComplete" in msg -> {
-                _state.update { it.copy(connected = true, error = null) }
+        try {
+            val msg = json.decodeFromString<JsonElement>(text).jsonObject
+            when {
+                "setupComplete" in msg -> {
+                    _state.update { it.copy(connected = true, error = null) }
+                }
+                "serverContent" in msg -> {
+                    handleServerContent(msg["serverContent"]!!.jsonObject)
+                }
+                "toolCall" in msg -> {
+                    handleToolCall(msg["toolCall"]!!.jsonObject)
+                }
+                "toolCallCancellation" in msg -> {
+                    _state.update { it.copy(activeTool = null) }
+                }
             }
-            "serverContent" in msg -> {
-                handleServerContent(msg["serverContent"]!!.jsonObject)
-            }
-            "toolCall" in msg -> {
-                handleToolCall(msg["toolCall"]!!.jsonObject)
-            }
-            "toolCallCancellation" in msg -> {
-                _state.update { it.copy(activeTool = null) }
-            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            setError(e.message ?: "Failed to process server message")
         }
     }
 
@@ -391,13 +420,18 @@ class VoiceSessionManager @Inject constructor(
         audioManager.mode = AudioManager.MODE_NORMAL
     }
 
+    @Suppress("TooGenericExceptionCaught") // Error boundary: recording failures must not crash.
     private fun startRecording() {
         audioRecord?.startRecording()
         recordingJob = scope.launch(Dispatchers.IO) {
             val buffer = ByteArray(AUDIO_BUFFER_SIZE)
             while (isActive) {
-                val bytesRead = audioRecord?.read(buffer, 0, buffer.size)
-                    ?: break
+                val bytesRead = try {
+                    audioRecord?.read(buffer, 0, buffer.size) ?: return@launch
+                } catch (e: Exception) {
+                    setError(e.message ?: "Audio recording failed")
+                    return@launch
+                }
                 if (bytesRead > 0) {
                     sendAudioChunk(buffer.copyOf(bytesRead))
                 }
