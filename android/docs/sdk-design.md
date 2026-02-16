@@ -180,7 +180,7 @@ Backend implementation:
 1. Read Gemini API key from environment (`GEMINI_API_KEY`)
 2. POST to `https://generativelanguage.googleapis.com/v1alpha/auth_tokens`
    with `x-goog-api-key` header
-3. Request body: `{"config": {"uses": 1, "expireTime": "<now+30m>", "newSessionExpireTime": "<now+2m>"}}`
+3. Request body: `{"uses": 1, "expireTime": "<now+30m>", "newSessionExpireTime": "<now+2m>"}` (flat, no `config` wrapper)
 4. Return the token name and expiry to the app
 
 Add to `dto.Routes`:

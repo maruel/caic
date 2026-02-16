@@ -182,8 +182,8 @@ auth, at the cost of implementing the audio plumbing ourselves.
 
 1. **AudioRecord** setup: PCM 16-bit, 16kHz, mono. Recording loop on
    `Dispatchers.IO`, reads into ~4KB buffers.
-2. **Base64 encode** PCM chunks → send as `realtimeInput.mediaChunks[].data`
-   with `mimeType: "audio/pcm;rate=16000"`.
+2. **Base64 encode** PCM chunks → send as `realtimeInput.audio.data`
+   with `mimeType: "audio/pcm;rate=16000"` (`mediaChunks` is deprecated).
 3. **AudioTrack** setup: PCM 16-bit, 24kHz, mono. Playback on a dedicated thread.
 4. **Base64 decode** incoming `serverContent.modelTurn.parts[].inlineData.data`
    → write to AudioTrack.
@@ -208,10 +208,10 @@ auth, at the cost of implementing the audio plumbing ourselves.
 #### WebSocket endpoint
 
 ```
-wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?access_token={ephemeralToken}
+wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?access_token={ephemeralToken}
 ```
 
-Note: use `v1alpha` (required for ephemeral tokens), not `v1beta`.
+Note: `v1beta` supports ephemeral tokens. See https://ai.google.dev/api/live.
 
 #### Protocol
 

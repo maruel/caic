@@ -11,6 +11,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.net.Uri
 import android.util.Base64
 import com.caic.sdk.ApiClient
 import com.fghbuild.caic.data.SettingsRepository
@@ -102,9 +103,13 @@ class VoiceSessionManager @Inject constructor(
                 }
 
                 val tokenResp = apiClient.getVoiceToken()
-                val wsUrl = "wss://generativelanguage.googleapis.com/ws/" +
-                    "google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent" +
-                    "?access_token=${tokenResp.token}"
+                val wsUrl = Uri.Builder()
+                    .scheme("wss")
+                    .authority("generativelanguage.googleapis.com")
+                    .path("/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent")
+                    .appendQueryParameter("access_token", tokenResp.token)
+                    .build()
+                    .toString()
 
                 val request = Request.Builder().url(wsUrl).build()
                 webSocket = client.newWebSocket(request, createWebSocketListener())
@@ -299,12 +304,21 @@ class VoiceSessionManager @Inject constructor(
             if (isStale(webSocket)) return
             if (!_state.value.connected) {
                 // Connection closed before setupComplete — surface an error.
-                val msg = reason.ifBlank { "Connection closed (code $code)" }
+                val msg = formatCloseReason(code, reason)
                 setError(msg)
             } else {
                 _state.update { it.copy(connected = false) }
             }
         }
+    }
+
+    /** Map WebSocket close reasons to user-friendly messages.
+     *  Close reasons are truncated to 123 bytes by RFC 6455. */
+    private fun formatCloseReason(code: Int, reason: String): String {
+        if (reason.contains("unregistered callers")) {
+            return "Voice auth failed — check that GEMINI_API_KEY is set on the server"
+        }
+        return reason.ifBlank { "Connection closed (code $code)" }
     }
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: malformed messages must not crash.
@@ -480,16 +494,12 @@ class VoiceSessionManager @Inject constructor(
             mapOf(
                 "realtimeInput" to JsonObject(
                     mapOf(
-                        "mediaChunks" to JsonArray(
-                            listOf(
-                                JsonObject(
-                                    mapOf(
-                                        "mimeType" to JsonPrimitive(
-                                            "audio/pcm;rate=$RECORD_SAMPLE_RATE"
-                                        ),
-                                        "data" to JsonPrimitive(encoded),
-                                    )
-                                )
+                        "audio" to JsonObject(
+                            mapOf(
+                                "mimeType" to JsonPrimitive(
+                                    "audio/pcm;rate=$RECORD_SAMPLE_RATE"
+                                ),
+                                "data" to JsonPrimitive(encoded),
                             )
                         )
                     )
