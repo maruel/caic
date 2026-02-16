@@ -1,3 +1,4 @@
+# CI workflow for pushes to main.
 name: CI
 on:
   push:

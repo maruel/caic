@@ -1,3 +1,4 @@
+# CI workflow for pull requests on all branches except gh-pages.
 name: PR
 on:
   pull_request:

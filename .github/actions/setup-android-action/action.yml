@@ -1,3 +1,4 @@
+# Shared setup steps for Android builds.
 name: 'caic Android Setup Action'
 description: 'Shared setup steps for Android builds'
 runs:

@@ -1,3 +1,4 @@
+# Shared lint, build, test, and coverage steps.
 name: 'caic Test Action'
 description: 'Shared test steps for caic'
 inputs:

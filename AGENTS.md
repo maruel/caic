@@ -3,6 +3,7 @@
 Development guidelines for the caic project.
 
 For specific guidelines, see:
+- [CI/CD Guidelines](.github/AGENTS.md) - Read before editing GitHub Actions
 - [Backend Guidelines](backend/AGENTS.md) - Read before editing Go code in backend/
 - [Frontend Guidelines](frontend/AGENTS.md) - Read before editing frontend code
 

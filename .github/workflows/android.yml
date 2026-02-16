@@ -1,3 +1,4 @@
+# CI workflow for Android builds, lint, and tests.
 name: Android
 on:
   push:

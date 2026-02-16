@@ -35,6 +35,11 @@ IGNORE_FILES = {
 # Configuration for each scan
 CONFIGS = [
     {
+        "root_dir": ".github",
+        "target_file": ".github/AGENTS.md",
+        "exclude_dirs": set(),
+    },
+    {
         "root_dir": "backend",
         "target_file": "backend/AGENTS.md",
         "exclude_dirs": set(),
@@ -47,7 +52,7 @@ CONFIGS = [
     {
         "root_dir": ".",
         "target_file": "AGENTS.md",
-        "exclude_dirs": {"backend", "frontend"},
+        "exclude_dirs": {".github", "backend", "frontend"},
     },
 ]
 

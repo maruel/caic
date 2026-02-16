@@ -1,3 +1,4 @@
+# Shared setup steps for Go, Node.js, and pnpm.
 name: 'caic Setup Action'
 description: 'Shared setup steps for caic'
 runs:
