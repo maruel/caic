@@ -3,6 +3,7 @@ package com.fghbuild.caic.voice
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.caic.sdk.ApiException
 import com.caic.sdk.TaskJSON
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
@@ -38,6 +39,8 @@ class VoiceViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 voiceSessionManager.connect()
+            } catch (e: ApiException) {
+                voiceSessionManager.setError(e.message ?: "API error")
             } catch (e: IOException) {
                 voiceSessionManager.setError(e.message ?: "Connection failed")
             } catch (e: IllegalArgumentException) {
