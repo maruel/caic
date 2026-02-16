@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -76,7 +77,7 @@ func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []stri
 		image = md.DefaultBaseImage + ":latest"
 	}
 	c := b.client.Container(dir, branch)
-	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, BaseImage: image, Labels: labels}); err != nil {
+	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, BaseImage: image, Labels: labels, USB: runtime.GOOS == "linux"}); err != nil {
 		return "", err
 	}
 	return c.Name, nil
