@@ -329,7 +329,7 @@ function MessageItem(props: { ev: EventMessage }) {
       <Match when={props.ev.init} keyed>
         {(init) => (
           <div class={styles.systemInit}>
-            Session started &middot; {init.model} &middot; {init.agentVersion}
+            Session started &middot; {init.model} &middot; {init.agentVersion} &middot; {init.sessionID}
           </div>
         )}
       </Match>
