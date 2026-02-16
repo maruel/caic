@@ -30,9 +30,9 @@ function formatReset(iso: string): string {
   return `in ${mins}m`;
 }
 
-function Badge(props: { label: string; window: UsageWindow; now: Accessor<number> }) {
+function Badge(props: { label: string; window: UsageWindow; now: Accessor<number>; yellowAt: number; redAt: number }) {
   const pct = () => Math.round(effectiveUtilization(props.window, props.now()));
-  const cls = () => (pct() >= 80 ? styles.red : pct() >= 50 ? styles.yellow : styles.green);
+  const cls = () => (pct() >= props.redAt ? styles.red : pct() >= props.yellowAt ? styles.yellow : styles.green);
   return (
     <Tooltip text={`Resets ${formatReset(props.window.resetsAt)}`}>
       <span class={`${styles.badge} ${cls()}`}>
@@ -67,10 +67,10 @@ export default function UsageBadges(props: { usage: Accessor<UsageResp | null>; 
       {(u) => (
         <span class={styles.usageRow}>
           <Show when={u.fiveHour.resetsAt}>
-            <Badge label="5h" window={u.fiveHour} now={props.now} />
+            <Badge label="5h" window={u.fiveHour} now={props.now} yellowAt={80} redAt={90} />
           </Show>
           <Show when={u.sevenDay.resetsAt}>
-            <Badge label="Weekly" window={u.sevenDay} now={props.now} />
+            <Badge label="Weekly" window={u.sevenDay} now={props.now} yellowAt={90} redAt={95} />
           </Show>
           <ExtraBadge extra={u.extraUsage} />
         </span>
