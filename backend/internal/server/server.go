@@ -565,6 +565,7 @@ func (s *Server) getVoiceToken(ctx context.Context, _ *dto.EmptyReq) (*dto.Voice
 	if apiKey == "" {
 		return nil, dto.InternalError("GEMINI_API_KEY not configured")
 	}
+	slog.Info("voice token", "api_key_len", len(apiKey))
 	now := time.Now().UTC()
 	expireTime := now.Add(30 * time.Minute).Format(time.RFC3339)
 	newSessionExpire := now.Add(2 * time.Minute).Format(time.RFC3339)
@@ -580,7 +581,7 @@ func (s *Server) getVoiceToken(ctx context.Context, _ *dto.EmptyReq) (*dto.Voice
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://generativelanguage.googleapis.com/v1alpha/auth_tokens",
+		"https://generativelanguage.googleapis.com/v1beta/auth_tokens",
 		bytes.NewReader(bodyBytes))
 	if err != nil {
 		return nil, dto.InternalError("failed to create token request").Wrap(err)
@@ -603,6 +604,12 @@ func (s *Server) getVoiceToken(ctx context.Context, _ *dto.EmptyReq) (*dto.Voice
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return nil, dto.InternalError("failed to decode token response").Wrap(err)
 	}
+
+	tokenPrefix := tokenResp.Name
+	if len(tokenPrefix) > 16 {
+		tokenPrefix = tokenPrefix[:16]
+	}
+	slog.Info("voice token", "token_prefix", tokenPrefix, "token_len", len(tokenResp.Name))
 
 	return &dto.VoiceTokenResp{
 		Token:     tokenResp.Name,

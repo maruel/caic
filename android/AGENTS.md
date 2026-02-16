@@ -54,7 +54,7 @@ Official docs: https://ai.google.dev/api/live
 - WebSocket URL must use **`v1beta`** (not `v1alpha`):
   `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent`
 - Auth: ephemeral token via `?access_token=` query param or `Authorization: Token <token>` header.
-  Backend creates tokens via `POST /v1alpha/auth_tokens` with `x-goog-api-key`.
+  Backend creates tokens via `POST /v1beta/auth_tokens` with `x-goog-api-key`.
   Tokens expire in 30 min max, `uses: 1` by default (session resume doesn't count).
 - Client must wait for `BidiGenerateContentSetupComplete` before sending other messages.
 - `mediaChunks` in `realtimeInput` is **deprecated** — use `audio`, `video`, or `text` fields instead.

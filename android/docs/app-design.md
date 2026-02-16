@@ -150,7 +150,7 @@ The Gemini API key lives on the caic backend server, never on the Android device
 The app obtains short-lived ephemeral tokens from the backend:
 
 1. App calls `GET /api/v1/voice/token` on the caic backend
-2. Backend calls Gemini's `POST /v1alpha/auth_tokens` with its API key
+2. Backend calls Gemini's `POST /v1beta/auth_tokens` with its API key
 3. Backend returns the ephemeral token to the app
 4. App passes the token as `access_token` query param on the WebSocket URL
 
