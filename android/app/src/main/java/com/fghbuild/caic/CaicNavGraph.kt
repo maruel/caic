@@ -59,7 +59,7 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
         }
     }
 
-    LaunchedEffect(voiceState.error) {
+    LaunchedEffect(voiceState.errorId) {
         val error = voiceState.error ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(error)
     }

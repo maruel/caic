@@ -3,6 +3,7 @@ package com.fghbuild.caic.voice
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.util.Log
 import android.media.AudioAttributes
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
@@ -43,6 +44,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
+private const val TAG = "VoiceSession"
 private const val RECORD_SAMPLE_RATE = 16000
 private const val PLAYBACK_SAMPLE_RATE = 24000
 private const val AUDIO_BUFFER_SIZE = 4096
@@ -74,12 +76,18 @@ class VoiceSessionManager @Inject constructor(
     var onSetActiveTask: ((String) -> Unit)? = null
 
     fun setError(message: String) {
+        Log.e(TAG, "setError: $message")
         stopAudio()
-        _state.update { it.copy(connected = false, error = message) }
+        _state.update { it.copy(connected = false, error = message, errorId = it.errorId + 1) }
     }
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: surface all failures to UI.
     fun connect() {
+        // Close any existing connection to prevent WebSocket leaks.
+        webSocket?.close(WS_CLOSE_NORMAL, "Reconnecting")
+        webSocket = null
+        _state.update { it.copy(error = null) }
+
         scope.launch {
             try {
                 val settings = settingsRepository.settings.value
@@ -256,12 +264,17 @@ class VoiceSessionManager @Inject constructor(
     )
 
     private fun createWebSocketListener() = object : WebSocketListener() {
+        /** Ignore callbacks from WebSockets we already replaced or disconnected. */
+        private fun isStale(ws: WebSocket) = ws !== this@VoiceSessionManager.webSocket
+
         override fun onOpen(webSocket: WebSocket, response: Response) {
+            if (isStale(webSocket)) return
             val voiceName = settingsRepository.settings.value.voiceName
             sendSetupMessage(voiceName)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
+            if (isStale(webSocket)) return
             scope.launch { handleServerMessage(text) }
         }
 
@@ -270,7 +283,12 @@ class VoiceSessionManager @Inject constructor(
             t: Throwable,
             response: Response?,
         ) {
+            if (isStale(webSocket)) return
             setError(t.message ?: "WebSocket connection failed")
+        }
+
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(code, reason)
         }
 
         override fun onClosed(
@@ -278,7 +296,14 @@ class VoiceSessionManager @Inject constructor(
             code: Int,
             reason: String,
         ) {
-            _state.update { it.copy(connected = false) }
+            if (isStale(webSocket)) return
+            if (!_state.value.connected) {
+                // Connection closed before setupComplete — surface an error.
+                val msg = reason.ifBlank { "Connection closed (code $code)" }
+                setError(msg)
+            } else {
+                _state.update { it.copy(connected = false) }
+            }
         }
     }
 
@@ -298,6 +323,16 @@ class VoiceSessionManager @Inject constructor(
                 }
                 "toolCallCancellation" in msg -> {
                     _state.update { it.copy(activeTool = null) }
+                }
+                else -> {
+                    Log.w(TAG, "Unrecognized server message: ${msg.keys}")
+                    // Surface error responses from Gemini (e.g. invalid model, auth failure).
+                    val error = msg["error"]?.jsonObject
+                    if (error != null) {
+                        val message = error["message"]?.jsonPrimitive?.content
+                            ?: "Server error"
+                        setError(message)
+                    }
                 }
             }
         } catch (e: CancellationException) {
@@ -494,6 +529,7 @@ data class VoiceState(
     val speaking: Boolean = false,
     val activeTool: String? = null,
     val error: String? = null,
+    val errorId: Long = 0,
 )
 
 private fun errorJson(message: String): JsonElement =
