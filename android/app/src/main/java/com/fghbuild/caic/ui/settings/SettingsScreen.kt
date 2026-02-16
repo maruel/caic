@@ -1,4 +1,4 @@
-// Compose Settings screen for configuring server URL, voice, and notifications.
+// Compose Settings screen for configuring server URL and voice.
 package com.fghbuild.caic.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
@@ -121,20 +121,6 @@ fun SettingsScreen(
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-
-            // Notifications section
-            Text("Notifications", style = MaterialTheme.typography.titleMedium)
-
-            ListItem(
-                headlineContent = { Text("Notifications Enabled") },
-                trailingContent = {
-                    Switch(
-                        checked = settings.notificationsEnabled,
-                        onCheckedChange = { viewModel.updateNotificationsEnabled(it) },
-                    )
-                },
-            )
         }
     }
 }

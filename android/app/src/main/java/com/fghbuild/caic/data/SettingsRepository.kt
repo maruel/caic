@@ -18,7 +18,6 @@ import javax.inject.Singleton
 
 data class SettingsState(
     val serverURL: String = "",
-    val notificationsEnabled: Boolean = true,
     val voiceEnabled: Boolean = true,
     val voiceName: String = "Orus",
 )
@@ -29,7 +28,6 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 
     private object Keys {
         val SERVER_URL = stringPreferencesKey("SERVER_URL")
-        val NOTIFICATIONS_ENABLED = booleanPreferencesKey("NOTIFICATIONS_ENABLED")
         val VOICE_ENABLED = booleanPreferencesKey("VOICE_ENABLED")
         val VOICE_NAME = stringPreferencesKey("VOICE_NAME")
     }
@@ -38,7 +36,6 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
         .map { prefs ->
             SettingsState(
                 serverURL = prefs[Keys.SERVER_URL] ?: "",
-                notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
                 voiceEnabled = prefs[Keys.VOICE_ENABLED] ?: true,
                 voiceName = prefs[Keys.VOICE_NAME] ?: "Orus",
             )
@@ -57,7 +54,4 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
         dataStore.edit { it[Keys.VOICE_NAME] = name }
     }
 
-    suspend fun updateNotificationsEnabled(enabled: Boolean) {
-        dataStore.edit { it[Keys.NOTIFICATIONS_ENABLED] = enabled }
-    }
 }

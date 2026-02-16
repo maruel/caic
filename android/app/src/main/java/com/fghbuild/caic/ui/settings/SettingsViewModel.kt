@@ -71,10 +71,6 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { settingsRepository.updateVoiceName(name) }
     }
 
-    fun updateNotificationsEnabled(enabled: Boolean) {
-        viewModelScope.launch { settingsRepository.updateNotificationsEnabled(enabled) }
-    }
-
     fun testConnection() {
         val url = _state.value.settings.serverURL
         if (url.isBlank()) {
