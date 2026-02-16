@@ -14,8 +14,10 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -41,21 +43,37 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val permissionLauncher = rememberLauncherForActivityResult(
+    // Track what the mic permission grant should trigger.
+    var onMicGranted by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val micPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            voiceViewModel.connect()
+            onMicGranted?.invoke()
         } else {
             scope.launch {
                 snackbarHostState.showSnackbar("Microphone permission is required for voice mode")
             }
         }
+        onMicGranted = null
     }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { _ -> /* Best-effort; notifications work without it but silently drop. */ }
 
     LaunchedEffect(Unit) {
         voiceViewModel.setActiveTaskCallback { _ ->
             // Phase 1: no TaskDetail screen yet; log or ignore.
+        }
+        // Request notification permission on first launch.
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS,
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
 
@@ -97,7 +115,8 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
                     ) {
                         voiceViewModel.connect()
                     } else {
-                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        onMicGranted = { voiceViewModel.connect() }
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 onStartListening = {
@@ -108,7 +127,8 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
                     ) {
                         voiceViewModel.startListening()
                     } else {
-                        permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        onMicGranted = { voiceViewModel.startListening() }
+                        micPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
                     }
                 },
                 onStopListening = { voiceViewModel.stopListening() },
