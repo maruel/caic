@@ -38,6 +38,21 @@ type repoInfo struct {
 	RepoURL    string // HTTPS browse URL derived from origin remote.
 }
 
+// Gemini ephemeral token API (POST /v1alpha/auth_tokens).
+type geminiAuthTokenReq struct {
+	AuthToken geminiAuthToken `json:"authToken"`
+}
+
+type geminiAuthToken struct {
+	Uses                 int    `json:"uses"`
+	ExpireTime           string `json:"expireTime"`
+	NewSessionExpireTime string `json:"newSessionExpireTime"`
+}
+
+type geminiAuthTokenResp struct {
+	Name string `json:"name"`
+}
+
 // Server is the HTTP server for the caic web UI.
 type Server struct {
 	ctx      context.Context // server-lifetime context; outlives individual HTTP requests
@@ -554,14 +569,14 @@ func (s *Server) getVoiceToken(ctx context.Context, _ *dto.EmptyReq) (*dto.Voice
 	expireTime := now.Add(30 * time.Minute).Format(time.RFC3339)
 	newSessionExpire := now.Add(2 * time.Minute).Format(time.RFC3339)
 
-	reqBody := map[string]any{
-		"config": map[string]any{
-			"uses":                 1,
-			"expireTime":           expireTime,
-			"newSessionExpireTime": newSessionExpire,
+	reqBody := geminiAuthTokenReq{
+		AuthToken: geminiAuthToken{
+			Uses:                 1,
+			ExpireTime:           expireTime,
+			NewSessionExpireTime: newSessionExpire,
 		},
 	}
-	bodyBytes, err := json.Marshal(reqBody)
+	bodyBytes, err := json.Marshal(&reqBody)
 	if err != nil {
 		return nil, dto.InternalError("failed to marshal token request").Wrap(err)
 	}
@@ -586,9 +601,7 @@ func (s *Server) getVoiceToken(ctx context.Context, _ *dto.EmptyReq) (*dto.Voice
 		return nil, dto.InternalError(fmt.Sprintf("Gemini auth_tokens returned %d: %s", resp.StatusCode, string(body)))
 	}
 
-	var tokenResp struct {
-		Name string `json:"name"`
-	}
+	var tokenResp geminiAuthTokenResp
 	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
 		return nil, dto.InternalError("failed to decode token response").Wrap(err)
 	}
