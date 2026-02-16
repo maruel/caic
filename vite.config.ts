@@ -14,6 +14,7 @@ export default defineConfig({
   build: {
     outDir: "../backend/frontend/dist",
     emptyOutDir: true,
+    reportCompressedSize: false,
   },
   server: {
     proxy: {
