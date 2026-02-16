@@ -75,6 +75,7 @@ type CreateTaskReq struct {
 	Repo    string  `json:"repo"`
 	Model   string  `json:"model,omitempty"`
 	Harness Harness `json:"harness"`
+	Image   string  `json:"image,omitempty"`
 }
 
 // InputReq is the request body for POST /api/v1/tasks/{id}/input.

@@ -55,10 +55,13 @@ type Server struct {
 // mdBackend adapts *md.Client to task.ContainerBackend.
 type mdBackend struct{ client *md.Client }
 
-func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string) (string, error) {
+func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string, image string) (string, error) {
 	slog.Info("md start", "dir", dir, "branch", branch)
+	if image == "" {
+		image = md.DefaultBaseImage + ":latest"
+	}
 	c := b.client.Container(dir, branch)
-	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, BaseImage: md.DefaultBaseImage + ":latest", Labels: labels}); err != nil {
+	if err := c.Start(ctx, &md.StartOpts{NoSSH: true, Quiet: true, BaseImage: image, Labels: labels}); err != nil {
 		return "", err
 	}
 	return c.Name, nil
@@ -286,7 +289,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest("unsupported model for " + string(req.Harness) + ": " + req.Model)
 	}
 
-	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model}
+	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image}
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()

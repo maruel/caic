@@ -413,6 +413,49 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 	})
 
+	t.Run("WithImage", func(t *testing.T) {
+		s := &Server{
+			ctx: t.Context(),
+			runners: map[string]*task.Runner{
+				"myrepo": {
+					BaseBranch: "main",
+					Dir:        t.TempDir(),
+					Backends:   map[agent.Harness]agent.Backend{agent.Claude: stubBackend{}},
+				},
+			},
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+		}
+		handler := handle(s.createTask)
+
+		body := strings.NewReader(`{"prompt":"test","repo":"myrepo","harness":"claude","image":"ghcr.io/my/image:v1"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+		}
+		var resp dto.CreateTaskResp
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.ID == 0 {
+			t.Error("response has zero 'id' field")
+		}
+
+		// Verify the task has the image set.
+		s.mu.Lock()
+		entry := s.tasks[resp.ID.String()]
+		s.mu.Unlock()
+		if entry == nil {
+			t.Fatal("task not found")
+		}
+		if entry.task.Image != "ghcr.io/my/image:v1" {
+			t.Errorf("Image = %q, want %q", entry.task.Image, "ghcr.io/my/image:v1")
+		}
+	})
+
 	t.Run("UnknownField", func(t *testing.T) {
 		s := newTestServer(t)
 		handler := handle(s.createTask)

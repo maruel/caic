@@ -317,6 +317,7 @@ export interface CreateTaskReq {
   repo: string;
   model?: string;
   harness: Harness;
+  image?: string;
 }
 /**
  * InputReq is the request body for POST /api/v1/tasks/{id}/input.

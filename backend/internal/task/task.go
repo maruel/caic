@@ -71,6 +71,7 @@ type Task struct {
 	Prompt         string
 	Repo           string        // Relative repo path (for display/API).
 	Harness        agent.Harness // Agent harness ("claude", "gemini", etc.).
+	Image          string        // Custom Docker base image; empty means use the default.
 	MaxTurns       int
 	Branch         string
 	Container      string

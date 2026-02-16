@@ -212,7 +212,7 @@ type fakeContainer struct{}
 
 var _ task.ContainerBackend = (*fakeContainer)(nil)
 
-func (*fakeContainer) Start(_ context.Context, _, branch string, _ []string) (string, error) {
+func (*fakeContainer) Start(_ context.Context, _, branch string, _ []string, _ string) (string, error) {
 	return "md-test-" + strings.ReplaceAll(branch, "/", "-"), nil
 }
 

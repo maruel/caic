@@ -256,6 +256,7 @@ data class CreateTaskReq(
     val repo: String,
     val model: String? = null,
     val harness: Harness,
+    val image: String? = null,
 )
 
 @Serializable

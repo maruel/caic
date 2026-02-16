@@ -21,7 +21,7 @@ import (
 
 // ContainerBackend abstracts md container lifecycle operations for testability.
 type ContainerBackend interface {
-	Start(ctx context.Context, dir, branch string, labels []string) (name string, err error)
+	Start(ctx context.Context, dir, branch string, labels []string, image string) (name string, err error)
 	Diff(ctx context.Context, dir, branch string, args ...string) (string, error)
 	Fetch(ctx context.Context, dir, branch string) error
 	Kill(ctx context.Context, dir, branch string) error
@@ -385,7 +385,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (string, e
 	slog.Info("starting container", "repo", t.Repo, "branch", t.Branch)
 	startCtx, startCancel := context.WithTimeout(detached, r.ContainerStartTimeout)
 	defer startCancel()
-	name, err := r.Container.Start(startCtx, r.Dir, t.Branch, labels)
+	name, err := r.Container.Start(startCtx, r.Dir, t.Branch, labels, t.Image)
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
 	}

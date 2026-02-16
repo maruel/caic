@@ -49,6 +49,7 @@ export default function App() {
   const [repos, setRepos] = createSignal<RepoJSON[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
   const [selectedModel, setSelectedModel] = createSignal("");
+  const [selectedImage, setSelectedImage] = createSignal("");
   const [harnesses, setHarnesses] = createSignal<HarnessJSON[]>([]);
   const [selectedHarness, setSelectedHarness] = createSignal("claude");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
@@ -220,7 +221,8 @@ export default function App() {
     localStorage.setItem("caic:lastRepo", repo);
     try {
       const model = selectedModel();
-      const data = await createTask({ prompt: p, repo, harness: selectedHarness(), ...(model ? { model } : {}) });
+      const image = selectedImage().trim();
+      const data = await createTask({ prompt: p, repo, harness: selectedHarness(), ...(model ? { model } : {}), ...(image ? { image } : {}) });
       setPrompt("");
       navigate(taskPath(data.id, repo, "", p));
     } finally {
@@ -281,6 +283,14 @@ export default function App() {
             </For>
           </select>
         </Show>
+        <input
+          type="text"
+          value={selectedImage()}
+          onInput={(e) => setSelectedImage(e.currentTarget.value)}
+          placeholder="Custom image (optional)"
+          disabled={submitting()}
+          class={styles.imageInput}
+        />
         <AutoResizeTextarea
           ref={(el) => { promptRef = el; }}
           value={prompt()}
