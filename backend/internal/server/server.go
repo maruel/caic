@@ -983,9 +983,17 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	// ResultMessage), the task would be stuck as "running" with no
 	// session and no way to interact. Transition to StateWaiting so
 	// the user can restart with a new prompt or terminate.
-	if !relayAlive && t.State == task.StateRunning {
-		t.State = task.StateWaiting
-		slog.Info("adopted container with dead relay, marking as waiting", "repo", ri.RelPath, "branch", branch, "container", c.Name)
+	if !relayAlive {
+		relayLog := agent.ReadRelayLog(ctx, c.Name, 4096)
+		if relayLog != "" {
+			slog.Warn("relay log from dead relay", "container", c.Name, "branch", branch, "log", relayLog)
+		}
+		if t.State == task.StateRunning {
+			t.State = task.StateWaiting
+			slog.Warn("adopted container with dead relay, marking as waiting",
+				"repo", ri.RelPath, "branch", branch, "container", c.Name,
+				"sessionID", t.SessionID, "messages", len(t.Messages()))
+		}
 	}
 
 	entry := &taskEntry{task: t, done: make(chan struct{})}
@@ -999,22 +1007,35 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	s.taskChanged()
 	s.mu.Unlock()
 
-	slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", c.Name, "branch", branch, "relay", relayAlive)
+	slog.Info("adopted preexisting container",
+		"repo", ri.RelPath, "container", c.Name, "branch", branch,
+		"relay", relayAlive, "state", t.State, "sessionID", t.SessionID)
 
-	// If relay is alive, auto-attach in background so messages
-	// resume streaming immediately. Reconnect handles the relay-died
-	// race by falling back to --resume, and reverts to StateWaiting
-	// if all reconnection strategies fail.
-	if relayAlive {
+	// Auto-reconnect in background: relay alive → attach; relay dead
+	// but SessionID present → --resume. Reconnect handles both paths
+	// and reverts to StateWaiting if all strategies fail.
+	if relayAlive || t.SessionID != "" {
+		strategy := "attach"
+		if !relayAlive {
+			strategy = "resume"
+		}
+		slog.Info("auto-reconnect starting", "repo", ri.RelPath, "branch", branch, "container", c.Name, "strategy", strategy)
 		go func() {
 			h, err := runner.Reconnect(ctx, t)
 			if err != nil {
-				slog.Warn("auto-reconnect failed, task is waiting", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+				slog.Warn("auto-reconnect failed, task is waiting",
+					"repo", t.Repo, "branch", t.Branch, "container", t.Container,
+					"strategy", strategy, "err", err)
 				s.notifyTaskChange()
 				return
 			}
+			slog.Info("auto-reconnect succeeded", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "strategy", strategy)
 			s.watchSession(entry, runner, h)
 		}()
+	} else if !relayAlive {
+		slog.Warn("adopted orphaned task: relay dead and no session ID to resume",
+			"repo", ri.RelPath, "branch", branch, "container", c.Name,
+			"state", t.State)
 	}
 	return nil
 }

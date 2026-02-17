@@ -241,6 +241,7 @@ const (
 	RelayScriptPath = RelayDir + "/relay.py"
 	RelaySockPath   = RelayDir + "/relay.sock"
 	RelayOutputPath = RelayDir + "/output.jsonl"
+	RelayLogPath    = RelayDir + "/relay.log"
 )
 
 // DeployRelay uploads the relay script into the container. Idempotent.
@@ -281,6 +282,19 @@ func IsRelayRunning(ctx context.Context, container string) (bool, error) {
 		return false, fmt.Errorf("test relay socket: %w", err)
 	}
 	return true, nil
+}
+
+// ReadRelayLog reads the last maxBytes of the relay daemon's log file from the
+// container. Returns empty string on any error (missing file, SSH failure).
+func ReadRelayLog(ctx context.Context, container string, maxBytes int) string {
+	// Use tail -c to cap the output; the log can be large after long sessions.
+	arg := fmt.Sprintf("tail -c %d %s 2>/dev/null", maxBytes, RelayLogPath)
+	cmd := exec.CommandContext(ctx, "ssh", container, arg) //nolint:gosec // container is not user-controlled
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // ReadPlan reads a plan file from the container by invoking relay.py read-plan

@@ -95,8 +95,8 @@ type Task struct {
 
 	mu     sync.Mutex
 	msgs   []agent.Message
-	subs   []chan agent.Message // active SSE subscribers
-	handle *SessionHandle       // current active session; nil when no session is attached
+	subs   []*sub         // active SSE subscribers
+	handle *SessionHandle // current active session; nil when no session is attached
 
 	// Live stats accumulated from ResultMessages during execution.
 	liveCostUSD    float64
@@ -223,10 +223,10 @@ func (t *Task) addMessage(m agent.Message) {
 	// Fan out to subscribers (non-blocking).
 	for i := 0; i < len(t.subs); i++ {
 		select {
-		case t.subs[i] <- m:
+		case t.subs[i].ch <- m:
 		default:
 			// Slow subscriber — drop and remove.
-			close(t.subs[i])
+			t.subs[i].close()
 			t.subs = append(t.subs[:i], t.subs[i+1:]...)
 			i--
 		}
@@ -363,25 +363,37 @@ func lastAssistantHasAsk(msgs []agent.Message) bool {
 	return false
 }
 
+// sub is an SSE subscriber with a once-guarded close to prevent double-close
+// panics when both the fan-out (slow subscriber drop) and context cancellation
+// race to close the channel.
+type sub struct {
+	ch   chan agent.Message
+	once sync.Once
+}
+
+func (s *sub) close() {
+	s.once.Do(func() { close(s.ch) })
+}
+
 // Subscribe returns a snapshot of the message history and a channel that
 // receives only live messages arriving after the snapshot. The caller must
 // write the history to the client first, then range over the channel.
 // The returned function unsubscribes and must be called exactly once.
 func (t *Task) Subscribe(ctx context.Context) (history []agent.Message, live <-chan agent.Message, unsubFn func()) {
-	c := make(chan agent.Message, 256)
+	s := &sub{ch: make(chan agent.Message, 256)}
 
 	t.mu.Lock()
 	// Snapshot history under lock — no channel writes, so no deadlock risk
 	// regardless of history size.
 	history = append([]agent.Message(nil), t.msgs...)
-	t.subs = append(t.subs, c)
+	t.subs = append(t.subs, s)
 	t.mu.Unlock()
 
 	unsub := func() {
 		t.mu.Lock()
 		defer t.mu.Unlock()
-		for i, sub := range t.subs {
-			if sub == c {
+		for i, ss := range t.subs {
+			if ss == s {
 				t.subs = append(t.subs[:i], t.subs[i+1:]...)
 				break
 			}
@@ -392,10 +404,10 @@ func (t *Task) Subscribe(ctx context.Context) (history []agent.Message, live <-c
 	go func() {
 		<-ctx.Done()
 		unsub()
-		close(c)
+		s.close()
 	}()
 
-	return history, c, unsub
+	return history, s.ch, unsub
 }
 
 // SessionStatus describes why SendInput could not deliver a message.

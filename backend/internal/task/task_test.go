@@ -1,6 +1,7 @@
 package task
 
 import (
+	"context"
 	"encoding/json"
 	"os/exec"
 	"strings"
@@ -12,6 +13,31 @@ import (
 
 func TestTask(t *testing.T) {
 	t.Run("Subscribe", func(t *testing.T) {
+		t.Run("SlowSubscriberThenCancel", func(t *testing.T) {
+			// Regression test: if the fan-out drops a slow subscriber
+			// (buffer full) and closes its channel, the context-done
+			// goroutine must not panic on a double close.
+			tk := &Task{Prompt: "test"}
+			ctx, cancel := context.WithCancel(t.Context())
+			_, ch, unsub := tk.Subscribe(ctx)
+			defer unsub()
+
+			// Fill the subscriber buffer (256) so the next send overflows.
+			for range 256 {
+				tk.addMessage(&agent.SystemMessage{MessageType: "system", Subtype: "status"})
+			}
+			// This send should trigger the slow-subscriber drop+close.
+			tk.addMessage(&agent.SystemMessage{MessageType: "system", Subtype: "status"})
+
+			// Drain to confirm channel was closed by fan-out.
+			for range ch {
+			}
+
+			// Cancel the context. The goroutine must not panic.
+			cancel()
+			// Give the goroutine time to execute.
+			time.Sleep(50 * time.Millisecond)
+		})
 		t.Run("Replay", func(t *testing.T) {
 			tk := &Task{Prompt: "test"}
 			// Add messages before subscribing.
