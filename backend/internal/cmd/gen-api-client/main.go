@@ -215,6 +215,13 @@ data class HarnessJSON(
 )
 
 @Serializable
+data class ConfigJSON(
+    val tailscaleAvailable: Boolean,
+    val usbAvailable: Boolean,
+    val displayAvailable: Boolean,
+)
+
+@Serializable
 data class RepoJSON(
     val path: String,
     val baseBranch: String,
@@ -262,6 +269,9 @@ data class CreateTaskReq(
     val model: String? = null,
     val harness: Harness,
     val image: String? = null,
+    val tailscale: Boolean? = null,
+    val usb: Boolean? = null,
+    val display: Boolean? = null,
 )
 
 @Serializable
