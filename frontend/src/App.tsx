@@ -153,12 +153,14 @@ export default function App() {
   {
     let es: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let bannerTimer: ReturnType<typeof setTimeout> | null = null;
     let delay = 500;
     const initialScriptSrc = document.querySelector<HTMLScriptElement>("script[src^='/assets/']")?.src ?? "";
 
     function connect() {
       es = new EventSource("/api/v1/events");
       es.addEventListener("open", () => {
+        if (bannerTimer !== null) { clearTimeout(bannerTimer); bannerTimer = null; }
         setConnected(true);
         delay = 500;
         // Check if frontend was rebuilt while disconnected.
@@ -197,9 +199,12 @@ export default function App() {
         }
       });
       es.onerror = () => {
-        setConnected(false);
         es?.close();
         es = null;
+        // Delay showing the banner so brief disconnects don't flash it.
+        if (bannerTimer === null) {
+          bannerTimer = setTimeout(() => { bannerTimer = null; setConnected(false); }, 2000);
+        }
         timer = setTimeout(connect, delay);
         delay = Math.min(delay * 1.5, 4000);
       };
@@ -210,6 +215,7 @@ export default function App() {
     onCleanup(() => {
       es?.close();
       if (timer !== null) clearTimeout(timer);
+      if (bannerTimer !== null) clearTimeout(bannerTimer);
     });
   }
 
