@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Tests for relay.py graceful shutdown via null-byte sentinel."""
 
 import json

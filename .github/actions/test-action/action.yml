@@ -17,6 +17,10 @@ runs:
       if: runner.os == 'Linux'
       run: make lint-frontend
       shell: bash
+    - name: Lint (Binaries)
+      if: runner.os == 'Linux'
+      run: make lint-binaries
+      shell: bash
     - run: make build
       shell: bash
     - name: Test
