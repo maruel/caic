@@ -15,7 +15,6 @@ import (
 
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/agent/claude"
-	agentgemini "github.com/maruel/caic/backend/internal/agent/gemini"
 	"github.com/maruel/caic/backend/internal/gitutil"
 )
 
@@ -69,7 +68,6 @@ func (r *Runner) initDefaults() {
 		if r.Backends == nil {
 			r.Backends = map[agent.Harness]agent.Backend{
 				agent.Claude: &claude.Backend{},
-				agent.Gemini: &agentgemini.Backend{},
 			}
 		}
 		if r.GitTimeout == 0 {
