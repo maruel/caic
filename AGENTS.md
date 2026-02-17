@@ -26,14 +26,24 @@ calling any `md` command for that task.
 
 ### Professionalism
 
-After making changes, lint only the areas you touched:
+**Always** lint after making changes. This is mandatory, not optional:
 
 ```bash
-# Go/frontend/Python changes:
-make lint build test
+# Go changes:
+make lint-go
+
+# Frontend changes:
+make lint-frontend
+
+# Python changes:
+make lint-python
 
 # Android changes:
-make lint-android android-build android-test
+make lint-android
+
+# Or lint everything you touched at once:
+make lint          # Go + frontend + Python + binaries
+make lint-all      # All of the above + Android
 ```
 
 ### Make Targets

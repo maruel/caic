@@ -2,6 +2,10 @@
 
 SolidJS web UI for caic. Built with Vite, outputs to `../backend/frontend/dist/`.
 
+## Linting
+
+**Always** run `make lint-frontend` after any frontend file change. Do not skip this step.
+
 ## Stack
 
 - SolidJS for reactivity

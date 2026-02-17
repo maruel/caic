@@ -2,6 +2,10 @@
 
 Go backend for caic. Packages under `internal/` are private.
 
+## Linting
+
+**Always** run `make lint-go` after any `.go` file change. Do not skip this step.
+
 ## Conventions
 
 - Pass `context.Context` through all call chains.

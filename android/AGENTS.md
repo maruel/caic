@@ -2,6 +2,10 @@
 
 Kotlin/Compose Android app for caic. Voice-first companion for managing coding agents.
 
+## Linting
+
+**Always** run `make lint-android` after any Android/Kotlin file change. Do not skip this step.
+
 ## Current State
 
 SDK module (generated API client + types), Compose UI, Hilt DI, and voice mode
