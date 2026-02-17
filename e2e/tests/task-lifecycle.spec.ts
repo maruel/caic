@@ -1,18 +1,21 @@
 // End-to-end tests for the task lifecycle using a fake backend.
-import { test, expect } from "@playwright/test";
+import { test, expect, waitForTaskState } from "../helpers";
 
-test("create task, verify streaming text and result, then terminate", async ({ page }) => {
+test("create task, verify streaming text and result, then terminate", async ({ page, api }) => {
   await page.goto("/");
 
   // Wait for repos to load (select gets an option).
   await expect(page.locator("select option")).not.toHaveCount(0);
 
+  // Use a unique prompt to avoid collisions with parallel tests.
+  const prompt = `e2e lifecycle ${Date.now()}`;
+
   // Fill prompt and submit.
-  await page.fill('textarea[placeholder="Describe a task..."]', "e2e test task");
+  await page.fill('textarea[placeholder="Describe a task..."]', prompt);
   await page.getByRole("button", { name: "Run" }).click();
 
   // Click the task card to open TaskView.
-  await page.getByText("e2e test task").first().click();
+  await page.getByText(prompt).first().click();
 
   // Wait for the assistant message from the fake agent. The fake backend emits
   // streaming text deltas followed by the final assistant message containing a
@@ -26,19 +29,17 @@ test("create task, verify streaming text and result, then terminate", async ({ p
     timeout: 10_000,
   });
 
-  // The Terminate button should appear once the task is in waiting state.
-  const terminateBtn = page.getByRole("button", { name: "Terminate" });
-  await expect(terminateBtn).toBeVisible({ timeout: 10_000 });
+  // The Terminate button (icon with title) should appear once the task is
+  // in waiting state.
+  const terminateBtn = page.locator('button[title="Terminate"]');
+  await expect(terminateBtn).toBeVisible({ timeout: 15_000 });
 
   // Click Terminate.
   await terminateBtn.click();
 
-  // Poll API until our task is "terminated".
-  await expect(async () => {
-    const resp = await page.request.get("/api/v1/tasks");
-    const tasks = await resp.json();
-    const t = tasks.find((t: { task: string }) => t.task === "e2e test task");
-    expect(t).toBeTruthy();
-    expect(t.state).toBe("terminated");
-  }).toPass({ timeout: 15_000, intervals: [500] });
+  // Poll API until our task is "terminated" — uses typed helper.
+  const tasks = await api.listTasks();
+  const task = tasks.find((t) => t.task === prompt);
+  expect(task).toBeTruthy();
+  await waitForTaskState(api, task!.id, "terminated");
 });
