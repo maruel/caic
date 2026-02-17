@@ -51,6 +51,39 @@ PID_PATH = os.path.join(RELAY_DIR, "pid")
 # Max size of a single read from subprocess stdout.
 BUF_SIZE = 65536
 
+# Interval between diff stat polls (seconds).
+
+
+def _parse_numstat(numstat):
+    """Parse git diff --numstat output into a list of file stat dicts.
+
+    Each line has the format: <added>\\t<deleted>\\t<path>.
+    Binary files use "-\\t-\\t<path>".
+    Returns an empty list if there are no changed files.
+    """
+    result = []
+    for line in numstat.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        added_str, deleted_str, path = parts
+        if added_str == "-" and deleted_str == "-":
+            result.append({"path": path, "added": 0, "deleted": 0, "binary": True})
+        else:
+            try:
+                added = int(added_str)
+            except ValueError:
+                added = 0
+            try:
+                deleted = int(deleted_str)
+            except ValueError:
+                deleted = 0
+            result.append({"path": path, "added": added, "deleted": deleted})
+    return result
+
 
 def serve(cmd_args, work_dir):
     """Start the relay server as a daemon, then attach as the first client.
@@ -156,6 +189,11 @@ def serve(cmd_args, work_dir):
             except (BrokenPipeError, ConnectionResetError, OSError):
                 client_conn[0] = None
 
+    # Event signalled by reader_thread on each stdout chunk to wake the diff
+    # watcher.  The watcher debounces (waits for a quiet period) and throttles
+    # (enforces a minimum interval) so git commands aren't run too often.
+    diff_activity = threading.Event()
+
     # Thread: read subprocess stdout → log + forward to client.
     def reader_thread():
         try:
@@ -166,6 +204,7 @@ def serve(cmd_args, work_dir):
                 output_file.write(data)
                 output_file.flush()
                 send_to_client(data)
+                diff_activity.set()
         except (OSError, ValueError) as e:
             logging.warning("reader_thread error: %s", e)
         finally:
@@ -173,10 +212,90 @@ def serve(cmd_args, work_dir):
             output_file.close()
             # Process exited — close client.
             set_client(None, "subprocess_eof")
+            # Wake diff watcher so it can exit.
+            diff_activity.set()
             logging.info("reader_thread exited output_bytes=%d", sz)
 
     t = threading.Thread(target=reader_thread, daemon=True)
     t.start()
+
+    # Thread: run git diff --numstat on activity, with throttle + debounce.
+    # Uses a temporary index to include untracked files without mutating
+    # the real index (which the agent may be using concurrently).
+    DIFF_THROTTLE = 10  # minimum seconds between diff runs
+    DIFF_DEBOUNCE = 2  # seconds of quiet before running diff
+
+    def diff_watcher_thread():
+        tmp_index = os.path.join(RELAY_DIR, "diff.index")
+        diff_env = {**os.environ, "GIT_INDEX_FILE": tmp_index}
+        prev_raw = None
+        last_run = 0.0
+        while proc.poll() is None:
+            # Wait for activity signal.
+            if not diff_activity.wait(timeout=30):
+                continue
+            diff_activity.clear()
+            if proc.poll() is not None:
+                break
+            # Debounce: wait for quiet period (no new activity).
+            while True:
+                if diff_activity.wait(timeout=DIFF_DEBOUNCE):
+                    diff_activity.clear()
+                    if proc.poll() is not None:
+                        break
+                else:
+                    break  # quiet period elapsed
+            if proc.poll() is not None:
+                break
+            # Throttle: enforce minimum interval.
+            now = time.monotonic()
+            wait = DIFF_THROTTLE - (now - last_run)
+            if wait > 0:
+                time.sleep(wait)
+                if proc.poll() is not None:
+                    break
+            last_run = time.monotonic()
+            try:
+                subprocess.run(
+                    ["git", "read-tree", "HEAD"],
+                    cwd=work_dir,
+                    env=diff_env,
+                    capture_output=True,
+                    timeout=5,
+                )
+                subprocess.run(
+                    ["git", "add", "--intent-to-add", "--all"],
+                    cwd=work_dir,
+                    env=diff_env,
+                    capture_output=True,
+                    timeout=5,
+                )
+                cp = subprocess.run(
+                    ["git", "diff", "--numstat", "HEAD"],
+                    cwd=work_dir,
+                    env=diff_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                raw = cp.stdout
+            except (subprocess.TimeoutExpired, OSError):
+                continue
+            if raw == prev_raw:
+                continue
+            prev_raw = raw
+            diff_stat = _parse_numstat(raw)
+            line = json.dumps({"type": "caic_diff_stat", "diff_stat": diff_stat}) + "\n"
+            data = line.encode()
+            try:
+                output_file.write(data)
+                output_file.flush()
+            except (OSError, ValueError):
+                pass
+            send_to_client(data)
+
+    dw = threading.Thread(target=diff_watcher_thread, daemon=True)
+    dw.start()
 
     # Listen on Unix socket for client connections.
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

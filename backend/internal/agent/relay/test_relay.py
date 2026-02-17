@@ -225,7 +225,43 @@ def test_ssh_drop_keeps_subprocess():
         _cleanup(relay_dir)
 
 
+def test_parse_numstat():
+    """Test _parse_numstat parses git diff --numstat output correctly."""
+    # Import the module under test.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("relay", RELAY_PY)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    # Normal files.
+    result = mod._parse_numstat("10\t3\tsrc/main.go\n5\t0\tREADME.md\n")
+    assert len(result) == 2, f"expected 2 files, got {len(result)}"
+    assert result[0] == {"path": "src/main.go", "added": 10, "deleted": 3}
+    assert result[1] == {"path": "README.md", "added": 5, "deleted": 0}
+
+    # Binary file.
+    result = mod._parse_numstat("-\t-\timage.png\n")
+    assert len(result) == 1
+    assert result[0] == {"path": "image.png", "added": 0, "deleted": 0, "binary": True}
+
+    # Empty input.
+    result = mod._parse_numstat("")
+    assert result == []
+
+    # Mixed.
+    result = mod._parse_numstat("1\t2\ta.txt\n-\t-\tb.bin\n3\t0\tc.rs\n")
+    assert len(result) == 3
+    assert result[0]["path"] == "a.txt"
+    assert result[1]["binary"] is True
+    assert result[2]["added"] == 3
+
+
 if __name__ == "__main__":
+    print("test_parse_numstat...", end=" ", flush=True)
+    test_parse_numstat()
+    print("OK")
+
     print("test_close_stdin_sentinel...", end=" ", flush=True)
     test_close_stdin_sentinel()
     print("OK")

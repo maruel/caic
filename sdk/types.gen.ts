@@ -127,6 +127,10 @@ export const EventKindUserInput: EventKind = "userInput";
  */
 export const EventKindTodo: EventKind = "todo";
 /**
+ * Event kind constants.
+ */
+export const EventKindDiffStat: EventKind = "diffStat";
+/**
  * EventMessage is a single SSE event in the backend-neutral stream
  * (/api/v1/tasks/{id}/events). All backends produce these events.
  */
@@ -144,6 +148,7 @@ export interface EventMessage {
   system?: EventSystem;
   userInput?: EventUserInput;
   todo?: EventTodo;
+  diffStat?: EventDiffStat;
 }
 /**
  * EventInit is emitted once at the start of a session. It includes a Harness
@@ -261,6 +266,12 @@ export interface EventTodo {
   todos: TodoItem[];
 }
 /**
+ * EventDiffStat is emitted when the relay reports updated diff statistics.
+ */
+export interface EventDiffStat {
+  diffStat?: DiffStat;
+}
+/**
  * ClaudeEventKind identifies the type of SSE event in the Claude-specific raw
  * stream. Values are identical to EventKind; a separate type alias is used so
  * that future backends can diverge if needed.
@@ -311,6 +322,10 @@ export const ClaudeEventKindUserInput: ClaudeEventKind = "userInput";
  */
 export const ClaudeEventKindTodo: ClaudeEventKind = "todo";
 /**
+ * Claude-specific event kind constants.
+ */
+export const ClaudeEventKindDiffStat: ClaudeEventKind = "diffStat";
+/**
  * ClaudeEventMessage is a single SSE event in the Claude Code raw stream
  * (/api/v1/tasks/{id}/raw_events). When additional backends are added, each
  * will define its own *EventMessage (e.g. GeminiEventMessage) for its raw
@@ -332,6 +347,7 @@ export interface ClaudeEventMessage {
   system?: ClaudeEventSystem; // Kind "system".
   userInput?: ClaudeEventUserInput; // Kind "userInput".
   todo?: ClaudeEventTodo; // Kind "todo".
+  diffStat?: ClaudeEventDiffStat; // Kind "diffStat".
 }
 /**
  * ClaudeEventInit is emitted once at the start of a Claude session. Unlike the
@@ -446,6 +462,12 @@ export interface ClaudeTodoItem {
 export interface ClaudeEventTodo {
   toolUseID: string;
   todos: ClaudeTodoItem[];
+}
+/**
+ * ClaudeEventDiffStat is emitted when the relay reports updated diff statistics.
+ */
+export interface ClaudeEventDiffStat {
+  diffStat?: DiffStat;
 }
 
 //////////

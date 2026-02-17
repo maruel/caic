@@ -176,6 +176,16 @@ type RawMessage struct {
 // Type implements Message.
 func (m *RawMessage) Type() string { return m.MessageType }
 
+// DiffStatMessage is emitted periodically by the relay's diff watcher thread
+// with the current in-container git diff stats.
+type DiffStatMessage struct {
+	MessageType string   `json:"type"`
+	DiffStat    DiffStat `json:"diff_stat"`
+}
+
+// Type implements Message.
+func (m *DiffStatMessage) Type() string { return "caic_diff_stat" }
+
 // MetaMessage is written as the first line of a JSONL log file. It captures
 // task-level metadata so logs can be reloaded on restart.
 type MetaMessage struct {

@@ -368,6 +368,34 @@ func TestConvertResult(t *testing.T) {
 	}
 }
 
+func TestConvertDiffStat(t *testing.T) {
+	tt := newToolTimingTracker()
+	msg := &agent.DiffStatMessage{
+		MessageType: "caic_diff_stat",
+		DiffStat: agent.DiffStat{
+			{Path: "main.go", Added: 10, Deleted: 3},
+			{Path: "img.png", Binary: true},
+		},
+	}
+	events := tt.convertMessage(msg, time.Now())
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	ev := events[0]
+	if ev.Kind != dto.ClaudeEventKindDiffStat {
+		t.Errorf("kind = %q, want %q", ev.Kind, dto.ClaudeEventKindDiffStat)
+	}
+	if ev.DiffStat == nil {
+		t.Fatal("diffStat payload is nil")
+	}
+	if len(ev.DiffStat.DiffStat) != 2 {
+		t.Fatalf("diffStat files = %d, want 2", len(ev.DiffStat.DiffStat))
+	}
+	if ev.DiffStat.DiffStat[0].Path != "main.go" {
+		t.Errorf("path = %q, want %q", ev.DiffStat.DiffStat[0].Path, "main.go")
+	}
+}
+
 func TestExtractToolError(t *testing.T) {
 	raw := json.RawMessage(`{"content":[{"type":"text","text":"command not found"}],"is_error":true}`)
 	err := extractToolError(raw)

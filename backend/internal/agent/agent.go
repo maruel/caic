@@ -261,6 +261,12 @@ func ParseMessage(line []byte) (Message, error) {
 			return nil, err
 		}
 		return &m, nil
+	case "caic_diff_stat":
+		var m DiffStatMessage
+		if err := json.Unmarshal(line, &m); err != nil {
+			return nil, err
+		}
+		return &m, nil
 	default:
 		// tool_progress, etc. — pass through as raw.
 		return &RawMessage{MessageType: envelope.Type, Raw: append([]byte(nil), line...)}, nil

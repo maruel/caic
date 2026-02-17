@@ -290,6 +290,29 @@ func TestParseMessage(t *testing.T) {
 			t.Errorf("delta should be nil for message_start")
 		}
 	})
+	t.Run("DiffStat", func(t *testing.T) {
+		line := `{"type":"caic_diff_stat","diff_stat":[{"path":"main.go","added":10,"deleted":3},{"path":"img.png","added":0,"deleted":0,"binary":true}]}`
+		msg, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		m, ok := msg.(*DiffStatMessage)
+		if !ok {
+			t.Fatalf("got %T, want *DiffStatMessage", msg)
+		}
+		if m.Type() != "caic_diff_stat" {
+			t.Errorf("type = %q, want %q", m.Type(), "caic_diff_stat")
+		}
+		if len(m.DiffStat) != 2 {
+			t.Fatalf("diff_stat len = %d, want 2", len(m.DiffStat))
+		}
+		if m.DiffStat[0].Path != "main.go" || m.DiffStat[0].Added != 10 || m.DiffStat[0].Deleted != 3 {
+			t.Errorf("diff_stat[0] = %+v", m.DiffStat[0])
+		}
+		if !m.DiffStat[1].Binary {
+			t.Errorf("diff_stat[1].binary = false, want true")
+		}
+	})
 	t.Run("RawFallback", func(t *testing.T) {
 		line := `{"type":"tool_progress","data":"some progress"}`
 		msg, err := ParseMessage([]byte(line))

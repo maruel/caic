@@ -138,6 +138,13 @@ func ParseMessage(line []byte) (agent.Message, error) {
 		}
 		return msg, nil
 
+	case "caic_diff_stat":
+		var m agent.DiffStatMessage
+		if err := json.Unmarshal(line, &m); err != nil {
+			return nil, err
+		}
+		return &m, nil
+
 	default:
 		return &agent.RawMessage{MessageType: rec.Type, Raw: append([]byte(nil), line...)}, nil
 	}

@@ -88,6 +88,12 @@ func (gt *genericToolTimingTracker) convertMessage(msg agent.Message, now time.T
 			}}
 		}
 		return nil
+	case *agent.DiffStatMessage:
+		return []dto.EventMessage{{
+			Kind:     dto.EventKindDiffStat,
+			Ts:       ts,
+			DiffStat: &dto.EventDiffStat{DiffStat: toDTODiffStat(m.DiffStat)},
+		}}
 	default:
 		return nil
 	}

@@ -1156,6 +1156,8 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 		if e.result.Err != nil {
 			j.Error = e.result.Err.Error()
 		}
+	} else {
+		j.DiffStat = toDTODiffStat(e.task.LiveDiffStat())
 	}
 	return j
 }

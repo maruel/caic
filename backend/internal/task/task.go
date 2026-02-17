@@ -103,6 +103,7 @@ type Task struct {
 	liveNumTurns   int
 	liveDurationMs int64
 	liveUsage      agent.Usage
+	liveDiffStat   agent.DiffStat // Updated by DiffStatMessage from relay.
 }
 
 // setState updates the state and records the transition time. The caller must
@@ -125,6 +126,13 @@ func (t *Task) LiveStats() (costUSD float64, numTurns int, durationMs int64, usa
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.liveCostUSD, t.liveNumTurns, t.liveDurationMs, t.liveUsage
+}
+
+// LiveDiffStat returns the latest diff stat from the relay's periodic polling.
+func (t *Task) LiveDiffStat() agent.DiffStat {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.liveDiffStat
 }
 
 // Messages returns a copy of all received agent messages.
@@ -163,6 +171,13 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	for _, m := range msgs {
 		if am, ok := m.(*agent.AssistantMessage); ok {
 			t.trackPlanState(am)
+		}
+	}
+	// Restore live diff stat from the last DiffStatMessage.
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if ds, ok := msgs[i].(*agent.DiffStatMessage); ok {
+			t.liveDiffStat = ds.DiffStat
+			break
 		}
 	}
 	// Restore live stats: cost/turns/duration are cumulative in the last
@@ -209,6 +224,10 @@ func (t *Task) addMessage(m agent.Message) {
 	// Capture plan file path from Write tool_use targeting .claude/plans/.
 	if am, ok := m.(*agent.AssistantMessage); ok {
 		t.trackPlanState(am)
+	}
+	// Update live diff stat from relay polling.
+	if ds, ok := m.(*agent.DiffStatMessage); ok {
+		t.liveDiffStat = ds.DiffStat
 	}
 	// Transition to waiting/asking when a result arrives while running.
 	if rm, ok := m.(*agent.ResultMessage); ok {

@@ -38,6 +38,7 @@ const (
 	EventKindSystem     EventKind = "system"
 	EventKindUserInput  EventKind = "userInput"
 	EventKindTodo       EventKind = "todo"
+	EventKindDiffStat   EventKind = "diffStat"
 )
 
 // EventMessage is a single SSE event in the backend-neutral stream
@@ -56,6 +57,7 @@ type EventMessage struct {
 	System     *EventSystem     `json:"system,omitempty"`
 	UserInput  *EventUserInput  `json:"userInput,omitempty"`
 	Todo       *EventTodo       `json:"todo,omitempty"`
+	DiffStat   *EventDiffStat   `json:"diffStat,omitempty"`
 }
 
 // EventInit is emitted once at the start of a session. It includes a Harness
@@ -159,6 +161,11 @@ type EventTodo struct {
 	Todos     []TodoItem `json:"todos"`
 }
 
+// EventDiffStat is emitted when the relay reports updated diff statistics.
+type EventDiffStat struct {
+	DiffStat DiffStat `json:"diffStat,omitzero"`
+}
+
 // ClaudeEventKind identifies the type of SSE event in the Claude-specific raw
 // stream. Values are identical to EventKind; a separate type alias is used so
 // that future backends can diverge if needed.
@@ -177,6 +184,7 @@ const (
 	ClaudeEventKindSystem     ClaudeEventKind = "system"
 	ClaudeEventKindUserInput  ClaudeEventKind = "userInput"
 	ClaudeEventKindTodo       ClaudeEventKind = "todo"
+	ClaudeEventKindDiffStat   ClaudeEventKind = "diffStat"
 )
 
 // ClaudeEventMessage is a single SSE event in the Claude Code raw stream
@@ -200,6 +208,7 @@ type ClaudeEventMessage struct {
 	System     *ClaudeEventSystem     `json:"system,omitempty"`     // Kind "system".
 	UserInput  *ClaudeEventUserInput  `json:"userInput,omitempty"`  // Kind "userInput".
 	Todo       *ClaudeEventTodo       `json:"todo,omitempty"`       // Kind "todo".
+	DiffStat   *ClaudeEventDiffStat   `json:"diffStat,omitempty"`   // Kind "diffStat".
 }
 
 // ClaudeEventInit is emitted once at the start of a Claude session. Unlike the
@@ -300,4 +309,9 @@ type ClaudeTodoItem struct {
 type ClaudeEventTodo struct {
 	ToolUseID string           `json:"toolUseID"`
 	Todos     []ClaudeTodoItem `json:"todos"`
+}
+
+// ClaudeEventDiffStat is emitted when the relay reports updated diff statistics.
+type ClaudeEventDiffStat struct {
+	DiffStat DiffStat `json:"diffStat,omitzero"`
 }
