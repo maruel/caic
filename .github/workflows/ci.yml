@@ -5,6 +5,8 @@ on:
     branches: [main]
 permissions:
   contents: read
+env:
+  CGO_ENABLED: "0"
 
 jobs:
   ci:
@@ -17,7 +19,39 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-action
-      - uses: ./.github/actions/test-action
+      - uses: actions/setup-go@v6
         with:
-          codecov-token: ${{ secrets.CODECOV_TOKEN }}
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Lint (Go)
+        if: runner.os == 'Linux'
+        run: make lint-go
+      - name: Lint (Frontend)
+        if: runner.os == 'Linux'
+        run: make lint-frontend
+      - name: Lint (Binaries)
+        if: runner.os == 'Linux'
+        run: make lint-binaries
+      - run: make build
+      - name: Test
+        if: runner.os != 'Linux'
+        run: make test
+      - name: Coverage
+        if: runner.os == 'Linux'
+        run: make coverage
+      - name: End-to-end tests
+        if: runner.os == 'Linux'
+        run: make e2e
+      - name: Upload Coverage
+        if: runner.os == 'Linux'
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.out
