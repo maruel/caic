@@ -153,31 +153,48 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Ser
 	s.mdClient = mdClient
 	backend := &mdBackend{client: mdClient}
 
-	for _, abs := range absPaths {
-		rel, err := filepath.Rel(absRoot, abs)
-		if err != nil {
-			rel = filepath.Base(abs)
-		}
-		branch, err := gitutil.DefaultBranch(ctx, abs)
-		if err != nil {
-			slog.Warn("skipping repo, cannot determine default branch", "path", abs, "err", err)
+	type repoResult struct {
+		info   repoInfo
+		runner *task.Runner
+	}
+	results := make([]repoResult, len(absPaths))
+	var wg sync.WaitGroup
+	for i, abs := range absPaths {
+		wg.Go(func() {
+			rel, err := filepath.Rel(absRoot, abs)
+			if err != nil {
+				rel = filepath.Base(abs)
+			}
+			branch, err := gitutil.DefaultBranch(ctx, abs)
+			if err != nil {
+				slog.Warn("skipping repo, cannot determine default branch", "path", abs, "err", err)
+				return
+			}
+			repoURL := gitutil.RemoteToHTTPS(gitutil.RemoteOriginURL(ctx, abs))
+			runner := &task.Runner{
+				BaseBranch: branch,
+				Dir:        abs,
+				MaxTurns:   maxTurns,
+				LogDir:     logDir,
+				Container:  backend,
+			}
+			if err := runner.Init(ctx); err != nil {
+				slog.Warn("failed to init runner nextID", "path", abs, "err", err)
+			}
+			results[i] = repoResult{
+				info:   repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch, RepoURL: repoURL},
+				runner: runner,
+			}
+			slog.Info("discovered repo", "path", rel, "branch", branch)
+		})
+	}
+	wg.Wait()
+	for _, r := range results {
+		if r.runner == nil {
 			continue
 		}
-		repoURL := gitutil.RemoteToHTTPS(gitutil.RemoteOriginURL(ctx, abs))
-		ri := repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch, RepoURL: repoURL}
-		s.repos = append(s.repos, ri)
-		runner := &task.Runner{
-			BaseBranch: branch,
-			Dir:        abs,
-			MaxTurns:   maxTurns,
-			LogDir:     logDir,
-			Container:  backend,
-		}
-		if err := runner.Init(ctx); err != nil {
-			slog.Warn("failed to init runner nextID", "path", abs, "err", err)
-		}
-		s.runners[rel] = runner
-		slog.Info("discovered repo", "path", rel, "branch", branch)
+		s.repos = append(s.repos, r.info)
+		s.runners[r.info.RelPath] = r.runner
 	}
 
 	if len(s.repos) == 0 {
