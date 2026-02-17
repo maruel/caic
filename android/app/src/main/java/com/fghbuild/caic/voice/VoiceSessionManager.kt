@@ -205,7 +205,7 @@ class VoiceSessionManager @Inject constructor(
         webSocket?.close(WS_CLOSE_NORMAL, "User disconnected")
         webSocket = null
         functionHandlers = null
-        _state.value = VoiceState()
+        _state.value = VoiceState()  // clears transcripts too
     }
 
     fun injectText(text: String) {
@@ -260,6 +260,8 @@ class VoiceSessionManager @Inject constructor(
                     }
                 )
             ),
+            inputAudioTranscription = AudioTranscriptionConfig(),
+            outputAudioTranscription = AudioTranscriptionConfig(),
         )
         return json.encodeToString(BidiGenerateContentSetup.serializer(), setup)
             .wrapTopLevel("setup")
@@ -382,8 +384,19 @@ class VoiceSessionManager @Inject constructor(
                 _state.update { it.copy(speaking = true) }
             }
         }
+        content.inputTranscription?.text?.let { text ->
+            _state.update { it.copy(transcript = it.transcript.upsertLast(TranscriptSpeaker.USER, text)) }
+        }
+        content.outputTranscription?.text?.let { text ->
+            _state.update { it.copy(transcript = it.transcript.upsertLast(TranscriptSpeaker.ASSISTANT, text)) }
+        }
         if (content.turnComplete == true) {
-            _state.update { it.copy(speaking = false) }
+            _state.update {
+                it.copy(
+                    speaking = false,
+                    transcript = it.transcript.map { e -> e.copy(final = true) },
+                )
+            }
         }
     }
 
@@ -543,6 +556,10 @@ class VoiceSessionManager @Inject constructor(
     }
 }
 
+enum class TranscriptSpeaker { USER, ASSISTANT }
+
+data class TranscriptEntry(val speaker: TranscriptSpeaker, val text: String, val final: Boolean = false)
+
 data class VoiceState(
     val connectStatus: String? = null,
     val connected: Boolean = false,
@@ -551,7 +568,20 @@ data class VoiceState(
     val activeTool: String? = null,
     val error: String? = null,
     val errorId: Long = 0,
+    /** Conversation transcript log; each entry is one speaker turn. */
+    val transcript: List<TranscriptEntry> = emptyList(),
 )
+
+/**
+ * If the last entry in the list has the same speaker, replace its text (partial update).
+ * Otherwise append a new entry.
+ */
+private fun List<TranscriptEntry>.upsertLast(speaker: TranscriptSpeaker, text: String): List<TranscriptEntry> =
+    if (isNotEmpty() && last().speaker == speaker && !last().final) {
+        dropLast(1) + TranscriptEntry(speaker, text)
+    } else {
+        this + TranscriptEntry(speaker, text)
+    }
 
 private fun errorJson(message: String): JsonElement =
     JsonObject(mapOf("error" to JsonPrimitive(message)))

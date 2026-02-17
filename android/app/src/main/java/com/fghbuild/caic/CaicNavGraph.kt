@@ -1,12 +1,13 @@
-// Top-level composable hosting the navigation graph with voice overlay.
+// Top-level composable hosting the navigation graph with voice panel.
 package com.fghbuild.caic
 
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Snackbar
@@ -21,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
@@ -33,7 +33,7 @@ import androidx.navigation.compose.rememberNavController
 import com.fghbuild.caic.navigation.Screen
 import com.fghbuild.caic.ui.settings.SettingsScreen
 import com.fghbuild.caic.ui.tasklist.TaskListScreen
-import com.fghbuild.caic.voice.VoiceOverlay
+import com.fghbuild.caic.voice.VoicePanel
 import com.fghbuild.caic.voice.VoiceViewModel
 import kotlinx.coroutines.launch
 
@@ -96,7 +96,7 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
             }
         }
     }) { padding ->
-        Box(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
@@ -104,6 +104,7 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
             NavHost(
                 navController = navController,
                 startDestination = Screen.TaskList.route,
+                modifier = Modifier.weight(1f),
             ) {
                 composable(Screen.TaskList.route) {
                     TaskListScreen(
@@ -117,7 +118,7 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
                 }
             }
 
-            VoiceOverlay(
+            VoicePanel(
                 voiceState = voiceState,
                 voiceEnabled = settings.voiceEnabled,
                 onConnect = {
@@ -133,7 +134,7 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
                     }
                 },
                 onDisconnect = { voiceViewModel.disconnect() },
-                modifier = Modifier.align(Alignment.BottomCenter),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }

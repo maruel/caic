@@ -6,6 +6,9 @@ import com.caic.sdk.CreateTaskReq
 import com.caic.sdk.InputReq
 import com.caic.sdk.RestartReq
 import com.caic.sdk.SyncReq
+import com.caic.sdk.TaskJSON
+import com.fghbuild.caic.util.formatCost
+import com.fghbuild.caic.util.formatElapsed
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -41,23 +44,14 @@ class FunctionHandlers(private val apiClient: ApiClient) {
 
     private suspend fun handleListTasks(): JsonElement {
         val tasks = apiClient.listTasks()
-        val summaries = tasks.map { t ->
-            JsonObject(
-                mapOf(
-                    "id" to JsonPrimitive(t.id),
-                    "task" to JsonPrimitive(t.task.lines().first()),
-                    "state" to JsonPrimitive(t.state),
-                    "costUSD" to JsonPrimitive(t.costUSD),
-                    "durationMs" to JsonPrimitive(t.durationMs),
-                    "repo" to JsonPrimitive(t.repo),
-                    "harness" to JsonPrimitive(t.harness),
-                )
-            )
+        if (tasks.isEmpty()) {
+            return JsonObject(mapOf("summary" to JsonPrimitive("No tasks running.")))
         }
+        val lines = tasks.joinToString("\n") { t -> taskSummaryLine(t) }
         return JsonObject(
             mapOf(
-                "tasks" to JsonArray(summaries),
                 "count" to JsonPrimitive(tasks.size),
+                "tasks" to JsonPrimitive(lines),
             )
         )
     }
@@ -86,23 +80,23 @@ class FunctionHandlers(private val apiClient: ApiClient) {
     private suspend fun handleGetTaskDetail(args: JsonObject): JsonElement {
         val taskId = args.requireString("task_id")
         val tasks = apiClient.listTasks()
-        val task = tasks.find { it.id == taskId }
+        val t = tasks.find { it.id == taskId }
             ?: return errorResult("Task not found: $taskId")
-        return JsonObject(
-            mapOf(
-                "id" to JsonPrimitive(task.id),
-                "task" to JsonPrimitive(task.task),
-                "state" to JsonPrimitive(task.state),
-                "costUSD" to JsonPrimitive(task.costUSD),
-                "durationMs" to JsonPrimitive(task.durationMs),
-                "repo" to JsonPrimitive(task.repo),
-                "branch" to JsonPrimitive(task.branch),
-                "error" to JsonPrimitive(task.error ?: ""),
-                "result" to JsonPrimitive(task.result ?: ""),
-                "inputTokens" to JsonPrimitive(task.inputTokens),
-                "outputTokens" to JsonPrimitive(task.outputTokens),
-            )
-        )
+        val detail = buildString {
+            appendLine("Prompt: ${t.task.trim()}")
+            appendLine("State: ${t.state}  Elapsed: ${formatElapsed(t.durationMs)}  Cost: ${formatCost(t.costUSD)}")
+            when {
+                t.state == "asking" -> appendLine("Waiting for user input before it can continue.")
+                t.state == "terminated" && !t.result.isNullOrBlank() ->
+                    appendLine("Result: ${t.result}")
+                t.state == "failed" ->
+                    appendLine("Error: ${t.error ?: "unknown"}")
+            }
+            t.diffStat?.takeIf { it.isNotEmpty() }?.let { diff ->
+                append("Changed: ${diff.joinToString(", ") { it.path }}")
+            }
+        }.trim()
+        return JsonObject(mapOf("detail" to JsonPrimitive(detail)))
     }
 
     private suspend fun handleSendMessage(args: JsonObject): JsonElement {
@@ -157,22 +151,19 @@ class FunctionHandlers(private val apiClient: ApiClient) {
 
     private suspend fun handleGetUsage(): JsonElement {
         val usage = apiClient.getUsage()
-        return JsonObject(
-            mapOf(
-                "fiveHour" to JsonObject(
-                    mapOf(
-                        "utilization" to JsonPrimitive(usage.fiveHour.utilization),
-                        "resetsAt" to JsonPrimitive(usage.fiveHour.resetsAt),
-                    )
-                ),
-                "sevenDay" to JsonObject(
-                    mapOf(
-                        "utilization" to JsonPrimitive(usage.sevenDay.utilization),
-                        "resetsAt" to JsonPrimitive(usage.sevenDay.resetsAt),
-                    )
-                ),
-            )
-        )
+        fun pct(v: Double) = "${(v * 100).toInt()}%"
+        val summary = buildString {
+            appendLine("5-hour window: ${pct(usage.fiveHour.utilization)} used, resets ${usage.fiveHour.resetsAt}")
+            append("7-day window: ${pct(usage.sevenDay.utilization)} used, resets ${usage.sevenDay.resetsAt}")
+            if (usage.extraUsage.isEnabled) {
+                appendLine()
+                append(
+                    "Extra usage: ${pct(usage.extraUsage.utilization)} of " +
+                        "\$${usage.extraUsage.monthlyLimit.toInt()} monthly limit used",
+                )
+            }
+        }
+        return JsonObject(mapOf("usage" to JsonPrimitive(summary)))
     }
 
     @Suppress("UnusedPrivateMember")
@@ -198,6 +189,19 @@ class FunctionHandlers(private val apiClient: ApiClient) {
                 ),
             )
         )
+    }
+}
+
+private fun taskSummaryLine(t: TaskJSON): String {
+    val name = t.task.lines().firstOrNull()?.take(40) ?: t.id
+    val base = "[$name] ${t.state} — ${formatElapsed(t.durationMs)}, " +
+        "${formatCost(t.costUSD)}, ${t.harness}, repo: ${t.repo}"
+    return when {
+        t.state == "asking" -> "$base — NEEDS INPUT"
+        t.state == "terminated" && !t.result.isNullOrBlank() ->
+            "$base — Result: ${t.result!!.take(120)}"
+        t.state == "failed" -> "$base — Error: ${t.error ?: "unknown"}"
+        else -> base
     }
 }
 
