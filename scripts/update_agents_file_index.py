@@ -16,6 +16,7 @@ EXTENSIONS = {
     ".cjs": "//",
     ".go": "//",
     ".js": "//",
+    ".kt": "//",
     ".md": "#",
     ".mjs": "//",
     ".py": "#",
@@ -40,6 +41,11 @@ CONFIGS = [
         "exclude_dirs": set(),
     },
     {
+        "root_dir": "android",
+        "target_file": "android/AGENTS.md",
+        "exclude_dirs": set(),
+    },
+    {
         "root_dir": "backend",
         "target_file": "backend/AGENTS.md",
         "exclude_dirs": set(),
@@ -52,7 +58,7 @@ CONFIGS = [
     {
         "root_dir": ".",
         "target_file": "AGENTS.md",
-        "exclude_dirs": {".github", "backend", "frontend"},
+        "exclude_dirs": {".github", "android", "backend", "frontend"},
     },
 ]
 
