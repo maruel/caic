@@ -127,6 +127,15 @@ func (t *Task) Messages() []agent.Message {
 // It also extracts metadata from the last SystemInitMessage, if any, and
 // infers the task state from the trailing messages: a trailing ResultMessage
 // means the agent completed its turn (StateWaiting or StateAsking).
+//
+// State inference rules (applied only for non-terminal states):
+//   - Last message is ResultMessage + last assistant has AskUserQuestion → StateAsking
+//   - Last message is ResultMessage (no ask) → StateWaiting
+//   - Last message is NOT ResultMessage → state unchanged (agent was mid-output)
+//
+// Called during both log loading (loadTerminatedTasks) and container adoption
+// (adoptOne). For adoption, the caller must handle the case where state
+// remains StateRunning with no relay alive — see adoptOne.
 func (t *Task) RestoreMessages(msgs []agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -370,10 +379,22 @@ func (t *Task) Subscribe(ctx context.Context) (history []agent.Message, live <-c
 }
 
 // SendInput sends a user message to the running agent. Returns an error if
-// no session is active.
+// no session is active. If the session has already finished (e.g. relay
+// subprocess exited), it is cleared so the caller gets a clear signal.
 func (t *Task) SendInput(prompt string) error {
 	t.mu.Lock()
 	s := t.session
+	// Detect sessions that finished (e.g. agent process exited while we
+	// were waiting for user input). Clear the stale session so the caller
+	// gets a clear "no active session" error instead of a broken-pipe write.
+	if s != nil {
+		select {
+		case <-s.Done():
+			t.session = nil
+			s = nil
+		default:
+		}
+	}
 	if s != nil {
 		t.setState(StateRunning)
 	}

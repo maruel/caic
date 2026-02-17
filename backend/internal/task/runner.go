@@ -110,9 +110,23 @@ func (r *Runner) Init(ctx context.Context) error {
 	return nil
 }
 
-// Reconnect reattaches to a running relay, or starts a new Claude session
-// resuming the previous conversation if no relay is available. The caller must
-// use SendInput to provide the next prompt after reconnecting.
+// Reconnect reattaches to a running relay, or starts a new agent session
+// resuming the previous conversation if no relay is available.
+//
+// Strategy:
+//  1. Check if the relay daemon is alive (Unix socket exists in container).
+//  2. If alive, attach to the relay. This is the preferred path because it
+//     reconnects to the still-running agent process with zero message loss.
+//  3. If attaching fails (relay died between check and attach), fall back to
+//     starting a new agent session with --resume to continue the conversation.
+//  4. If both fail, revert to StateWaiting so the user can retry or terminate.
+//
+// State transitions:
+//   - Relay attach: keeps StateWaiting/StateAsking if agent already finished its
+//     turn; transitions to StateRunning only if the agent was mid-output.
+//   - --resume fallback: always transitions to StateRunning since a new agent
+//     process is started.
+//   - All-fail: reverts to StateWaiting.
 func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 	r.initDefaults()
 	t.mu.Lock()
@@ -137,7 +151,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		return err
 	}
 
-	// Prefer attaching to a live relay (claude process still running).
+	// Prefer attaching to a live relay (agent process still running).
 	relayAlive, relayErr := agent.IsRelayRunning(ctx, t.Container)
 	if relayErr != nil {
 		slog.Warn("relay check failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", relayErr)
@@ -156,6 +170,8 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 		}
 		session, err = r.backend(t.Harness).AttachRelay(ctx, t.Container, t.RelayOffset, msgCh, logW)
 		if err != nil {
+			// Relay died between the IsRelayRunning check and the attach
+			// attempt. This is a known race; fall back to --resume.
 			slog.Warn("attach relay failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
 			relayAlive = false
 		}
@@ -180,6 +196,8 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 	if err != nil {
 		_ = logW.Close()
 		close(msgCh)
+		// Both attach and --resume failed. Revert to StateWaiting so the
+		// user can try again (restart) or terminate.
 		t.mu.Lock()
 		t.setState(StateWaiting)
 		t.mu.Unlock()
@@ -197,9 +215,16 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) error {
 // Start performs branch/container setup, starts the agent session, and sends
 // the initial prompt.
 //
-// The session is left open for follow-up messages via SendInput.
+// Sequence:
+//  1. Create a new git branch from origin/<BaseBranch>.
+//  2. Start an md container on that branch.
+//  3. Deploy the relay script and launch the agent (claude/gemini) via the
+//     relay daemon. The relay owns the agent's stdin/stdout and persists
+//     across SSH disconnects.
+//  4. Send the initial prompt to the agent.
 //
-// Call Kill to close the session.
+// The session is left open for follow-up messages via SendInput.
+// Call Kill to close the session and destroy the container.
 func (r *Runner) Start(ctx context.Context, t *Task) error {
 	r.initDefaults()
 	if r.Container == nil {
@@ -270,9 +295,18 @@ func (r *Runner) Start(ctx context.Context, t *Task) error {
 }
 
 // Kill terminates the agent session and kills the container. It blocks until
-// t.Done() is signaled, then proceeds. Pull/push must be done separately.
+// t.Done() is signaled (by user calling Terminate), then proceeds with
+// graceful shutdown:
+//  1. Close the agent's stdin so it can emit a final ResultMessage with stats.
+//  2. Wait up to 10s for the agent to exit gracefully.
+//  3. Kill the container to ensure cleanup.
+//  4. If the graceful wait timed out, wait for the session to drain now that
+//     the container is dead and the SSH connection is severed.
+//  5. Write the result trailer to the JSONL log.
+//
+// Pull/push must be done separately before calling Kill.
 func (r *Runner) Kill(ctx context.Context, t *Task) Result {
-	// Wait for user to signal terminate.
+	// Wait for user to signal terminate (or context cancellation during shutdown).
 	select {
 	case <-t.Done():
 	case <-ctx.Done():

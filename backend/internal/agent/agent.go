@@ -55,6 +55,15 @@ type Session struct {
 // NewSession creates a Session from an already-started command. Messages read
 // from stdout are parsed and sent to msgCh. logW receives raw NDJSON lines
 // (may be nil). wire defines the backend's wire protocol.
+//
+// A background goroutine reads stdout until EOF, then waits for the process to
+// exit. The done channel is closed when both are complete. Callers should use
+// Done() to detect session end and Wait() to retrieve the result.
+//
+// Error priority: parse errors take precedence over wait errors, since a
+// parse error indicates corrupted output while the process may still exit 0.
+// If neither parse nor wait errors occur but no ResultMessage was seen, the
+// session reports "agent exited without a result message".
 func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh chan<- Message, logW io.Writer, wire WireFormat) *Session {
 	s := &Session{
 		cmd:   cmd,

@@ -109,6 +109,16 @@ type taskEntry struct {
 
 // New creates a new Server. It discovers repos under rootDir, creates a Runner
 // per repo, and adopts preexisting containers.
+//
+// Startup sequence:
+//  1. Discover git repos under rootDir.
+//  2. Create a Runner per repo with container and agent backends.
+//  3. loadTerminatedTasks: scan JSONL logs to restore the last 10 completed
+//     tasks so they appear in the UI immediately.
+//  4. adoptContainers: discover running md containers and create live task
+//     entries for them. If a container's relay is alive, auto-attach to
+//     resume streaming. Stale terminated entries (from step 3) that match a
+//     live container are replaced.
 func New(ctx context.Context, rootDir string, maxTurns int, logDir string) (*Server, error) {
 	if logDir == "" {
 		return nil, errors.New("logDir is required")
@@ -741,6 +751,13 @@ func (s *Server) loadTerminatedTasks() error {
 
 // adoptContainers discovers preexisting md containers and creates task entries
 // for them so they appear in the UI.
+//
+// Flow:
+//  1. List all running md containers.
+//  2. Load all JSONL logs once (shared across all containers).
+//  3. Map branches from terminated tasks to their IDs so live containers
+//     can replace stale entries.
+//  4. For each container matching a caic repo, call adoptOne concurrently.
 func (s *Server) adoptContainers(ctx context.Context) error {
 	if s.mdClient == nil {
 		return nil
@@ -748,6 +765,15 @@ func (s *Server) adoptContainers(ctx context.Context) error {
 	containers, err := s.mdClient.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list containers: %w", err)
+	}
+
+	// Load all logs once upfront instead of per-container. Each adoptOne
+	// used to call LoadLogs independently, which is O(containers * logFiles).
+	allLogs, err := task.LoadLogs(s.logDir)
+	if err != nil {
+		slog.Warn("failed to load logs for adoption", "err", err)
+		// Non-fatal: adoption can proceed without log data. Tasks will
+		// just lack restored messages/prompt.
 	}
 
 	// Map branches loaded from terminated task logs to their ID in
@@ -773,7 +799,7 @@ func (s *Server) adoptContainers(ctx context.Context) error {
 				continue
 			}
 			wg.Go(func() {
-				if err := s.adoptOne(ctx, ri, runner, c, branch, branchID); err != nil {
+				if err := s.adoptOne(ctx, ri, runner, c, branch, branchID, allLogs); err != nil {
 					mu.Lock()
 					errs = append(errs, err)
 					mu.Unlock()
@@ -786,7 +812,13 @@ func (s *Server) adoptContainers(ctx context.Context) error {
 }
 
 // adoptOne investigates a single container and registers it as a task.
-func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, c *md.Container, branch string, branchID map[string]string) error {
+//
+// It verifies the container has a "caic" label (proving caic started it),
+// restores messages from either the relay output or JSONL logs, checks
+// whether the relay is alive, and registers the task. If the relay is
+// alive, it spawns a background goroutine to reattach. allLogs is the
+// pre-loaded set of JSONL log files (shared across all adoptOne calls).
+func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, c *md.Container, branch string, branchID map[string]string, allLogs []*task.LoadedTask) error {
 	// Only adopt containers that caic started. The caic label is set at
 	// container creation and is the authoritative proof of ownership.
 	labelVal, err := container.LabelValue(ctx, c.Name, "caic")
@@ -802,11 +834,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		return fmt.Errorf("parse caic label %q on %s: %w", labelVal, c.Name, err)
 	}
 
-	// Find the most recent log file for this branch.
-	allLogs, err := task.LoadLogs(s.logDir)
-	if err != nil {
-		return fmt.Errorf("load branch logs for %s: %w", branch, err)
-	}
+	// Find the most recent log file for this branch from the pre-loaded logs.
 	var lt *task.LoadedTask
 	for i := len(allLogs) - 1; i >= 0; i-- {
 		if allLogs[i].Branch == branch {
@@ -878,6 +906,17 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		t.RestoreMessages(lt.Msgs)
 		slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", c.Name, "messages", len(lt.Msgs))
 	}
+
+	// When the relay is dead (agent subprocess already exited) and
+	// RestoreMessages didn't infer a terminal turn (no trailing
+	// ResultMessage), the task would be stuck as "running" with no
+	// session and no way to interact. Transition to StateWaiting so
+	// the user can restart with a new prompt or terminate.
+	if !relayAlive && t.State == task.StateRunning {
+		t.State = task.StateWaiting
+		slog.Info("adopted container with dead relay, marking as waiting", "repo", ri.RelPath, "branch", branch, "container", c.Name)
+	}
+
 	t.InitDoneCh()
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
@@ -893,11 +932,15 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	slog.Info("adopted preexisting container", "repo", ri.RelPath, "container", c.Name, "branch", branch, "relay", relayAlive)
 
 	// If relay is alive, auto-attach in background so messages
-	// resume streaming immediately.
+	// resume streaming immediately. Reconnect handles the relay-died
+	// race by falling back to --resume, and reverts to StateWaiting
+	// if all reconnection strategies fail.
 	if relayAlive {
 		go func() {
 			if err := runner.Reconnect(ctx, t); err != nil {
-				slog.Warn("auto-attach to relay failed", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+				slog.Warn("auto-reconnect failed, task is waiting", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+				// Notify SSE listeners of the state change so the UI updates.
+				s.notifyTaskChange()
 			}
 		}()
 	}

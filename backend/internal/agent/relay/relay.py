@@ -27,7 +27,27 @@ BUF_SIZE = 65536
 
 
 def serve(cmd_args, work_dir):
-    """Start the relay server as a daemon, then attach as the first client."""
+    """Start the relay server as a daemon, then attach as the first client.
+
+    Architecture:
+      Parent process → waits for socket → attach_client() (bridges stdio)
+      Child process (daemon):
+        1. Starts subprocess (claude/gemini) with piped stdin/stdout.
+        2. reader_thread: subprocess stdout → output.jsonl + connected client.
+        3. accept_thread: accepts client connections on Unix socket.
+           - On connect: replays output.jsonl from offset, then forwards live.
+           - client_reader: client stdin → subprocess stdin.
+        4. When subprocess exits:
+           - reader_thread closes output file and disconnects client.
+           - Socket and PID file are cleaned up.
+
+    Failure modes handled:
+      - SSH drops: client disconnects, subprocess keeps running. Next
+        attach reconnects from the offset where the client left off.
+      - Subprocess crash: reader_thread exits, client sees EOF.
+        Socket is cleaned up so IsRelayRunning returns false.
+      - Graceful shutdown: client sends null byte → relay closes proc.stdin.
+    """
     os.makedirs(RELAY_DIR, exist_ok=True)
 
     # Clean up stale socket.
