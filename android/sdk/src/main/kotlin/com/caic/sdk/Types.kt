@@ -26,6 +26,7 @@ object EventKinds {
     const val System: EventKind = "system"
     const val UserInput: EventKind = "userInput"
     const val Todo: EventKind = "todo"
+    const val DiffStat: EventKind = "diffStat"
 }
 
 typealias ClaudeEventKind = EventKind
@@ -38,10 +39,7 @@ object ErrorCodes {
 }
 
 @Serializable
-data class HarnessJSON(
-    val name: String,
-    val models: List<String>,
-)
+data class HarnessJSON(val name: String, val models: List<String>)
 
 @Serializable
 data class ConfigJSON(
@@ -135,10 +133,7 @@ data class SyncResp(
 )
 
 @Serializable
-data class UsageWindow(
-    val utilization: Double,
-    val resetsAt: String,
-)
+data class UsageWindow(val utilization: Double, val resetsAt: String)
 
 @Serializable
 data class ExtraUsage(
@@ -159,7 +154,7 @@ data class UsageResp(
 data class VoiceTokenResp(
     val token: String,
     val expiresAt: String,
-    val ephemeral: Boolean = false,
+    val ephemeral: Boolean,
 )
 
 // Backend-neutral event types
@@ -179,6 +174,7 @@ data class EventMessage(
     val system: EventSystem? = null,
     val userInput: EventUserInput? = null,
     val todo: EventTodo? = null,
+    val diffStat: EventDiffStat? = null,
 )
 
 @Serializable
@@ -189,116 +185,6 @@ data class EventInit(
     val tools: List<String>,
     val cwd: String,
     val harness: String,
-)
-
-// Claude-specific event types
-
-@Serializable
-data class ClaudeEventMessage(
-    val kind: ClaudeEventKind,
-    val ts: Long,
-    val init: ClaudeEventInit? = null,
-    val text: ClaudeEventText? = null,
-    val textDelta: ClaudeEventTextDelta? = null,
-    val toolUse: ClaudeEventToolUse? = null,
-    val toolResult: ClaudeEventToolResult? = null,
-    val ask: ClaudeEventAsk? = null,
-    val usage: ClaudeEventUsage? = null,
-    val result: ClaudeEventResult? = null,
-    val system: ClaudeEventSystem? = null,
-    val userInput: ClaudeEventUserInput? = null,
-    val todo: ClaudeEventTodo? = null,
-)
-
-@Serializable
-data class ClaudeEventInit(
-    val model: String,
-    val agentVersion: String,
-    @SerialName("sessionID") val sessionID: String,
-    val tools: List<String>,
-    val cwd: String,
-)
-
-@Serializable
-data class ClaudeEventText(val text: String)
-
-@Serializable
-data class ClaudeEventTextDelta(val text: String)
-
-@Serializable
-data class ClaudeEventToolUse(
-    @SerialName("toolUseID") val toolUseID: String,
-    val name: String,
-    val input: JsonElement,
-)
-
-@Serializable
-data class ClaudeEventToolResult(
-    @SerialName("toolUseID") val toolUseID: String,
-    val durationMs: Long,
-    val error: String? = null,
-)
-
-@Serializable
-data class ClaudeAskOption(
-    val label: String,
-    val description: String? = null,
-)
-
-@Serializable
-data class ClaudeAskQuestion(
-    val question: String,
-    val header: String? = null,
-    val options: List<ClaudeAskOption>,
-    val multiSelect: Boolean? = null,
-)
-
-@Serializable
-data class ClaudeEventAsk(
-    @SerialName("toolUseID") val toolUseID: String,
-    val questions: List<ClaudeAskQuestion>,
-)
-
-@Serializable
-data class ClaudeEventUsage(
-    val inputTokens: Int,
-    val outputTokens: Int,
-    val cacheCreationInputTokens: Int,
-    val cacheReadInputTokens: Int,
-    val serviceTier: String? = null,
-    val model: String,
-)
-
-@Serializable
-data class ClaudeEventResult(
-    val subtype: String,
-    val isError: Boolean,
-    val result: String,
-    val diffStat: List<DiffFileStat>? = null,
-    @SerialName("totalCostUSD") val totalCostUSD: Double,
-    val durationMs: Long,
-    @SerialName("durationAPIMs") val durationAPIMs: Long,
-    val numTurns: Int,
-    val usage: ClaudeEventUsage,
-)
-
-@Serializable
-data class ClaudeEventSystem(val subtype: String)
-
-@Serializable
-data class ClaudeEventUserInput(val text: String)
-
-@Serializable
-data class ClaudeTodoItem(
-    val content: String,
-    val status: String,
-    val activeForm: String? = null,
-)
-
-@Serializable
-data class ClaudeEventTodo(
-    @SerialName("toolUseID") val toolUseID: String,
-    val todos: List<ClaudeTodoItem>,
 )
 
 @Serializable
@@ -322,10 +208,7 @@ data class EventToolResult(
 )
 
 @Serializable
-data class AskOption(
-    val label: String,
-    val description: String? = null,
-)
+data class AskOption(val label: String, val description: String? = null)
 
 @Serializable
 data class AskQuestion(
@@ -384,13 +267,122 @@ data class EventTodo(
 )
 
 @Serializable
-data class ErrorResponse(
-    val error: ErrorDetails,
-    val details: Map<String, JsonElement>? = null,
+data class EventDiffStat(val diffStat: List<DiffFileStat>? = null)
+
+// Claude-specific event types
+
+@Serializable
+data class ClaudeEventMessage(
+    val kind: ClaudeEventKind,
+    val ts: Long,
+    val init: ClaudeEventInit? = null,
+    val text: ClaudeEventText? = null,
+    val textDelta: ClaudeEventTextDelta? = null,
+    val toolUse: ClaudeEventToolUse? = null,
+    val toolResult: ClaudeEventToolResult? = null,
+    val ask: ClaudeEventAsk? = null,
+    val usage: ClaudeEventUsage? = null,
+    val result: ClaudeEventResult? = null,
+    val system: ClaudeEventSystem? = null,
+    val userInput: ClaudeEventUserInput? = null,
+    val todo: ClaudeEventTodo? = null,
+    val diffStat: ClaudeEventDiffStat? = null,
 )
 
 @Serializable
-data class ErrorDetails(
-    val code: String,
-    val message: String,
+data class ClaudeEventInit(
+    val model: String,
+    val agentVersion: String,
+    @SerialName("sessionID") val sessionID: String,
+    val tools: List<String>,
+    val cwd: String,
 )
+
+@Serializable
+data class ClaudeEventText(val text: String)
+
+@Serializable
+data class ClaudeEventTextDelta(val text: String)
+
+@Serializable
+data class ClaudeEventToolUse(
+    @SerialName("toolUseID") val toolUseID: String,
+    val name: String,
+    val input: JsonElement,
+)
+
+@Serializable
+data class ClaudeEventToolResult(
+    @SerialName("toolUseID") val toolUseID: String,
+    val durationMs: Long,
+    val error: String? = null,
+)
+
+@Serializable
+data class ClaudeAskOption(val label: String, val description: String? = null)
+
+@Serializable
+data class ClaudeAskQuestion(
+    val question: String,
+    val header: String? = null,
+    val options: List<ClaudeAskOption>,
+    val multiSelect: Boolean? = null,
+)
+
+@Serializable
+data class ClaudeEventAsk(
+    @SerialName("toolUseID") val toolUseID: String,
+    val questions: List<ClaudeAskQuestion>,
+)
+
+@Serializable
+data class ClaudeEventUsage(
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val cacheCreationInputTokens: Int,
+    val cacheReadInputTokens: Int,
+    val serviceTier: String? = null,
+    val model: String,
+)
+
+@Serializable
+data class ClaudeEventResult(
+    val subtype: String,
+    val isError: Boolean,
+    val result: String,
+    val diffStat: List<DiffFileStat>? = null,
+    @SerialName("totalCostUSD") val totalCostUSD: Double,
+    val durationMs: Long,
+    @SerialName("durationAPIMs") val durationAPIMs: Long,
+    val numTurns: Int,
+    val usage: ClaudeEventUsage,
+)
+
+@Serializable
+data class ClaudeEventSystem(val subtype: String)
+
+@Serializable
+data class ClaudeEventUserInput(val text: String)
+
+@Serializable
+data class ClaudeTodoItem(
+    val content: String,
+    val status: String,
+    val activeForm: String? = null,
+)
+
+@Serializable
+data class ClaudeEventTodo(
+    @SerialName("toolUseID") val toolUseID: String,
+    val todos: List<ClaudeTodoItem>,
+)
+
+@Serializable
+data class ClaudeEventDiffStat(val diffStat: List<DiffFileStat>? = null)
+
+@Serializable
+data class ErrorResponse(val error: ErrorDetails, val details: Map<String, JsonElement>? = null)
+
+@Serializable
+data class ErrorDetails(val code: String, val message: String)
+

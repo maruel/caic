@@ -3,15 +3,19 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/maruel/caic/backend/internal/server/dto"
+	"github.com/maruel/ksid"
 )
 
 var pathParamRe = regexp.MustCompile(`\{(\w+)\}`)
@@ -168,405 +172,381 @@ func generateKotlin(outDir string) error {
 	return writeKotlinClient(outDir)
 }
 
+// kotlinTypeAlias describes a `typealias X = String` with an optional
+// companion object holding constants.
+type kotlinTypeAlias struct {
+	name      string
+	constants []kotlinConstant
+}
+
+// kotlinConstant is a single `const val Name: Type = "value"` entry.
+type kotlinConstant struct {
+	name  string
+	value string
+}
+
+// kotlinStruct wraps a reflect.Type with an optional section comment that
+// appears before the struct in the generated output.
+type kotlinStruct struct {
+	t       reflect.Type
+	comment string // Emitted as `// comment` before the struct.
+}
+
+// kotlinField holds parsed information about a single struct field for Kotlin
+// code generation.
+type kotlinField struct {
+	jsonName   string // JSON key from the struct tag.
+	ktName     string // Kotlin property name (same as jsonName).
+	ktType     string // Kotlin type (e.g. "String", "List<Foo>").
+	nullable   bool   // Whether the field is T? = null.
+	serialName string // Non-empty when @SerialName annotation is needed.
+}
+
+// Type aliases: typealias + companion object with constants.
+var kotlinAliases = []kotlinTypeAlias{
+	{
+		name: "Harness",
+		constants: []kotlinConstant{
+			{"Claude", string(dto.HarnessClaude)},
+			{"Gemini", string(dto.HarnessGemini)},
+		},
+	},
+	{
+		name: "EventKind",
+		constants: []kotlinConstant{
+			{"Init", string(dto.EventKindInit)},
+			{"Text", string(dto.EventKindText)},
+			{"TextDelta", string(dto.EventKindTextDelta)},
+			{"ToolUse", string(dto.EventKindToolUse)},
+			{"ToolResult", string(dto.EventKindToolResult)},
+			{"Ask", string(dto.EventKindAsk)},
+			{"Usage", string(dto.EventKindUsage)},
+			{"Result", string(dto.EventKindResult)},
+			{"System", string(dto.EventKindSystem)},
+			{"UserInput", string(dto.EventKindUserInput)},
+			{"Todo", string(dto.EventKindTodo)},
+			{"DiffStat", string(dto.EventKindDiffStat)},
+		},
+	},
+}
+
+// Standalone type alias without constants.
+var kotlinStandaloneAliases = []struct {
+	name   string
+	target string
+}{
+	{"ClaudeEventKind", "EventKind"},
+}
+
+// Error code constants.
+var kotlinErrorCodes = []kotlinConstant{
+	{"BadRequest", string(dto.CodeBadRequest)},
+	{"NotFound", string(dto.CodeNotFound)},
+	{"Conflict", string(dto.CodeConflict)},
+	{"InternalError", string(dto.CodeInternalError)},
+}
+
+// Ordered list of structs to generate. Adding a new Go struct requires adding
+// one line here; field definitions are derived automatically via reflect.
+var kotlinStructs = []kotlinStruct{
+	{t: reflect.TypeFor[dto.HarnessJSON]()},
+	{t: reflect.TypeFor[dto.ConfigJSON]()},
+	{t: reflect.TypeFor[dto.RepoJSON]()},
+	{t: reflect.TypeFor[dto.TaskJSON]()},
+	{t: reflect.TypeFor[dto.StatusResp]()},
+	{t: reflect.TypeFor[dto.CreateTaskResp]()},
+	{t: reflect.TypeFor[dto.CreateTaskReq]()},
+	{t: reflect.TypeFor[dto.InputReq]()},
+	{t: reflect.TypeFor[dto.RestartReq]()},
+	{t: reflect.TypeFor[dto.DiffFileStat]()},
+	{t: reflect.TypeFor[dto.SafetyIssue]()},
+	{t: reflect.TypeFor[dto.SyncReq]()},
+	{t: reflect.TypeFor[dto.SyncResp]()},
+	{t: reflect.TypeFor[dto.UsageWindow]()},
+	{t: reflect.TypeFor[dto.ExtraUsage]()},
+	{t: reflect.TypeFor[dto.UsageResp]()},
+	{t: reflect.TypeFor[dto.VoiceTokenResp]()},
+	{t: reflect.TypeFor[dto.EventMessage](), comment: "Backend-neutral event types"},
+	{t: reflect.TypeFor[dto.EventInit]()},
+	{t: reflect.TypeFor[dto.EventText]()},
+	{t: reflect.TypeFor[dto.EventTextDelta]()},
+	{t: reflect.TypeFor[dto.EventToolUse]()},
+	{t: reflect.TypeFor[dto.EventToolResult]()},
+	{t: reflect.TypeFor[dto.AskOption]()},
+	{t: reflect.TypeFor[dto.AskQuestion]()},
+	{t: reflect.TypeFor[dto.EventAsk]()},
+	{t: reflect.TypeFor[dto.EventUsage]()},
+	{t: reflect.TypeFor[dto.EventResult]()},
+	{t: reflect.TypeFor[dto.EventSystem]()},
+	{t: reflect.TypeFor[dto.EventUserInput]()},
+	{t: reflect.TypeFor[dto.TodoItem]()},
+	{t: reflect.TypeFor[dto.EventTodo]()},
+	{t: reflect.TypeFor[dto.EventDiffStat]()},
+	{t: reflect.TypeFor[dto.ClaudeEventMessage](), comment: "Claude-specific event types"},
+	{t: reflect.TypeFor[dto.ClaudeEventInit]()},
+	{t: reflect.TypeFor[dto.ClaudeEventText]()},
+	{t: reflect.TypeFor[dto.ClaudeEventTextDelta]()},
+	{t: reflect.TypeFor[dto.ClaudeEventToolUse]()},
+	{t: reflect.TypeFor[dto.ClaudeEventToolResult]()},
+	{t: reflect.TypeFor[dto.ClaudeAskOption]()},
+	{t: reflect.TypeFor[dto.ClaudeAskQuestion]()},
+	{t: reflect.TypeFor[dto.ClaudeEventAsk]()},
+	{t: reflect.TypeFor[dto.ClaudeEventUsage]()},
+	{t: reflect.TypeFor[dto.ClaudeEventResult]()},
+	{t: reflect.TypeFor[dto.ClaudeEventSystem]()},
+	{t: reflect.TypeFor[dto.ClaudeEventUserInput]()},
+	{t: reflect.TypeFor[dto.ClaudeTodoItem]()},
+	{t: reflect.TypeFor[dto.ClaudeEventTodo]()},
+	{t: reflect.TypeFor[dto.ClaudeEventDiffStat]()},
+	{t: reflect.TypeFor[dto.ErrorResponse]()},
+	{t: reflect.TypeFor[dto.ErrorDetails]()},
+}
+
+// Type identity values for special-case mapping in goTypeToKotlin.
+var (
+	jsonRawMessageType = reflect.TypeFor[json.RawMessage]()
+	ksidIDType         = reflect.TypeFor[ksid.ID]()
+	diffStatType       = reflect.TypeFor[dto.DiffStat]()
+	mapStringAnyType   = reflect.TypeFor[map[string]any]()
+)
+
+// kotlinAliasNames is the set of Go named-string types that map to their
+// Kotlin typealias name rather than "String".
+var kotlinAliasNames = map[reflect.Type]string{
+	reflect.TypeFor[dto.Harness]():         "Harness",
+	reflect.TypeFor[dto.EventKind]():       "EventKind",
+	reflect.TypeFor[dto.ClaudeEventKind](): "ClaudeEventKind",
+}
+
+// kotlinPlural returns the plural object name for a type alias.
+var kotlinPluralOverrides = map[string]string{
+	"Harness": "Harnesses",
+}
+
+func kotlinPlural(name string) string {
+	if p, ok := kotlinPluralOverrides[name]; ok {
+		return p
+	}
+	return name + "s"
+}
+
+// goTypeToKotlin maps a Go reflect.Type to its Kotlin type string.
+func goTypeToKotlin(t reflect.Type) string {
+	// Unwrap pointer — nullability is handled by the caller.
+	if t.Kind() == reflect.Ptr {
+		t = t.Elem()
+	}
+
+	// Special cases.
+	switch t {
+	case jsonRawMessageType:
+		return "JsonElement"
+	case ksidIDType:
+		return "String"
+	case diffStatType:
+		return "List<DiffFileStat>"
+	case mapStringAnyType:
+		return "Map<String, JsonElement>"
+	}
+
+	// Named string aliases (Harness, EventKind, ClaudeEventKind).
+	if name, ok := kotlinAliasNames[t]; ok {
+		return name
+	}
+
+	switch t.Kind() {
+	case reflect.String:
+		return "String"
+	case reflect.Int:
+		return "Int"
+	case reflect.Int64:
+		return "Long"
+	case reflect.Float64:
+		return "Double"
+	case reflect.Bool:
+		return "Boolean"
+	case reflect.Slice:
+		return "List<" + goTypeToKotlin(t.Elem()) + ">"
+	case reflect.Struct:
+		return t.Name()
+	default:
+		return t.Name()
+	}
+}
+
+// parseStructFields extracts kotlinField entries from a reflect.Type.
+func parseStructFields(t reflect.Type) []kotlinField {
+	fields := make([]kotlinField, 0, t.NumField())
+	for i := range t.NumField() {
+		sf := t.Field(i)
+		if !sf.IsExported() {
+			continue
+		}
+		tag := sf.Tag.Get("json")
+		if tag == "-" {
+			continue
+		}
+		jsonName, opts := parseJSONTag(tag)
+		if jsonName == "" {
+			jsonName = sf.Name
+		}
+		omit := opts.contains("omitempty") || opts.contains("omitzero")
+
+		ft := sf.Type
+		isPtr := ft.Kind() == reflect.Ptr
+
+		ktType := goTypeToKotlin(ft)
+		nullable := isPtr || (omit && !isPtr)
+
+		sn := ""
+		if needsSerialName(jsonName) {
+			sn = jsonName
+		}
+
+		fields = append(fields, kotlinField{
+			jsonName:   jsonName,
+			ktName:     jsonName,
+			ktType:     ktType,
+			nullable:   nullable,
+			serialName: sn,
+		})
+	}
+	return fields
+}
+
+// needsSerialName returns true when the JSON name contains a run of two or
+// more consecutive uppercase ASCII letters (e.g. "repoURL", "sessionID",
+// "costUSD", "durationAPIMs"). Kotlin properties use these names as-is, but
+// kotlinx.serialization would mangle them without an explicit @SerialName.
+func needsSerialName(name string) bool {
+	consecutive := 0
+	for _, r := range name {
+		if unicode.IsUpper(r) {
+			consecutive++
+			if consecutive >= 2 {
+				return true
+			}
+		} else {
+			consecutive = 0
+		}
+	}
+	return false
+}
+
+// emitKotlinStruct writes a @Serializable data class to b.
+func emitKotlinStruct(b *strings.Builder, t reflect.Type) {
+	fields := parseStructFields(t)
+	name := t.Name()
+
+	// Compact single-line form for structs with ≤2 fields and no @SerialName.
+	if len(fields) <= 2 && !fieldsNeedAnnotation(fields) {
+		b.WriteString("@Serializable\n")
+		fmt.Fprintf(b, "data class %s(", name)
+		for i := range fields {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			writeFieldDecl(b, &fields[i])
+		}
+		b.WriteString(")\n")
+		return
+	}
+
+	b.WriteString("@Serializable\n")
+	fmt.Fprintf(b, "data class %s(\n", name)
+	for i := range fields {
+		f := &fields[i]
+		b.WriteString("    ")
+		if f.serialName != "" {
+			fmt.Fprintf(b, "@SerialName(%q) ", f.serialName)
+		}
+		writeFieldDecl(b, f)
+		b.WriteString(",\n")
+	}
+	b.WriteString(")\n")
+}
+
+// writeFieldDecl writes a single "val name: Type" (with optional "? = null").
+func writeFieldDecl(b *strings.Builder, f *kotlinField) {
+	if f.nullable {
+		fmt.Fprintf(b, "val %s: %s? = null", f.ktName, f.ktType)
+	} else {
+		fmt.Fprintf(b, "val %s: %s", f.ktName, f.ktType)
+	}
+}
+
+// fieldsNeedAnnotation returns true if any field requires @SerialName.
+func fieldsNeedAnnotation(fields []kotlinField) bool {
+	for _, f := range fields {
+		if f.serialName != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// parseJSONTag splits a json struct tag value into name and options.
+func parseJSONTag(tag string) (string, jsonTagOptions) {
+	if name, rest, ok := strings.Cut(tag, ","); ok {
+		return name, jsonTagOptions(rest)
+	}
+	return tag, ""
+}
+
+type jsonTagOptions string
+
+func (o jsonTagOptions) contains(opt string) bool {
+	s := string(o)
+	for s != "" {
+		var name string
+		name, s, _ = strings.Cut(s, ",")
+		if name == opt {
+			return true
+		}
+	}
+	return false
+}
+
 func writeKotlinTypes(outDir string) error {
-	const content = `// Code generated by gen-api-client. DO NOT EDIT.
-package com.caic.sdk
+	var b strings.Builder
+	b.WriteString("// Code generated by gen-api-client. DO NOT EDIT.\n")
+	b.WriteString("package com.caic.sdk\n\n")
+	b.WriteString("import kotlinx.serialization.SerialName\n")
+	b.WriteString("import kotlinx.serialization.Serializable\n")
+	b.WriteString("import kotlinx.serialization.json.JsonElement\n\n")
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
+	// Type aliases with companion objects.
+	for _, a := range kotlinAliases {
+		fmt.Fprintf(&b, "typealias %s = String\n\n", a.name)
+		fmt.Fprintf(&b, "object %s {\n", kotlinPlural(a.name))
+		for _, c := range a.constants {
+			fmt.Fprintf(&b, "    const val %s: %s = %q\n", c.name, a.name, c.value)
+		}
+		b.WriteString("}\n\n")
+	}
 
-typealias Harness = String
+	// Standalone type aliases.
+	for _, a := range kotlinStandaloneAliases {
+		fmt.Fprintf(&b, "typealias %s = %s\n\n", a.name, a.target)
+	}
 
-object Harnesses {
-    const val Claude: Harness = "claude"
-    const val Gemini: Harness = "gemini"
-}
+	// Error codes.
+	b.WriteString("object ErrorCodes {\n")
+	for _, c := range kotlinErrorCodes {
+		fmt.Fprintf(&b, "    const val %s = %q\n", c.name, c.value)
+	}
+	b.WriteString("}\n\n")
 
-typealias EventKind = String
+	// Structs.
+	for _, ks := range kotlinStructs {
+		if ks.comment != "" {
+			fmt.Fprintf(&b, "// %s\n\n", ks.comment)
+		}
+		emitKotlinStruct(&b, ks.t)
+		b.WriteString("\n")
+	}
 
-object EventKinds {
-    const val Init: EventKind = "init"
-    const val Text: EventKind = "text"
-    const val TextDelta: EventKind = "textDelta"
-    const val ToolUse: EventKind = "toolUse"
-    const val ToolResult: EventKind = "toolResult"
-    const val Ask: EventKind = "ask"
-    const val Usage: EventKind = "usage"
-    const val Result: EventKind = "result"
-    const val System: EventKind = "system"
-    const val UserInput: EventKind = "userInput"
-    const val Todo: EventKind = "todo"
-}
-
-typealias ClaudeEventKind = EventKind
-
-object ErrorCodes {
-    const val BadRequest = "BAD_REQUEST"
-    const val NotFound = "NOT_FOUND"
-    const val Conflict = "CONFLICT"
-    const val InternalError = "INTERNAL_ERROR"
-}
-
-@Serializable
-data class HarnessJSON(
-    val name: String,
-    val models: List<String>,
-)
-
-@Serializable
-data class ConfigJSON(
-    val tailscaleAvailable: Boolean,
-    val usbAvailable: Boolean,
-    val displayAvailable: Boolean,
-)
-
-@Serializable
-data class RepoJSON(
-    val path: String,
-    val baseBranch: String,
-    @SerialName("repoURL") val repoURL: String? = null,
-)
-
-@Serializable
-data class TaskJSON(
-    val id: String,
-    val task: String,
-    val repo: String,
-    @SerialName("repoURL") val repoURL: String? = null,
-    val branch: String,
-    val container: String,
-    val state: String,
-    val stateUpdatedAt: Double,
-    val diffStat: List<DiffFileStat>? = null,
-    @SerialName("costUSD") val costUSD: Double,
-    val durationMs: Long,
-    val numTurns: Int,
-    val inputTokens: Int,
-    val outputTokens: Int,
-    val cacheCreationInputTokens: Int,
-    val cacheReadInputTokens: Int,
-    val error: String? = null,
-    val result: String? = null,
-    val harness: Harness,
-    val model: String? = null,
-    val agentVersion: String? = null,
-    @SerialName("sessionID") val sessionID: String? = null,
-    val containerUptimeMs: Long? = null,
-    val inPlanMode: Boolean? = null,
-)
-
-@Serializable
-data class StatusResp(val status: String)
-
-@Serializable
-data class CreateTaskResp(val status: String, val id: String)
-
-@Serializable
-data class CreateTaskReq(
-    val prompt: String,
-    val repo: String,
-    val model: String? = null,
-    val harness: Harness,
-    val image: String? = null,
-    val tailscale: Boolean? = null,
-    val usb: Boolean? = null,
-    val display: Boolean? = null,
-)
-
-@Serializable
-data class InputReq(val prompt: String)
-
-@Serializable
-data class RestartReq(val prompt: String)
-
-@Serializable
-data class DiffFileStat(
-    val path: String,
-    val added: Int,
-    val deleted: Int,
-    val binary: Boolean? = null,
-)
-
-@Serializable
-data class SafetyIssue(
-    val file: String,
-    val kind: String,
-    val detail: String,
-)
-
-@Serializable
-data class SyncReq(val force: Boolean? = null)
-
-@Serializable
-data class SyncResp(
-    val status: String,
-    val diffStat: List<DiffFileStat>? = null,
-    val safetyIssues: List<SafetyIssue>? = null,
-)
-
-@Serializable
-data class UsageWindow(
-    val utilization: Double,
-    val resetsAt: String,
-)
-
-@Serializable
-data class ExtraUsage(
-    val isEnabled: Boolean,
-    val monthlyLimit: Double,
-    val usedCredits: Double,
-    val utilization: Double,
-)
-
-@Serializable
-data class UsageResp(
-    val fiveHour: UsageWindow,
-    val sevenDay: UsageWindow,
-    val extraUsage: ExtraUsage,
-)
-
-@Serializable
-data class VoiceTokenResp(
-    val token: String,
-    val expiresAt: String,
-    val ephemeral: Boolean = false,
-)
-
-// Backend-neutral event types
-
-@Serializable
-data class EventMessage(
-    val kind: EventKind,
-    val ts: Long,
-    val init: EventInit? = null,
-    val text: EventText? = null,
-    val textDelta: EventTextDelta? = null,
-    val toolUse: EventToolUse? = null,
-    val toolResult: EventToolResult? = null,
-    val ask: EventAsk? = null,
-    val usage: EventUsage? = null,
-    val result: EventResult? = null,
-    val system: EventSystem? = null,
-    val userInput: EventUserInput? = null,
-    val todo: EventTodo? = null,
-)
-
-@Serializable
-data class EventInit(
-    val model: String,
-    val agentVersion: String,
-    @SerialName("sessionID") val sessionID: String,
-    val tools: List<String>,
-    val cwd: String,
-    val harness: String,
-)
-
-// Claude-specific event types
-
-@Serializable
-data class ClaudeEventMessage(
-    val kind: ClaudeEventKind,
-    val ts: Long,
-    val init: ClaudeEventInit? = null,
-    val text: ClaudeEventText? = null,
-    val textDelta: ClaudeEventTextDelta? = null,
-    val toolUse: ClaudeEventToolUse? = null,
-    val toolResult: ClaudeEventToolResult? = null,
-    val ask: ClaudeEventAsk? = null,
-    val usage: ClaudeEventUsage? = null,
-    val result: ClaudeEventResult? = null,
-    val system: ClaudeEventSystem? = null,
-    val userInput: ClaudeEventUserInput? = null,
-    val todo: ClaudeEventTodo? = null,
-)
-
-@Serializable
-data class ClaudeEventInit(
-    val model: String,
-    val agentVersion: String,
-    @SerialName("sessionID") val sessionID: String,
-    val tools: List<String>,
-    val cwd: String,
-)
-
-@Serializable
-data class ClaudeEventText(val text: String)
-
-@Serializable
-data class ClaudeEventTextDelta(val text: String)
-
-@Serializable
-data class ClaudeEventToolUse(
-    @SerialName("toolUseID") val toolUseID: String,
-    val name: String,
-    val input: JsonElement,
-)
-
-@Serializable
-data class ClaudeEventToolResult(
-    @SerialName("toolUseID") val toolUseID: String,
-    val durationMs: Long,
-    val error: String? = null,
-)
-
-@Serializable
-data class ClaudeAskOption(
-    val label: String,
-    val description: String? = null,
-)
-
-@Serializable
-data class ClaudeAskQuestion(
-    val question: String,
-    val header: String? = null,
-    val options: List<ClaudeAskOption>,
-    val multiSelect: Boolean? = null,
-)
-
-@Serializable
-data class ClaudeEventAsk(
-    @SerialName("toolUseID") val toolUseID: String,
-    val questions: List<ClaudeAskQuestion>,
-)
-
-@Serializable
-data class ClaudeEventUsage(
-    val inputTokens: Int,
-    val outputTokens: Int,
-    val cacheCreationInputTokens: Int,
-    val cacheReadInputTokens: Int,
-    val serviceTier: String? = null,
-    val model: String,
-)
-
-@Serializable
-data class ClaudeEventResult(
-    val subtype: String,
-    val isError: Boolean,
-    val result: String,
-    val diffStat: List<DiffFileStat>? = null,
-    @SerialName("totalCostUSD") val totalCostUSD: Double,
-    val durationMs: Long,
-    @SerialName("durationAPIMs") val durationAPIMs: Long,
-    val numTurns: Int,
-    val usage: ClaudeEventUsage,
-)
-
-@Serializable
-data class ClaudeEventSystem(val subtype: String)
-
-@Serializable
-data class ClaudeEventUserInput(val text: String)
-
-@Serializable
-data class ClaudeTodoItem(
-    val content: String,
-    val status: String,
-    val activeForm: String? = null,
-)
-
-@Serializable
-data class ClaudeEventTodo(
-    @SerialName("toolUseID") val toolUseID: String,
-    val todos: List<ClaudeTodoItem>,
-)
-
-@Serializable
-data class EventText(val text: String)
-
-@Serializable
-data class EventTextDelta(val text: String)
-
-@Serializable
-data class EventToolUse(
-    @SerialName("toolUseID") val toolUseID: String,
-    val name: String,
-    val input: JsonElement,
-)
-
-@Serializable
-data class EventToolResult(
-    @SerialName("toolUseID") val toolUseID: String,
-    val durationMs: Long,
-    val error: String? = null,
-)
-
-@Serializable
-data class AskOption(
-    val label: String,
-    val description: String? = null,
-)
-
-@Serializable
-data class AskQuestion(
-    val question: String,
-    val header: String? = null,
-    val options: List<AskOption>,
-    val multiSelect: Boolean? = null,
-)
-
-@Serializable
-data class EventAsk(
-    @SerialName("toolUseID") val toolUseID: String,
-    val questions: List<AskQuestion>,
-)
-
-@Serializable
-data class EventUsage(
-    val inputTokens: Int,
-    val outputTokens: Int,
-    val cacheCreationInputTokens: Int,
-    val cacheReadInputTokens: Int,
-    val serviceTier: String? = null,
-    val model: String,
-)
-
-@Serializable
-data class EventResult(
-    val subtype: String,
-    val isError: Boolean,
-    val result: String,
-    val diffStat: List<DiffFileStat>? = null,
-    @SerialName("totalCostUSD") val totalCostUSD: Double,
-    val durationMs: Long,
-    @SerialName("durationAPIMs") val durationAPIMs: Long,
-    val numTurns: Int,
-    val usage: EventUsage,
-)
-
-@Serializable
-data class EventSystem(val subtype: String)
-
-@Serializable
-data class EventUserInput(val text: String)
-
-@Serializable
-data class TodoItem(
-    val content: String,
-    val status: String,
-    val activeForm: String? = null,
-)
-
-@Serializable
-data class EventTodo(
-    @SerialName("toolUseID") val toolUseID: String,
-    val todos: List<TodoItem>,
-)
-
-@Serializable
-data class ErrorResponse(
-    val error: ErrorDetails,
-    val details: Map<String, JsonElement>? = null,
-)
-
-@Serializable
-data class ErrorDetails(
-    val code: String,
-    val message: String,
-)
-`
-	return os.WriteFile(filepath.Join(outDir, "Types.kt"), []byte(content), 0o600)
+	return os.WriteFile(filepath.Join(outDir, "Types.kt"), []byte(b.String()), 0o600)
 }
 
 func writeKotlinClient(outDir string) error {
