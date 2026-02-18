@@ -69,7 +69,7 @@ export default function TaskView(props: Props) {
   const [safetyIssues, setSafetyIssues] = createSignal<SafetyIssue[]>([]);
 
   // Auto-scroll: keep scrolled to bottom unless the user scrolled up.
-  let messageAreaRef: HTMLDivElement | undefined;
+  let messageAreaRef: HTMLDivElement | undefined; // eslint-disable-line no-unassigned-vars -- assigned by SolidJS ref
   let userScrolledUp = false;
 
   function isNearBottom(el: HTMLElement): boolean {
