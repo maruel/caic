@@ -48,7 +48,11 @@ export default function TodoPanel(props: { messages: ClaudeEventMessage[] }) {
     if (allDone()) detailsOpenState.set(DETAILS_KEY, false);
   });
 
-  const isOpen = () => detailsOpenState.get(DETAILS_KEY) ?? true;
+  const completedCount = createMemo(
+    () => todos().filter((item) => item.status === "completed").length,
+  );
+
+  const isOpen = () => detailsOpenState.get(DETAILS_KEY) ?? false;
 
   return (
     <Show when={todos().length > 0}>
@@ -57,7 +61,12 @@ export default function TodoPanel(props: { messages: ClaudeEventMessage[] }) {
         open={isOpen()}
         onToggle={(e) => detailsOpenState.set(DETAILS_KEY, e.currentTarget.open)}
       >
-        <summary class={styles.heading}>Todos</summary>
+        <summary class={styles.heading}>
+          Todos{" "}
+          <span class={styles.count}>
+            {completedCount()}/{todos().length}
+          </span>
+        </summary>
         <For each={todos()}>
           {(item) => (
             <div class={`${styles.item} ${statusClass(item.status)}`}>
