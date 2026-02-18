@@ -10,6 +10,9 @@ import Button from "./Button";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import UsageBadges from "./UsageBadges";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
+import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
+import DisplayIcon from "@material-symbols/svg-400/outlined/desktop_windows.svg?solid";
+import TailscaleIcon from "./tailscale.svg?solid";
 import styles from "./App.module.css";
 
 /** Max slug length in the URL (characters after the "+"). */
@@ -317,41 +320,41 @@ export default function App() {
           type="text"
           value={selectedImage()}
           onInput={(e) => setSelectedImage(e.currentTarget.value)}
-          placeholder="Custom image (optional)"
+          placeholder="Docker image (optional)"
           disabled={submitting()}
           class={styles.imageInput}
         />
         <Show when={tailscaleAvailable()}>
-          <label class={styles.checkboxLabel}>
+          <label class={styles.checkboxLabel} title="Enable Tailscale networking">
             <input
               type="checkbox"
               checked={tailscaleEnabled()}
               onChange={(e) => setTailscaleEnabled(e.currentTarget.checked)}
               disabled={submitting()}
             />
-            Tailscale
+            <TailscaleIcon width="1.2em" height="1.2em" />
           </label>
         </Show>
         <Show when={usbAvailable()}>
-          <label class={styles.checkboxLabel}>
+          <label class={styles.checkboxLabel} title="Enable USB passthrough">
             <input
               type="checkbox"
               checked={usbEnabled()}
               onChange={(e) => setUSBEnabled(e.currentTarget.checked)}
               disabled={submitting()}
             />
-            USB
+            <USBIcon width="1.2em" height="1.2em" />
           </label>
         </Show>
         <Show when={displayAvailable()}>
-          <label class={styles.checkboxLabel}>
+          <label class={styles.checkboxLabel} title="Enable virtual display">
             <input
               type="checkbox"
               checked={displayEnabled()}
               onChange={(e) => setDisplayEnabled(e.currentTarget.checked)}
               disabled={submitting()}
             />
-            Display
+            <DisplayIcon width="1.2em" height="1.2em" />
           </label>
         </Show>
         <div class={styles.promptRow}>

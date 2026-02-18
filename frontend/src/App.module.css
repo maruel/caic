@@ -45,6 +45,7 @@
 
 .submitForm {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.5rem;
   margin-bottom: 1rem;
   align-items: flex-start;
@@ -113,10 +114,11 @@
 
 .promptRow {
   display: flex;
-  flex: 1;
+  flex-basis: 100%;
   gap: 0.5rem;
   align-items: center;
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .promptInput {
@@ -184,7 +186,6 @@
   }
 
   .submitForm {
-    flex-wrap: wrap;
     max-height: none;
     overflow: visible;
   }
@@ -195,11 +196,6 @@
     box-sizing: border-box;
     flex: 1 1 auto;
     min-width: 0;
-  }
-
-  .promptRow {
-    flex-basis: 100%;
-    box-sizing: border-box;
   }
 
   .promptInput {
