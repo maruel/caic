@@ -590,13 +590,9 @@ class ApiClient(baseURL: String) {
     private val json = Json { ignoreUnknownKeys = true }
     private val jsonMediaType = "application/json".toMediaType()
 
-    private suspend inline fun <reified T> request(method: String, path: String, body: Any? = null): T {
+    private suspend inline fun <reified T> request(method: String, path: String, body: String? = null): T {
         val url = "$baseURL$path"
-        val requestBody = if (body != null) {
-            json.encodeToString(body).toRequestBody(jsonMediaType)
-        } else {
-            null
-        }
+        val requestBody = body?.toRequestBody(jsonMediaType)
         val request = Request.Builder()
             .url(url)
             .method(method, requestBody)
@@ -744,7 +740,7 @@ func writeKotlinJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
 
 	sig := strings.Join(args, ", ")
 	if r.ReqType != "" {
-		fmt.Fprintf(b, "    suspend fun %s(%s): %s = request(%q, %s, req)\n", r.Name, sig, respType, r.Method, ktPath)
+		fmt.Fprintf(b, "    suspend fun %s(%s): %s = request(%q, %s, json.encodeToString(req))\n", r.Name, sig, respType, r.Method, ktPath)
 	} else {
 		fmt.Fprintf(b, "    suspend fun %s(%s): %s = request(%q, %s)\n", r.Name, sig, respType, r.Method, ktPath)
 	}

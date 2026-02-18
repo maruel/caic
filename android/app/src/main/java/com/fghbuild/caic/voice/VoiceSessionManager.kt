@@ -12,6 +12,7 @@ import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import android.os.Handler
 import android.os.Looper
 import android.net.Uri
@@ -24,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +45,7 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -57,15 +60,15 @@ private const val PLAYBACK_SAMPLE_RATE = 24000
 private const val AUDIO_BUFFER_SIZE = 4096
 private const val WS_CLOSE_NORMAL = 1000
 private const val MODEL_NAME = "models/gemini-2.5-flash-native-audio-preview-12-2025"
-/** Internal AudioRecord buffer = 4x minimum to absorb scheduling jitter. */
-private const val RECORD_BUFFER_MULTIPLIER = 4
+/** Poll interval (ms) when mic is paused during model playback. */
+private const val PAUSE_POLL_MS = 20L
 
 @Singleton
 class VoiceSessionManager @Inject constructor(
-    @ApplicationContext context: Context,
+    @ApplicationContext private val appContext: Context,
     private val settingsRepository: SettingsRepository,
 ) {
-    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val json = Json { ignoreUnknownKeys = true }
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -82,6 +85,10 @@ class VoiceSessionManager @Inject constructor(
     val state: StateFlow<VoiceState> = _state.asStateFlow()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+
+    /** Single-threaded dispatcher for AudioTrack.write() — serializes writes and prevents
+     *  concurrent access that can SIGSEGV in native AudioTrack code. */
+    private val playbackDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
     var onSetActiveTask: ((String) -> Unit)? = null
 
@@ -248,9 +255,6 @@ class VoiceSessionManager @Inject constructor(
                 ),
             ),
             realtimeInputConfig = RealtimeInputConfig(
-                automaticActivityDetection = AutomaticActivityDetection(
-                    startOfSpeechSensitivity = StartSensitivity.HIGH,
-                ),
                 activityHandling = ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
             ),
             systemInstruction = Content(
@@ -388,6 +392,9 @@ class VoiceSessionManager @Inject constructor(
             val inlineData = part.inlineData
             if (inlineData != null) {
                 val pcmBytes = Base64.decode(inlineData.data, Base64.NO_WRAP)
+                // Pause mic while model speaks so speaker output doesn't feed back
+                // into the recording as garbled input. AEC alone is not reliable.
+                pauseRecording()
                 playAudio(pcmBytes)
                 _state.update { it.copy(speaking = true) }
             }
@@ -398,7 +405,14 @@ class VoiceSessionManager @Inject constructor(
         content.outputTranscription?.text?.let { text ->
             _state.update { it.copy(transcript = it.transcript.appendChunk(TranscriptSpeaker.ASSISTANT, text)) }
         }
+        if (content.interrupted == true) {
+            // User barged in — resume mic immediately.
+            resumeRecording()
+            _state.update { it.copy(speaking = false) }
+        }
         if (content.turnComplete == true) {
+            // Model finished speaking — resume mic so user can reply.
+            resumeRecording()
             _state.update {
                 it.copy(
                     speaking = false,
@@ -414,6 +428,16 @@ class VoiceSessionManager @Inject constructor(
             _state.update { it.copy(activeTool = fc.name) }
             val result = functionHandlers?.handle(fc.name, fc.args) ?: errorJson("No handler")
             _state.update { it.copy(activeTool = null) }
+            // Surface tool errors in the transcript so they're visible in the UI.
+            val errorMsg = (result as? JsonObject)?.get("error")?.jsonPrimitive?.content
+            if (errorMsg != null) {
+                Log.e(TAG, "Tool ${fc.name} failed: $errorMsg")
+                _state.update {
+                    it.copy(transcript = it.transcript + TranscriptEntry(
+                        TranscriptSpeaker.ASSISTANT, "[${fc.name}] $errorMsg", final = true,
+                    ))
+                }
+            }
 
             val response = if (scheduling != null && result is JsonObject) {
                 JsonObject(result.toMutableMap().apply {
@@ -433,43 +457,43 @@ class VoiceSessionManager @Inject constructor(
 
     @SuppressLint("MissingPermission")
     private fun setupAudioRecord() {
-        val minBuf = AudioRecord.getMinBufferSize(
+        val bufferSize = AudioRecord.getMinBufferSize(
             RECORD_SAMPLE_RATE,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
-        // Use 4x minimum to absorb scheduling jitter and prevent overruns.
-        val bufferSize = (minBuf * RECORD_BUFFER_MULTIPLIER).coerceAtLeast(AUDIO_BUFFER_SIZE)
-        Log.i(TAG, "AudioRecord buffer: min=$minBuf actual=$bufferSize")
+        Log.i(TAG, "AudioRecord buffer: $bufferSize")
+        // Match Firebase AI SDK: VOICE_COMMUNICATION + AcousticEchoCanceler.
         audioRecord = AudioRecord.Builder()
-            .setAudioSource(MediaRecorder.AudioSource.MIC)
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_COMMUNICATION)
             .setAudioFormat(
                 AudioFormat.Builder()
-                    .setSampleRate(RECORD_SAMPLE_RATE)
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(RECORD_SAMPLE_RATE)
                     .setChannelMask(AudioFormat.CHANNEL_IN_MONO)
                     .build()
             )
             .setBufferSizeInBytes(bufferSize)
             .build()
+        audioRecord?.let { rec ->
+            if (AcousticEchoCanceler.isAvailable()) {
+                AcousticEchoCanceler.create(rec.audioSessionId)?.enabled = true
+            }
+            Log.i(TAG, "AudioRecord: rate=${rec.sampleRate} state=${rec.state}")
+        }
     }
 
     private fun setupAudioTrack() {
-        val minBuf = AudioTrack.getMinBufferSize(
+        val bufferSize = AudioTrack.getMinBufferSize(
             PLAYBACK_SAMPLE_RATE,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         )
-        val bufferSize = (minBuf * RECORD_BUFFER_MULTIPLIER).coerceAtLeast(AUDIO_BUFFER_SIZE)
-        val usage = if (audioManager.communicationDevice != null) {
-            AudioAttributes.USAGE_VOICE_COMMUNICATION
-        } else {
-            AudioAttributes.USAGE_ASSISTANT
-        }
+        // Match Firebase AI SDK: USAGE_MEDIA (not VOICE_COMMUNICATION).
         audioTrack = AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
-                    .setUsage(usage)
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
                     .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                     .build()
             )
@@ -512,9 +536,6 @@ class VoiceSessionManager @Inject constructor(
     private fun applyCommunicationDevice(deviceId: Int) {
         val info = audioManager.availableCommunicationDevices.firstOrNull { it.id == deviceId }
             ?: return
-        if (info.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO) {
-            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        }
         audioManager.setCommunicationDevice(info)
     }
 
@@ -537,11 +558,7 @@ class VoiceSessionManager @Inject constructor(
     }
 
     private fun clearCommunicationDevice() {
-        // Only reset mode if we actually changed it (i.e. BT SCO was active).
-        if (audioManager.mode == AudioManager.MODE_IN_COMMUNICATION) {
-            audioManager.clearCommunicationDevice()
-            audioManager.mode = AudioManager.MODE_NORMAL
-        }
+        audioManager.clearCommunicationDevice()
     }
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: recording failures must not crash.
@@ -550,36 +567,57 @@ class VoiceSessionManager @Inject constructor(
         recordingJob = scope.launch(Dispatchers.IO) {
             val buffer = ByteArray(AUDIO_BUFFER_SIZE)
             while (isActive) {
-                val bytesRead = try {
-                    audioRecord?.read(buffer, 0, buffer.size) ?: return@launch
-                } catch (e: Exception) {
-                    setError(e.message ?: "Audio recording failed")
-                    return@launch
-                }
+                val rec = audioRecord ?: return@launch
+                val bytesRead = readMicChunk(rec, buffer)
+                if (bytesRead < 0) return@launch
                 if (bytesRead > 0) {
                     sendAudioChunk(buffer.copyOf(bytesRead))
-                    // RMS of PCM samples (16-bit LE mono), normalized to 0..1.
-                    val samples = bytesRead / 2
-                    var sumSq = 0.0
-                    for (i in 0 until samples) {
-                        val lo = buffer[i * 2].toInt() and 0xFF
-                        val hi = buffer[i * 2 + 1].toInt()
-                        val sample = (hi shl 8) or lo
-                        sumSq += sample.toDouble() * sample
-                    }
-                    val rms = (Math.sqrt(sumSq / samples) / Short.MAX_VALUE).toFloat()
-                        .coerceIn(0f, 1f)
-                    _state.update { it.copy(micLevel = rms) }
+                    _state.update { it.copy(micLevel = rmsLevel(buffer, bytesRead)) }
                 }
             }
         }
+    }
+
+    /**
+     * Read one chunk from the mic, handling the paused state.
+     * Returns >0 on success, 0 when paused/skipped, -1 on fatal error.
+     */
+    @Suppress("TooGenericExceptionCaught") // Error boundary: recording failures must not crash.
+    private fun readMicChunk(rec: AudioRecord, buffer: ByteArray): Int {
+        // When paused (model speaking), poll instead of reading.
+        if (rec.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+            Thread.sleep(PAUSE_POLL_MS)
+            return 0
+        }
+        return try {
+            rec.read(buffer, 0, buffer.size)
+        } catch (e: IllegalStateException) {
+            Log.w(TAG, "AudioRecord.read() interrupted: ${e.message}")
+            0
+        } catch (e: Exception) {
+            setError(e.message ?: "Audio recording failed")
+            -1
+        }
+    }
+
+    /** RMS of PCM 16-bit LE mono samples, normalized to 0..1. */
+    private fun rmsLevel(buffer: ByteArray, bytesRead: Int): Float {
+        val samples = bytesRead / 2
+        var sumSq = 0.0
+        for (i in 0 until samples) {
+            val lo = buffer[i * 2].toInt() and 0xFF
+            val hi = buffer[i * 2 + 1].toInt()
+            val sample = (hi shl 8) or lo
+            sumSq += sample.toDouble() * sample
+        }
+        return (Math.sqrt(sumSq / samples) / Short.MAX_VALUE).toFloat().coerceIn(0f, 1f)
     }
 
     private fun sendAudioChunk(pcmBytes: ByteArray) {
         val encoded = Base64.encodeToString(pcmBytes, Base64.NO_WRAP)
         val realtimeInput = BidiGenerateContentRealtimeInput(
             audio = Blob(
-                mimeType = "audio/pcm;rate=$RECORD_SAMPLE_RATE",
+                mimeType = "audio/pcm",
                 data = encoded,
             )
         )
@@ -589,12 +627,39 @@ class VoiceSessionManager @Inject constructor(
         )
     }
 
+    /** Pause the microphone to prevent speaker→mic echo feedback. */
+    private fun pauseRecording() {
+        val rec = audioRecord ?: return
+        if (rec.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+            rec.stop()
+        }
+    }
+
+    /** Resume the microphone after model finishes speaking. */
+    private fun resumeRecording() {
+        val rec = audioRecord ?: return
+        if (rec.recordingState == AudioRecord.RECORDSTATE_STOPPED) {
+            rec.startRecording()
+            // Drain any stale audio from the internal buffer so we only send
+            // fresh samples recorded after the model stopped speaking.
+            val drain = ByteArray(AUDIO_BUFFER_SIZE)
+            while (rec.read(drain, 0, drain.size, AudioRecord.READ_NON_BLOCKING) > 0) {
+                // discard
+            }
+        }
+    }
+
     private fun playAudio(pcmBytes: ByteArray) {
         // AudioTrack.write() blocks until the buffer is consumed; run off-main to avoid
-        // back-pressuring the WebSocket message handler.
-        val track = audioTrack ?: return
-        scope.launch(Dispatchers.IO) {
-            track.write(pcmBytes, 0, pcmBytes.size)
+        // back-pressuring the WebSocket message handler. Uses a single-threaded dispatcher
+        // to serialize writes — concurrent writes cause SIGSEGV in native AudioTrack code.
+        scope.launch(playbackDispatcher) {
+            val track = audioTrack ?: return@launch
+            try {
+                track.write(pcmBytes, 0, pcmBytes.size)
+            } catch (_: IllegalStateException) {
+                // AudioTrack was released while write was queued — harmless on disconnect.
+            }
         }
     }
 

@@ -35,13 +35,9 @@ class ApiClient(baseURL: String) {
     private val json = Json { ignoreUnknownKeys = true }
     private val jsonMediaType = "application/json".toMediaType()
 
-    private suspend inline fun <reified T> request(method: String, path: String, body: Any? = null): T {
+    private suspend inline fun <reified T> request(method: String, path: String, body: String? = null): T {
         val url = "$baseURL$path"
-        val requestBody = if (body != null) {
-            json.encodeToString(body).toRequestBody(jsonMediaType)
-        } else {
-            null
-        }
+        val requestBody = body?.toRequestBody(jsonMediaType)
         val request = Request.Builder()
             .url(url)
             .method(method, requestBody)
@@ -86,11 +82,11 @@ class ApiClient(baseURL: String) {
     suspend fun listHarnesses(): List<HarnessJSON> = request("GET", "/api/v1/harnesses")
     suspend fun listRepos(): List<RepoJSON> = request("GET", "/api/v1/repos")
     suspend fun listTasks(): List<TaskJSON> = request("GET", "/api/v1/tasks")
-    suspend fun createTask(req: CreateTaskReq): CreateTaskResp = request("POST", "/api/v1/tasks", req)
-    suspend fun sendInput(id: String, req: InputReq): StatusResp = request("POST", "/api/v1/tasks/$id/input", req)
-    suspend fun restartTask(id: String, req: RestartReq): StatusResp = request("POST", "/api/v1/tasks/$id/restart", req)
+    suspend fun createTask(req: CreateTaskReq): CreateTaskResp = request("POST", "/api/v1/tasks", json.encodeToString(req))
+    suspend fun sendInput(id: String, req: InputReq): StatusResp = request("POST", "/api/v1/tasks/$id/input", json.encodeToString(req))
+    suspend fun restartTask(id: String, req: RestartReq): StatusResp = request("POST", "/api/v1/tasks/$id/restart", json.encodeToString(req))
     suspend fun terminateTask(id: String): StatusResp = request("POST", "/api/v1/tasks/$id/terminate")
-    suspend fun syncTask(id: String, req: SyncReq): SyncResp = request("POST", "/api/v1/tasks/$id/sync", req)
+    suspend fun syncTask(id: String, req: SyncReq): SyncResp = request("POST", "/api/v1/tasks/$id/sync", json.encodeToString(req))
     suspend fun getUsage(): UsageResp = request("GET", "/api/v1/usage")
     suspend fun getVoiceToken(): VoiceTokenResp = request("GET", "/api/v1/voice/token")
 
