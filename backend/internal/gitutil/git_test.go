@@ -267,7 +267,7 @@ func TestPushRef(t *testing.T) {
 	}
 
 	// Push the local branch ref to origin as caic/w0.
-	if err := PushRef(ctx, clone, "caic/w0", "caic/w0"); err != nil {
+	if err := PushRef(ctx, clone, "caic/w0", "caic/w0", false); err != nil {
 		t.Fatal(err)
 	}
 

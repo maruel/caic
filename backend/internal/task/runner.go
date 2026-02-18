@@ -464,7 +464,7 @@ func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, for
 
 	pushCtx, pushCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer pushCancel()
-	if err := gitutil.PushRef(pushCtx, r.Dir, ref, branch); err != nil {
+	if err := gitutil.PushRef(pushCtx, r.Dir, ref, branch, true); err != nil {
 		return ds, issues, fmt.Errorf("push to origin: %w", err)
 	}
 	return ds, issues, nil

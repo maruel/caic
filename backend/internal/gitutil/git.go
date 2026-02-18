@@ -154,10 +154,15 @@ func RemoteToHTTPS(raw string) string {
 
 // PushRef pushes a local ref to the origin remote as the given branch.
 // ref can be a remote-tracking ref (e.g. "container/branch"), a branch
-// name, or any valid git ref.
-func PushRef(ctx context.Context, dir, ref, branch string) error {
-	slog.Info("git push", "ref", ref, "branch", branch)
-	cmd := exec.CommandContext(ctx, "git", "push", "origin", ref+":refs/heads/"+branch) //nolint:gosec // ref and branch are from internal git state.
+// name, or any valid git ref. When force is true, --force is passed.
+func PushRef(ctx context.Context, dir, ref, branch string, force bool) error {
+	slog.Info("git push", "ref", ref, "branch", branch, "force", force)
+	args := []string{"push"}
+	if force {
+		args = append(args, "--force")
+	}
+	args = append(args, "origin", ref+":refs/heads/"+branch)
+	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

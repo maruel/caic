@@ -73,7 +73,10 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
             <Show when={props.repoURL} fallback={props.repo}>
               <a class={styles.repoLink} href={props.repoURL} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{props.repo}</a>
             </Show>
-            {props.repo && props.branch ? " · " : ""}{props.branch}
+            {props.repo && props.branch ? " · " : ""}
+            <Show when={props.repoURL?.includes("github.com")} fallback={props.branch}>
+              <a class={styles.repoLink} href={`${props.repoURL}/compare/${props.branch}?expand=1`} target="_blank" rel="noopener" onClick={(e) => e.stopPropagation()}>{props.branch}</a>
+            </Show>
           </span>
           <Show when={props.stateUpdatedAt > 0 && props.state !== "terminated"}>
             <StateDuration stateUpdatedAt={props.stateUpdatedAt} now={props.now} />
