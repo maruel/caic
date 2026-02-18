@@ -55,16 +55,16 @@ go install github.com/maruel/caic/backend/cmd/caic@latest
 
 ### systemd user service
 
-Install the unit file and enable it:
+Install the unit file and env file, then enable the service:
 
 ```bash
-mkdir -p ~/.config/systemd/user
+mkdir -p ~/.config/systemd/user ~/.config/caic
 cp contrib/caic.service ~/.config/systemd/user/
+cp contrib/caic.env ~/.config/caic/caic.env
+# Edit ~/.config/caic/caic.env to set CAIC_HTTP, CAIC_ROOT, and API keys.
 systemctl --user daemon-reload
 systemctl --user enable --now caic
 ```
-
-Edit `~/.config/systemd/user/caic.service` to adjust `-root` and `-http`
 
 View logs:
 

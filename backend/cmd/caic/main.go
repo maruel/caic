@@ -26,14 +26,61 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
+// envDefault returns the value of the named environment variable, or def if unset/empty.
+func envDefault(name, def string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return def
+}
+
+// envInt returns the integer value of the named environment variable, or def if unset/empty/invalid.
+func envInt(name string, def int) int {
+	v := os.Getenv(name)
+	if v == "" {
+		return def
+	}
+	n := 0
+	if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
+		return def
+	}
+	return n
+}
+
 func mainImpl() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 
-	maxTurns := flag.Int("max-turns", 0, "max agentic turns per task (0=unlimited)")
-	addr := flag.String("http", "", "start web UI on this address (e.g. :8080)")
-	root := flag.String("root", "", "parent directory containing git repos")
-	logLevel := flag.String("log-level", "info", "log level (debug, info, warn, error)")
+	flag.Usage = func() {
+		w := flag.CommandLine.Output()
+		_, _ = fmt.Fprintf(w, `Usage: caic [flags]
+
+caic manages multiple coding agents in parallel. Each task runs in an isolated
+container with the agent communicating over SSH.
+
+Flags:
+`)
+		flag.PrintDefaults()
+		_, _ = fmt.Fprintf(w, `
+Environment variables (flags take precedence when set):
+
+  CAIC_HTTP                 HTTP listen address (e.g. :8080)
+  CAIC_ROOT                 Parent directory containing git repos
+  CAIC_MAX_TURNS            Max agentic turns per task (0=unlimited)
+  CAIC_LOG_LEVEL            Log level: debug, info, warn, error (default: info)
+  CAIC_COMMITDESC_PROVIDER  AI provider for commit description generation
+  CAIC_COMMITDESC_MODEL     Model name for commit description generation
+  GEMINI_API_KEY            Gemini API key for the Gemini agent backend
+  TAILSCALE_API_KEY         Tailscale API key for Tailscale integration
+
+See contrib/caic.env for a template with all variables and documentation.
+`)
+	}
+
+	maxTurns := flag.Int("max-turns", envInt("CAIC_MAX_TURNS", 0), "max agentic turns per task (0=unlimited)")
+	addr := flag.String("http", os.Getenv("CAIC_HTTP"), "start web UI on this address (e.g. :8080)")
+	root := flag.String("root", os.Getenv("CAIC_ROOT"), "parent directory containing git repos")
+	logLevel := flag.String("log-level", envDefault("CAIC_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
 	fakeMode := flag.Bool("fake", false, "use fake container/agent ops (for e2e tests); creates a temp repo when -root is omitted")
 	flag.Parse()
 	if args := flag.Args(); len(args) > 0 {
@@ -45,8 +92,8 @@ func mainImpl() error {
 	cfg := &server.Config{
 		GeminiAPIKey:          os.Getenv("GEMINI_API_KEY"),
 		TailscaleAPIKey:       os.Getenv("TAILSCALE_API_KEY"),
-		CommitDescGenProvider: os.Getenv("ASK_PROVIDER"),
-		CommitDescGenModel:    os.Getenv("ASK_MODEL"),
+		CommitDescGenProvider: os.Getenv("CAIC_COMMITDESC_PROVIDER"),
+		CommitDescGenModel:    os.Getenv("CAIC_COMMITDESC_MODEL"),
 	}
 
 	if key := cfg.GeminiAPIKey; key != "" {
@@ -67,15 +114,16 @@ func mainImpl() error {
 	} else {
 		slog.Warn("TAILSCALE_API_KEY not set")
 	}
+	slog.Info("commit description", "provider", cfg.CommitDescGenProvider, "model", cfg.CommitDescGenModel)
 
 	if *fakeMode {
 		return serveFake(ctx, *addr, *root, cfg)
 	}
 	if *addr == "" {
-		return errors.New("-http is required")
+		return errors.New("HTTP address is required: set -http flag or CAIC_HTTP env var")
 	}
 	if *root == "" {
-		return errors.New("-root is required")
+		return errors.New("root directory is required: set -root flag or CAIC_ROOT env var")
 	}
 
 	logDir := cacheDir()
