@@ -367,7 +367,7 @@ export default function App() {
             disabled={submitting()}
             class={styles.promptInput}
           />
-          <Button type="submit" disabled={submitting() || !prompt().trim() || !selectedRepo()} loading={submitting()} title="Start a new container with this prompt">
+          <Button type="submit" disabled={submitting() || !prompt().trim() || !selectedRepo()} loading={submitting()} title="Start a new container with this prompt" data-testid="submit-task">
             <SendIcon width="1.2em" height="1.2em" />
           </Button>
         </div>
