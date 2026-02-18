@@ -83,7 +83,9 @@ class FunctionHandlers(
         val detail = buildString {
             appendLine("## Task #$num: $shortName")
             appendLine()
-            appendLine("**State:** ${t.state}  **Elapsed:** ${formatElapsed(t.durationMs)}  **Cost:** ${formatCost(t.costUSD)}")
+            append("**State:** ${t.state}  ")
+            append("**Elapsed:** ${formatElapsed(t.durationMs)}  ")
+            appendLine("**Cost:** ${formatCost(t.costUSD)}")
             when {
                 t.state == "asking" -> appendLine("Waiting for user input before it can continue.")
                 t.state == "terminated" && !t.result.isNullOrBlank() ->
