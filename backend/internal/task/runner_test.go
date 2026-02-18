@@ -25,7 +25,7 @@ type testBackend struct {
 
 func (b *testBackend) Harness() agent.Harness { return "test" }
 
-func (b *testBackend) Start(ctx context.Context, _ agent.Options, msgCh chan<- agent.Message, _ io.Writer) (*agent.Session, error) {
+func (b *testBackend) Start(ctx context.Context, _ *agent.Options, msgCh chan<- agent.Message, _ io.Writer) (*agent.Session, error) {
 	b.capturedCtx = ctx
 	cmd := exec.CommandContext(ctx, "cat")
 	stdin, _ := cmd.StdinPipe()

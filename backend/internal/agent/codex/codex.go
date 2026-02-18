@@ -1,11 +1,10 @@
-// Package claude implements agent.Backend for Claude Code.
-package claude
+// Package codex implements agent.Backend for Codex CLI.
+package codex
 
 import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,22 +15,22 @@ import (
 	"github.com/maruel/caic/backend/internal/agent"
 )
 
-// Backend implements agent.Backend for Claude Code.
+// Backend implements agent.Backend for Codex CLI.
 type Backend struct{}
 
 var _ agent.Backend = (*Backend)(nil)
 
-// Wire is the wire format for Claude Code (stream-json over stdin/stdout).
+// Wire is the wire format for Codex CLI (exec --json over stdout).
 var Wire agent.WireFormat = &Backend{}
 
 // Harness returns the harness identifier.
-func (b *Backend) Harness() agent.Harness { return agent.Claude }
+func (b *Backend) Harness() agent.Harness { return agent.Codex }
 
-// Models returns the model aliases supported by Claude Code CLI.
-func (b *Backend) Models() []string { return []string{"opus", "sonnet", "haiku"} }
+// Models returns the model names supported by Codex CLI.
+func (b *Backend) Models() []string { return []string{"o4-mini", "codex-mini-latest"} }
 
-// Start launches a Claude Code process via the relay daemon in the given
-// container. It deploys the relay script and starts claude via serve-attach.
+// Start launches a Codex CLI process via the relay daemon in the given
+// container.
 func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
 	if opts.Dir == "" {
 		return nil, errors.New("opts.Dir is required")
@@ -40,13 +39,13 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 		return nil, err
 	}
 
-	claudeArgs := buildArgs(opts)
+	codexArgs := buildArgs(opts)
 
-	// Build the ssh command: ssh <container> python3 relay.py serve-attach --dir <dir> -- claude ...
-	sshArgs := make([]string, 0, 7+len(claudeArgs))
+	sshArgs := make([]string, 0, 7+len(codexArgs))
 	sshArgs = append(sshArgs, opts.Container, "python3", agent.RelayScriptPath, "serve-attach", "--dir", opts.Dir, "--")
-	sshArgs = append(sshArgs, claudeArgs...)
+	sshArgs = append(sshArgs, codexArgs...)
 
+	slog.Info("codex: launching via relay", "container", opts.Container, "args", codexArgs)
 	cmd := exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // args are not user-controlled.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -62,14 +61,7 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 	}
 
 	log := slog.With("container", opts.Container)
-	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
-	if opts.Prompt != "" {
-		if err := s.Send(opts.Prompt); err != nil {
-			s.Close()
-			return nil, fmt.Errorf("write prompt: %w", err)
-		}
-	}
-	return s, nil
+	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log), nil
 }
 
 // AttachRelay connects to an already-running relay in the container.
@@ -122,60 +114,28 @@ func (b *Backend) ReadRelayOutput(ctx context.Context, container string) (msgs [
 	return msgs, size, scanner.Err()
 }
 
-// ParseMessage decodes a single Claude Code NDJSON line into a typed Message.
+// ParseMessage decodes a single Codex CLI exec --json line into a typed Message.
 func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
-	return agent.ParseMessage(line)
+	return ParseMessage(line)
 }
 
-// userInputMessage is the NDJSON message sent to Claude Code via stdin.
-type userInputMessage struct {
-	Type    string           `json:"type"`
-	Message userInputContent `json:"message"`
+// WritePrompt returns an error because Codex exec mode is non-interactive.
+// It does not read follow-up prompts from stdin.
+func (*Backend) WritePrompt(_ io.Writer, _ string, _ io.Writer) error {
+	return errors.New("codex exec mode does not support follow-up prompts")
 }
 
-type userInputContent struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-}
-
-// WritePrompt writes a single user message in Claude Code's stdin format.
-func (*Backend) WritePrompt(w io.Writer, prompt string, logW io.Writer) error {
-	msg := userInputMessage{
-		Type:    "user",
-		Message: userInputContent{Role: "user", Content: prompt},
-	}
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if _, err := w.Write(data); err != nil {
-		return err
-	}
-	if logW != nil {
-		_, _ = logW.Write(data)
-	}
-	return nil
-}
-
-// buildArgs constructs the Claude Code CLI arguments.
+// buildArgs constructs the Codex CLI arguments.
 func buildArgs(opts *agent.Options) []string {
 	args := []string{
-		"claude", "-p",
-		"--input-format", "stream-json",
-		"--output-format", "stream-json",
-		"--verbose",
-		"--dangerously-skip-permissions",
-		"--include-partial-messages",
-	}
-	if opts.MaxTurns > 0 {
-		args = append(args, "--max-turns", strconv.Itoa(opts.MaxTurns))
+		"codex", "exec", "--json",
+		"--full-auto",
 	}
 	if opts.Model != "" {
-		args = append(args, "--model", opts.Model)
+		args = append(args, "-m", opts.Model)
 	}
-	if opts.ResumeSessionID != "" {
-		args = append(args, "--resume", opts.ResumeSessionID)
+	if opts.Prompt != "" {
+		args = append(args, opts.Prompt)
 	}
 	return args
 }

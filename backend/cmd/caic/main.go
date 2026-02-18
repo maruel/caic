@@ -309,7 +309,7 @@ var _ agent.Backend = (*fakeBackend)(nil)
 
 func (*fakeBackend) Harness() agent.Harness { return "fake" }
 
-func (*fakeBackend) Start(_ context.Context, _ agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
+func (*fakeBackend) Start(_ context.Context, _ *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
 	cmd := exec.Command("python3", "-u", "-c", string(fake.Script)) //nolint:gosec // fake.Script is an embedded constant
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

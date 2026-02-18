@@ -120,6 +120,27 @@ The Gemini CLI backend is implemented in `agent/gemini/`:
 - **Tests** — `eventconv_test.go`, `server_test.go` updated.
 - **Note:** `agent/types.go` `SystemInitMessage.Version` JSON tag remains `"claude_code_version"` because that is Claude Code's wire format. The Gemini backend constructs `SystemInitMessage` directly in Go, so the JSON tag only matters for Claude.
 
+## Completed: Codex CLI Backend (Step 6)
+
+The Codex CLI backend is implemented in `agent/codex/`:
+
+- **`codex.go`** — `Backend` impl: `Start`, `AttachRelay`, `ReadRelayOutput`, `ParseMessage`, `WritePrompt` (returns error — exec mode is non-interactive), `Harness() → "codex"`. Launches via `codex exec --json --full-auto`.
+- **`record.go`** — Typed records for Codex's exec --json NDJSON: `ThreadStartedRecord`, `TurnCompletedRecord`, `TurnFailedRecord`, `ItemRecord` (with `ItemData`). All embed `Overflow` for forward compatibility.
+- **`parse.go`** — `ParseMessage` translates Codex records → `agent.Message`. Two-phase item handling: `item.started` emits tool_use, `item.completed` emits tool result. Item type→tool name mapping (`command_execution`→`Bash`, `file_change`→`Write`/`Edit`, etc.).
+- **`unknown.go`** — `Overflow` type and helpers for forward-compatible JSON parsing.
+- **`parse_test.go`** / **`record_test.go`** — Full test coverage including a full example stream parse.
+- **`task/load.go`** — `parseFnForHarness()` dispatches to `agentcodex.ParseMessage` for Codex logs.
+- **`agent/types.go`** — `Codex Harness = "codex"` constant added.
+- **`dto/types.go`** — `HarnessCodex Harness = "codex"` constant added.
+
+### Key design decisions
+
+- **Non-interactive.** `codex exec` is fire-and-forget. `WritePrompt` returns an error. `SendInput` won't work for Codex tasks.
+- **No session resume.** Codex exec is ephemeral. `ResumeSessionID` is ignored in `buildArgs`.
+- **No cost reporting.** `TotalCostUSD` will be 0. Token counts are available from `turn.completed` usage.
+- **Two-phase items.** `item.started` + `item.completed` for the same item ID. The parser emits a tool_use `AssistantMessage` on `item.started` and a tool result `UserMessage` on `item.completed`.
+- **`item.updated` → RawMessage.** Incremental updates are passed through without interpretation.
+
 ## Risk Assessment
 
 - **Relay compatibility.** The relay.py is process-agnostic (stdin/stdout bridge), so it works with Gemini CLI unchanged.

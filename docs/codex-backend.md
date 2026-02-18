@@ -165,34 +165,37 @@ changes as input.
 
 ## Implementation Checklist
 
-### 1. `agent/types.go`
+All items completed.
 
-Add `Codex Harness = "codex"` constant.
+### 1. `agent/types.go` — Done
 
-### 2. `agent/codex/` package
+Added `Codex Harness = "codex"` constant.
+
+### 2. `agent/codex/` package — Done
 
 | File | Contents |
 |------|----------|
 | `codex.go` | `Backend` struct implementing `agent.Backend`. `Harness() → "codex"`. `buildArgs()` constructs `codex exec --json --full-auto`. `WritePrompt` returns error (exec mode is non-interactive). |
-| `record.go` | `Record` envelope + typed records: `ThreadStartedRecord`, `TurnStartedRecord`, `TurnCompletedRecord`, `TurnFailedRecord`, `ItemRecord`. All embed `Overflow`. |
-| `parse.go` | `ParseMessage(line []byte) (agent.Message, error)`. Two-level dispatch: outer `type` field, then `item.type` for item events. Tool name mapping. |
-| `unknown.go` | Copy from `agent/gemini/unknown.go` (or extract to shared package). |
-| `parse_test.go` | Test cases from the example stream above. |
-| `record_test.go` | Round-trip and unknown-field tests. |
+| `record.go` | `Record` envelope + typed records: `ThreadStartedRecord`, `TurnCompletedRecord`, `TurnFailedRecord`, `ItemRecord` (with `ItemData`). All embed `Overflow`. |
+| `parse.go` | `ParseMessage(line []byte) (agent.Message, error)`. Two-level dispatch: outer `type` field, then `item.type` for item events. |
+| `unknown.go` | `Overflow` infrastructure (same pattern as `agent/gemini/unknown.go`). |
+| `parse_test.go` | 14 test cases including full example stream parse. |
+| `record_test.go` | Record type tests covering all major event types + unknown fields. |
 
-### 3. `task/runner.go`
+### 3. `task/runner.go` — N/A
 
-Register: `agent.Codex: &codex.Backend{}` in `Backends` map.
+Codex backend is registered externally via `Server.SetRunnerOps`, same as
+Gemini. `initDefaults` only sets Claude as a fallback and was not changed.
 
-### 4. `task/load.go`
+### 4. `task/load.go` — Done
 
-Add `case agent.Codex: return agentcodex.ParseMessage` in `parseFnForHarness`.
+Added `case agent.Codex: return agentcodex.ParseMessage` in `parseFnForHarness`.
 
-### 5. `dto/types.go`
+### 5. `dto/types.go` — Done
 
-Add `HarnessCodex Harness = "codex"`.
+Added `HarnessCodex Harness = "codex"`.
 
-### 6. Frontend
+### 6. Frontend — N/A
 
 No changes needed — the harness selector (`GET /api/v1/harnesses`) is dynamic.
 

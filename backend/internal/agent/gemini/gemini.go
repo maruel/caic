@@ -32,7 +32,7 @@ func (b *Backend) Models() []string { return []string{"gemini-2.5-pro", "gemini-
 
 // Start launches a Gemini CLI process via the relay daemon in the given
 // container.
-func (b *Backend) Start(ctx context.Context, opts agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
+func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
 	if opts.Dir == "" {
 		return nil, errors.New("opts.Dir is required")
 	}
@@ -62,7 +62,14 @@ func (b *Backend) Start(ctx context.Context, opts agent.Options, msgCh chan<- ag
 	}
 
 	log := slog.With("container", opts.Container)
-	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log), nil
+	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
+	if opts.Prompt != "" {
+		if err := s.Send(opts.Prompt); err != nil {
+			s.Close()
+			return nil, fmt.Errorf("write prompt: %w", err)
+		}
+	}
+	return s, nil
 }
 
 // AttachRelay connects to an already-running relay in the container.
@@ -139,7 +146,7 @@ func (*Backend) WritePrompt(w io.Writer, prompt string, logW io.Writer) error {
 }
 
 // buildArgs constructs the Gemini CLI arguments.
-func buildArgs(opts agent.Options) []string {
+func buildArgs(opts *agent.Options) []string {
 	args := []string{
 		"gemini", "-p",
 		"--output-format", "stream-json",

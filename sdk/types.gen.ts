@@ -488,6 +488,10 @@ export const HarnessClaude: Harness = "claude";
 /**
  * Supported agent harnesses.
  */
+export const HarnessCodex: Harness = "codex";
+/**
+ * Supported agent harnesses.
+ */
 export const HarnessGemini: Harness = "gemini";
 /**
  * HarnessJSON is the JSON representation of an available harness.

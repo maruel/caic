@@ -13,6 +13,7 @@ type Harness string
 // Supported agent harnesses.
 const (
 	Claude Harness = "claude"
+	Codex  Harness = "codex"
 	Gemini Harness = "gemini"
 )
 

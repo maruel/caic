@@ -192,7 +192,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) (*SessionHandle, error)
 		if maxTurns == 0 {
 			maxTurns = r.MaxTurns
 		}
-		session, err = r.backend(t.Harness).Start(ctx, agent.Options{
+		session, err = r.backend(t.Harness).Start(ctx, &agent.Options{
 			Container:       t.Container,
 			Dir:             r.containerDir(),
 			MaxTurns:        maxTurns,
@@ -264,11 +264,12 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	}
 
 	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "agent", t.Harness, "maxTurns", maxTurns)
-	session, err := r.backend(t.Harness).Start(ctx, agent.Options{
+	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
 		Container: name,
 		Dir:       r.containerDir(),
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
+		Prompt:    t.Prompt,
 	}, msgCh, logW)
 	if err != nil {
 		_ = logW.Close()
@@ -283,12 +284,6 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	t.AttachSession(h)
 
 	t.addMessage(syntheticUserInput(t.Prompt))
-	if err := session.Send(t.Prompt); err != nil {
-		_ = logW.Close()
-		close(msgCh)
-		t.setState(StateFailed)
-		return nil, fmt.Errorf("write prompt: %w", err)
-	}
 	t.setState(StateRunning)
 	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", name)
 	return h, nil
@@ -517,11 +512,12 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) (*S
 		maxTurns = r.MaxTurns
 	}
 	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "agent", t.Harness, "maxTurns", maxTurns)
-	session, err := r.backend(t.Harness).Start(ctx, agent.Options{
+	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
 		Container: t.Container,
 		Dir:       r.containerDir(),
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
+		Prompt:    prompt,
 	}, msgCh, logW)
 	if err != nil {
 		_ = logW.Close()
@@ -532,19 +528,11 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) (*S
 		return nil, fmt.Errorf("start session: %w", err)
 	}
 
-	// 5. Store new handle, send prompt.
+	// 5. Store new handle.
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
 	t.addMessage(syntheticUserInput(prompt))
-	if err := session.Send(prompt); err != nil {
-		_ = logW.Close()
-		close(msgCh)
-		t.mu.Lock()
-		t.setState(StateFailed)
-		t.mu.Unlock()
-		return nil, fmt.Errorf("send prompt: %w", err)
-	}
 
 	t.mu.Lock()
 	t.setState(StateRunning)

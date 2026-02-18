@@ -25,7 +25,7 @@ type stubBackend struct{}
 
 func (stubBackend) Harness() agent.Harness { return "stub" }
 
-func (stubBackend) Start(context.Context, agent.Options, chan<- agent.Message, io.Writer) (*agent.Session, error) {
+func (stubBackend) Start(context.Context, *agent.Options, chan<- agent.Message, io.Writer) (*agent.Session, error) {
 	return nil, errors.New("stub")
 }
 

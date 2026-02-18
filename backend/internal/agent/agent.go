@@ -45,6 +45,7 @@ type Options struct {
 	Dir             string // Working directory inside the container.
 	MaxTurns        int
 	Model           string // Model alias ("opus", "sonnet", "haiku") or full ID. Empty = default.
+	Prompt          string // Initial prompt. Backends deliver it at launch time.
 	ResumeSessionID string
 }
 

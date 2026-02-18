@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
+	agentcodex "github.com/maruel/caic/backend/internal/agent/codex"
 	agentgemini "github.com/maruel/caic/backend/internal/agent/gemini"
 )
 
@@ -173,6 +174,8 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 // parseFnForHarness returns the message parser for the given harness.
 func parseFnForHarness(h agent.Harness) func([]byte) (agent.Message, error) {
 	switch h {
+	case agent.Codex:
+		return agentcodex.ParseMessage
 	case agent.Gemini:
 		return agentgemini.ParseMessage
 	default:

@@ -13,7 +13,7 @@ type Backend interface {
 	// Start launches the agent in the given container. Messages are emitted
 	// to msgCh as normalized agent.Message values. logW receives raw
 	// wire-format lines for debugging/replay.
-	Start(ctx context.Context, opts Options, msgCh chan<- Message, logW io.Writer) (*Session, error)
+	Start(ctx context.Context, opts *Options, msgCh chan<- Message, logW io.Writer) (*Session, error)
 
 	// AttachRelay connects to an already-running relay daemon in the
 	// container. The offset parameter specifies the byte offset into
