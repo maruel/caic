@@ -1,3 +1,6 @@
 <resources>
     <string name="app_name">caic</string>
+    <string name="voice_channel_name">Voice Session</string>
+    <string name="voice_notification_title">Voice session active</string>
+    <string name="voice_notification_text">Listening for voice commands</string>
 </resources>

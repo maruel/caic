@@ -7,6 +7,7 @@ import android.content.Intent
 import android.util.Log
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
+import android.media.AudioFocusRequest
 import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -85,6 +86,7 @@ class VoiceSessionManager @Inject constructor(
     private var functionHandlers: FunctionHandlers? = null
     private var deviceCallback: AudioDeviceCallback? = null
     private var mediaSession: MediaSession? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
 
     private val _state = MutableStateFlow(VoiceState())
     val state: StateFlow<VoiceState> = _state.asStateFlow()
@@ -173,6 +175,8 @@ class VoiceSessionManager @Inject constructor(
     @Suppress("TooGenericExceptionCaught") // Error boundary: surface all failures to UI.
     private fun startAudio() {
         try {
+            requestAudioFocus()
+            VoiceService.start(appContext)
             refreshAvailableDevices()
             registerDeviceCallback()
             setupMediaSession()
@@ -191,6 +195,8 @@ class VoiceSessionManager @Inject constructor(
     /** Release audio resources without throwing. */
     @Suppress("TooGenericExceptionCaught") // Must not throw from cleanup.
     private fun releaseAudio() {
+        abandonAudioFocus()
+        VoiceService.stop(appContext)
         recordingJob?.cancel()
         recordingJob = null
         releaseMediaSession()
@@ -564,6 +570,31 @@ class VoiceSessionManager @Inject constructor(
 
     private fun clearCommunicationDevice() {
         audioManager.clearCommunicationDevice()
+    }
+
+    /** Request exclusive audio focus so music/podcasts pause while the voice session is active. */
+    private fun requestAudioFocus() {
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+            )
+            .setOnAudioFocusChangeListener { focusChange ->
+                if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+                    Log.i(TAG, "Audio focus lost, disconnecting")
+                    disconnect()
+                }
+            }
+            .build()
+        audioFocusRequest = request
+        audioManager.requestAudioFocus(request)
+    }
+
+    private fun abandonAudioFocus() {
+        audioFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        audioFocusRequest = null
     }
 
     /** Create a MediaSession so Bluetooth HFP hang-up events reach us. */
