@@ -87,17 +87,18 @@ type mdBackend struct {
 	askModel    string
 }
 
-func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string, opts task.StartOptions) (string, error) {
+func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string, opts task.StartOptions) (name, tailscaleFQDN string, err error) {
 	slog.Info("md start", "dir", dir, "branch", branch, "tailscale", opts.Tailscale, "usb", opts.USB, "display", opts.Display)
 	image := opts.Image
 	if image == "" {
 		image = md.DefaultBaseImage + ":latest"
 	}
 	c := b.client.Container(dir, branch)
-	if _, err := c.Start(ctx, &md.StartOpts{Quiet: true, BaseImage: image, Labels: labels, USB: opts.USB, Tailscale: opts.Tailscale, Display: opts.Display}); err != nil {
-		return "", err
+	sr, err := c.Start(ctx, &md.StartOpts{Quiet: true, BaseImage: image, Labels: labels, USB: opts.USB, Tailscale: opts.Tailscale, Display: opts.Display})
+	if err != nil {
+		return "", "", err
 	}
-	return c.Name, nil
+	return c.Name, sr.TailscaleFQDN, nil
 }
 
 func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string) (string, error) {
@@ -1018,6 +1019,10 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		State:          task.StateRunning,
 		StateUpdatedAt: stateUpdatedAt,
 		StartedAt:      startedAt,
+		Tailscale:      c.Tailscale,
+		TailscaleFQDN:  c.TailscaleFQDN(ctx),
+		USB:            c.USB,
+		Display:        c.Display,
 	}
 
 	if relayAlive && len(relayMsgs) > 0 {
@@ -1235,6 +1240,18 @@ func (s *Server) repoURL(rel string) string {
 	return ""
 }
 
+// tailscaleURL returns the Tailscale URL for the task, or "true" if enabled
+// but FQDN not yet known, or "" if disabled.
+func tailscaleURL(t *task.Task) string {
+	if t.TailscaleFQDN != "" {
+		return "https://" + t.TailscaleFQDN
+	}
+	if t.Tailscale {
+		return "true"
+	}
+	return ""
+}
+
 func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 	j := dto.TaskJSON{
 		ID:             e.task.ID,
@@ -1250,6 +1267,9 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 		AgentVersion:   e.task.AgentVersion,
 		SessionID:      e.task.SessionID,
 		InPlanMode:     e.task.InPlanMode,
+		Tailscale:      tailscaleURL(e.task),
+		USB:            e.task.USB,
+		Display:        e.task.Display,
 	}
 	if !e.task.StartedAt.IsZero() {
 		j.ContainerUptimeMs = time.Since(e.task.StartedAt).Milliseconds()

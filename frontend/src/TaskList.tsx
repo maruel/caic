@@ -61,6 +61,9 @@ export default function TaskList(props: TaskListProps) {
               containerUptimeMs={t().containerUptimeMs}
               error={t().error}
               inPlanMode={t().inPlanMode}
+              tailscale={t().tailscale}
+              usb={t().usb}
+              display={t().display}
               selected={props.selectedId === t().id}
               now={props.now}
               onClick={() => props.onSelect(t().id)}

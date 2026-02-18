@@ -81,6 +81,9 @@ data class TaskJSON(
     @SerialName("sessionID") val sessionID: String? = null,
     val containerUptimeMs: Long? = null,
     val inPlanMode: Boolean? = null,
+    val tailscale: String? = null,
+    val usb: Boolean? = null,
+    val display: Boolean? = null,
 )
 
 @Serializable

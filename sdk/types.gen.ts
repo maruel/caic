@@ -543,6 +543,9 @@ export interface TaskJSON {
   sessionID?: string;
   containerUptimeMs?: number /* int64 */;
   inPlanMode?: boolean;
+  tailscale?: string; // Tailscale URL (https://fqdn) or "true" if enabled but FQDN unknown.
+  usb?: boolean;
+  display?: boolean;
 }
 /**
  * StatusResp is a common response for mutation endpoints.

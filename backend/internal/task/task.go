@@ -81,6 +81,7 @@ type Task struct {
 	Harness        agent.Harness // Agent harness ("claude", "gemini", etc.).
 	Image          string        // Custom Docker base image; empty means use the default.
 	Tailscale      bool          // Enable Tailscale networking in the container.
+	TailscaleFQDN  string        // Tailscale FQDN assigned to the container (empty if not available).
 	USB            bool          // Enable USB passthrough in the container.
 	Display        bool          // Enable Xvfb display in the container.
 	MaxTurns       int

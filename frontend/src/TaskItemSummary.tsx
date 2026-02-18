@@ -2,6 +2,9 @@
 import { Show } from "solid-js";
 import type { Accessor } from "solid-js";
 import Tooltip from "./Tooltip";
+import TailscaleIcon from "./tailscale.svg?solid";
+import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
+import DisplayIcon from "@material-symbols/svg-400/outlined/desktop_windows.svg?solid";
 import styles from "./TaskItemSummary.module.css";
 
 export interface TaskItemSummaryProps {
@@ -25,6 +28,9 @@ export interface TaskItemSummaryProps {
   containerUptimeMs?: number;
   error?: string;
   inPlanMode?: boolean;
+  tailscale?: string;
+  usb?: boolean;
+  display?: boolean;
   selected: boolean;
   now: Accessor<number>;
   onClick: () => void;
@@ -41,6 +47,18 @@ export default function TaskItemSummary(props: TaskItemSummaryProps) {
       <div class={styles.header}>
         <strong class={styles.title}>{props.task}</strong>
         <span class={styles.stateGroup}>
+          <Show when={props.tailscale} keyed>
+            {(ts) => ts.startsWith("https://")
+              ? <a class={styles.featureIcon} href={ts} target="_blank" rel="noopener" title="Tailscale" onClick={(e) => e.stopPropagation()}><TailscaleIcon width="0.75rem" height="0.75rem" /></a>
+              : <span class={styles.featureIcon} title="Tailscale"><TailscaleIcon width="0.75rem" height="0.75rem" /></span>
+            }
+          </Show>
+          <Show when={props.usb}>
+            <span class={styles.featureIcon} title="USB"><USBIcon width="0.75rem" height="0.75rem" /></span>
+          </Show>
+          <Show when={props.display}>
+            <span class={styles.featureIcon} title="Display"><DisplayIcon width="0.75rem" height="0.75rem" /></span>
+          </Show>
           <Show when={props.inPlanMode}>
             <span class={styles.planBadge} title="Plan mode">P</span>
           </Show>
