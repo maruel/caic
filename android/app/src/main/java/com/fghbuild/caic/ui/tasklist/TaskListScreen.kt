@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -53,6 +54,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -132,10 +138,11 @@ private fun MainContent(
     onNavigateToTask: (String) -> Unit,
     viewModel: TaskListViewModel,
 ) {
+    Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
     LazyColumn(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(padding),
+            .widthIn(max = 840.dp)
+            .fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -167,6 +174,7 @@ private fun MainContent(
         items(items = state.tasks, key = { it.id }) { task ->
             TaskCard(task = task, onClick = { onNavigateToTask(task.id) })
         }
+    }
     }
 }
 
@@ -241,7 +249,15 @@ private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel)
                 value = state.prompt,
                 onValueChange = viewModel::updatePrompt,
                 label = { Text("Prompt") },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .onKeyEvent {
+                        if (it.key == Key.Enter && it.type == KeyEventType.KeyUp &&
+                            hasContent && state.selectedRepo.isNotBlank() && !state.submitting
+                        ) {
+                            viewModel.createTask(); true
+                        } else false
+                    },
                 singleLine = true,
                 enabled = !state.submitting,
             )

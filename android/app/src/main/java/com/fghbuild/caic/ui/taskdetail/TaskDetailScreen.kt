@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -137,7 +138,8 @@ fun TaskDetailScreen(
             )
         },
         bottomBar = {
-            Column {
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
+            Column(modifier = Modifier.widthIn(max = 840.dp)) {
                 state.actionError?.let { error ->
                     Text(
                         text = error,
@@ -163,6 +165,7 @@ fun TaskDetailScreen(
                     },
                     onRemoveImage = viewModel::removeImage,
                 )
+            }
             }
         },
     ) { padding ->
@@ -206,7 +209,8 @@ private fun MessageList(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+    Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+    Column(modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth()) {
         // Todo panel
         if (state.todos.isNotEmpty()) {
             TodoPanel(
@@ -233,5 +237,6 @@ private fun MessageList(
                 }
             }
         }
+    }
     }
 }
