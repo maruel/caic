@@ -522,7 +522,7 @@ class VoiceSessionManager @Inject constructor(
         audioTrack?.play()
     }
 
-    /** Populate available devices list and auto-select BT SCO if present. */
+    /** Populate available devices list and auto-select BT SCO or speaker. */
     private fun refreshAvailableDevices() {
         val devices = audioManager.availableCommunicationDevices.map { info ->
             AudioDevice(id = info.id, type = info.type, name = audioDeviceTypeName(info.type))
@@ -531,8 +531,9 @@ class VoiceSessionManager @Inject constructor(
         val autoSelect = if (currentSelected != null && devices.any { it.id == currentSelected }) {
             currentSelected
         } else {
-            // Auto-select BT SCO if available, preserving legacy behavior.
+            // Auto-select BT SCO if available, otherwise default to speaker.
             devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }?.id
+                ?: devices.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }?.id
         }
         _state.update { it.copy(availableDevices = devices, selectedDeviceId = autoSelect) }
         if (autoSelect != null) {
