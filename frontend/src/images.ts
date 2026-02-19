@@ -7,7 +7,15 @@ const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/we
 export async function fileToImageData(file: File): Promise<APIImageData | null> {
   if (!ALLOWED_TYPES.has(file.type)) return null;
   const buf = await file.arrayBuffer();
-  const data = btoa(String.fromCharCode(...new Uint8Array(buf)));
+  const bytes = new Uint8Array(buf);
+  // Chunk the conversion to avoid blowing the call stack on large files
+  // (mobile photos can be multi-MB; spreading into String.fromCharCode
+  // passes one argument per byte which exceeds stack limits).
+  const chunks: string[] = [];
+  for (let i = 0; i < bytes.length; i += 65536) {
+    chunks.push(String.fromCharCode(...bytes.subarray(i, i + 65536)));
+  }
+  const data = btoa(chunks.join(""));
   return { mediaType: file.type, data };
 }
 

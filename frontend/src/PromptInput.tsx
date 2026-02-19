@@ -57,18 +57,18 @@ export default function PromptInput(props: Props) {
     if (valid.length > 0) props.onImagesChange([...props.images, ...valid]);
   }
 
-  function openFilePicker() {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.multiple = true;
-    input.accept = "image/png,image/jpeg,image/gif,image/webp";
-    input.onchange = async () => {
-      if (!input.files) return;
-      const imgs = await Promise.all(Array.from(input.files).map(fileToImageData));
-      const valid = imgs.filter((i): i is APIImageData => i !== null);
-      if (valid.length > 0) props.onImagesChange([...props.images, ...valid]);
-    };
-    input.click();
+  let fileInputRef!: HTMLInputElement;
+
+  async function handleFileChange() {
+    const files = fileInputRef.files;
+    if (!files?.length) return;
+    // Snapshot and reset synchronously to prevent double-processing when
+    // browsers fire both "change" and "input" for the same selection.
+    const snapshot = Array.from(files);
+    fileInputRef.value = "";
+    const imgs = await Promise.all(snapshot.map(fileToImageData));
+    const valid = imgs.filter((i): i is APIImageData => i !== null);
+    if (valid.length > 0) props.onImagesChange([...props.images, ...valid]);
   }
 
   function removeImage(idx: number) {
@@ -98,7 +98,22 @@ export default function PromptInput(props: Props) {
           data-testid={props["data-testid"]}
         />
         <Show when={props.supportsImages}>
-          <Button type="button" variant="gray" disabled={props.disabled} title="Attach images" onClick={openFilePicker}>
+          <input
+            ref={(el) => {
+              fileInputRef = el;
+              // Chrome Android may not fire "change" on file inputs; listen
+              // to both "change" and "input" via addEventListener so at least
+              // one fires. The guard in handleFileChange (files?.length + value
+              // reset) prevents double-processing on browsers that fire both.
+              el.addEventListener("change", handleFileChange);
+              el.addEventListener("input", handleFileChange);
+            }}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            class={styles.hiddenFileInput}
+          />
+          <Button type="button" variant="gray" disabled={props.disabled} title="Attach images" onClick={() => fileInputRef.click()}>
             <AttachIcon width="1.2em" height="1.2em" />
           </Button>
         </Show>
