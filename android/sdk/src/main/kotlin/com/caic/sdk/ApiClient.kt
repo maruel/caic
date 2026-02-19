@@ -80,9 +80,9 @@ class ApiClient(baseURL: String) {
     }
 
     // JSON endpoints
-    suspend fun getConfig(): Config = request("GET", "/api/v1/config")
-    suspend fun listHarnesses(): List<HarnessInfo> = request("GET", "/api/v1/harnesses")
-    suspend fun listRepos(): List<Repo> = request("GET", "/api/v1/repos")
+    suspend fun getConfig(): Config = request("GET", "/api/v1/server/config")
+    suspend fun listHarnesses(): List<HarnessInfo> = request("GET", "/api/v1/server/harnesses")
+    suspend fun listRepos(): List<Repo> = request("GET", "/api/v1/server/repos")
     suspend fun listTasks(): List<Task> = request("GET", "/api/v1/tasks")
     suspend fun createTask(req: CreateTaskReq): CreateTaskResp = request("POST", "/api/v1/tasks", json.encodeToString(req))
     suspend fun sendInput(id: String, req: InputReq): StatusResp = request("POST", "/api/v1/tasks/$id/input", json.encodeToString(req))
@@ -95,7 +95,8 @@ class ApiClient(baseURL: String) {
     // SSE endpoints
     fun taskRawEvents(id: String): Flow<ClaudeEventMessage> = sseFlow<ClaudeEventMessage>("/api/v1/tasks/$id/raw_events")
     fun taskEvents(id: String): Flow<EventMessage> = sseFlow<EventMessage>("/api/v1/tasks/$id/events")
-    fun globalEvents(): Flow<EventMessage> = sseFlow<EventMessage>("/api/v1/events")
+    fun globalTaskEvents(): Flow<Task> = sseFlow<Task>("/api/v1/server/tasks/events")
+    fun globalUsageEvents(): Flow<UsageResp> = sseFlow<UsageResp>("/api/v1/server/usage/events")
 
     private inline fun <reified T> sseFlow(path: String): Flow<T> = callbackFlow {
         val request = Request.Builder()
@@ -125,7 +126,8 @@ class ApiClient(baseURL: String) {
     // Reconnecting SSE wrappers with exponential backoff.
     fun taskRawEventsReconnecting(id: String): Flow<ClaudeEventMessage> = reconnectingFlow { taskRawEvents(id) }
     fun taskEventsReconnecting(id: String): Flow<EventMessage> = reconnectingFlow { taskEvents(id) }
-    fun globalEventsReconnecting(): Flow<EventMessage> = reconnectingFlow { globalEvents() }
+    fun globalTaskEventsReconnecting(): Flow<Task> = reconnectingFlow { globalTaskEvents() }
+    fun globalUsageEventsReconnecting(): Flow<UsageResp> = reconnectingFlow { globalUsageEvents() }
 
     private fun <T> reconnectingFlow(connect: () -> Flow<T>): Flow<T> = flow {
         var delayMs = 500L

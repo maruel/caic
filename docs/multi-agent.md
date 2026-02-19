@@ -103,7 +103,7 @@ The Gemini CLI backend is implemented in `agent/gemini/`:
 
 ## Completed: Frontend Harness Selector (Step 4)
 
-- **`GET /api/v1/harnesses`** endpoint returns available harnesses from `Runner.Backends`.
+- **`GET /api/v1/server/harnesses`** endpoint returns available harnesses from `Runner.Backends`.
 - **`dto/types.go`** — `HarnessInfo` type with `Name` field.
 - **`dto/routes.go`** — `listHarnesses` route registered.
 - **`App.tsx`** — Fetches harnesses on mount. Shows a harness selector dropdown when 2+ harnesses are available. `createTask` passes `selectedHarness()` instead of hardcoded `"claude"`.

@@ -28,12 +28,6 @@ import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Discriminated union of SSE event types from the global events endpoint. */
-sealed class GlobalEvent {
-    data class Tasks(val tasks: List<Task>) : GlobalEvent()
-    data class Usage(val usage: UsageResp) : GlobalEvent()
-}
-
 /** Per-task SSE event wrapper distinguishing the "ready" sentinel from data events. */
 sealed class TaskSSEEvent {
     data object Ready : TaskSSEEvent()
@@ -69,18 +63,29 @@ class TaskRepository @Inject constructor(
                     _usage.value = null
                     return@collectLatest
                 }
-                try {
-                    globalEventsReconnecting(settings.serverURL).collect { event ->
-                        _connected.value = true
-                        when (event) {
-                            is GlobalEvent.Tasks -> _tasks.value = event.tasks
-                            is GlobalEvent.Usage -> _usage.value = event.usage
+                launch {
+                    try {
+                        taskEventsReconnecting(settings.serverURL).collect { tasks ->
+                            _connected.value = true
+                            _tasks.value = tasks
                         }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        _connected.value = false
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
-                    _connected.value = false
+                }
+                launch {
+                    try {
+                        usageEventsReconnecting(settings.serverURL).collect { usage ->
+                            _connected.value = true
+                            _usage.value = usage
+                        }
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Exception) {
+                        // Usage connection failure is non-critical.
+                    }
                 }
             }
         }
@@ -125,33 +130,26 @@ class TaskRepository @Inject constructor(
         awaitClose { source.cancel() }
     }
 
-    /** Raw SSE flow for the global events endpoint. Emits one [GlobalEvent] per SSE message. */
-    private fun globalEvents(baseURL: String): Flow<GlobalEvent> = callbackFlow {
+    /** SSE flow for the task list events endpoint. */
+    private fun taskListEvents(baseURL: String): Flow<List<Task>> = sseFlow("$baseURL/api/v1/server/tasks/events")
+
+    /** SSE flow for the usage events endpoint. */
+    private fun usageEvents(baseURL: String): Flow<UsageResp> = sseFlow("$baseURL/api/v1/server/usage/events")
+
+    /** Generic SSE flow that deserializes each message event as [T]. */
+    private inline fun <reified T> sseFlow(url: String): Flow<T> = callbackFlow {
         val request = Request.Builder()
-            .url("$baseURL/api/v1/events")
+            .url(url)
             .header("Accept", "text/event-stream")
             .build()
         val factory = EventSources.createFactory(client)
         val source = factory.newEventSource(request, object : EventSourceListener() {
             override fun onEvent(eventSource: EventSource, id: String?, type: String?, data: String) {
-                val event = when (type) {
-                    "tasks" -> {
-                        try {
-                            GlobalEvent.Tasks(json.decodeFromString<List<Task>>(data))
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                    "usage" -> {
-                        try {
-                            GlobalEvent.Usage(json.decodeFromString<UsageResp>(data))
-                        } catch (_: Exception) {
-                            null
-                        }
-                    }
-                    else -> null
+                try {
+                    trySend(json.decodeFromString<T>(data))
+                } catch (_: Exception) {
+                    // Skip malformed events.
                 }
-                event?.let { trySend(it) }
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
@@ -166,11 +164,16 @@ class TaskRepository @Inject constructor(
     }
 
     /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). */
-    private fun globalEventsReconnecting(baseURL: String): Flow<GlobalEvent> = flow {
+    private fun taskEventsReconnecting(baseURL: String): Flow<List<Task>> = reconnectingFlow { taskListEvents(baseURL) }
+
+    /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). */
+    private fun usageEventsReconnecting(baseURL: String): Flow<UsageResp> = reconnectingFlow { usageEvents(baseURL) }
+
+    private fun <T> reconnectingFlow(connect: () -> Flow<T>): Flow<T> = flow {
         var delayMs = 500L
         while (true) {
             try {
-                globalEvents(baseURL).onEach { delayMs = 500L }.collect { emit(it) }
+                connect().onEach { delayMs = 500L }.collect { emit(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {

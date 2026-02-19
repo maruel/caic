@@ -5,14 +5,16 @@ caic API. Mirrors the generated TypeScript SDK (`sdk/api.gen.ts`, `sdk/types.gen
 
 ## Code Generation
 
-Extend `backend/internal/cmd/gen-api-client/main.go` with `--lang=kotlin` to emit
-Kotlin from the same `dto.Routes` and Go structs used for TypeScript.
+`backend/internal/cmd/gen-api-client/main.go` emits Kotlin from the same
+`dto.Routes` and Go structs used for TypeScript.
 
 Output directory: `android/sdk/src/main/kotlin/com/caic/sdk/`
 
 Two generated files:
 - `Types.kt` — data classes, type aliases, constants
-- `ApiClient.kt` — suspend functions for JSON endpoints, `Flow<EventMessage>` for SSE
+- `ApiClient.kt` — suspend functions for JSON endpoints, `Flow<T>` for SSE
+
+See `sdk/API.md` for the full route table and type reference.
 
 ### Go → Kotlin Type Mapping
 
@@ -31,14 +33,6 @@ Two generated files:
 
 Field names: use `@SerialName` matching the `json` struct tag.
 
-### Build Integration
-
-Add to `Makefile` `types` target:
-```makefile
-go run ./backend/internal/cmd/gen-api-client --lang=kotlin \
-    --out=android/sdk/src/main/kotlin/com/caic/sdk
-```
-
 ## Module Setup
 
 ### Gradle
@@ -55,129 +49,11 @@ Dependencies:
 
 App module: `implementation(project(":sdk"))`
 
-## Generated Types (`Types.kt`)
+## Voice Token Design
 
-### Constants and Aliases
-
-```kotlin
-typealias Harness = String
-object Harnesses {
-    const val Claude: Harness = "claude"
-    const val Gemini: Harness = "gemini"
-}
-
-typealias EventKind = String
-object EventKinds {
-    const val Init: EventKind = "init"
-    const val Text: EventKind = "text"
-    const val ToolUse: EventKind = "toolUse"
-    const val ToolResult: EventKind = "toolResult"
-    const val Ask: EventKind = "ask"
-    const val Usage: EventKind = "usage"
-    const val Result: EventKind = "result"
-    const val System: EventKind = "system"
-    const val UserInput: EventKind = "userInput"
-    const val Todo: EventKind = "todo"
-}
-
-object ErrorCodes {
-    const val BadRequest = "BAD_REQUEST"
-    const val NotFound = "NOT_FOUND"
-    const val Conflict = "CONFLICT"
-    const val InternalError = "INTERNAL_ERROR"
-}
-```
-
-### Data Classes
-
-Core request/response types, event payloads — all `@Serializable`.
-See the TypeScript types in `sdk/types.gen.ts` as the canonical reference.
-
-Key types: `Task`, `Repo`, `HarnessInfo`, `CreateTaskReq`, `CreateTaskResp`,
-`InputReq`, `RestartReq`, `SyncReq`, `SyncResp`, `SafetyIssue`, `StatusResp`,
-`UsageResp`, `UsageWindow`, `ExtraUsage`, `DiffFileStat`.
-
-Event types: `EventMessage` (discriminated on `kind`), `EventInit`, `EventText`,
-`EventToolUse`, `EventToolResult`, `EventAsk`, `AskQuestion`, `AskOption`,
-`EventUsage`, `EventResult`, `EventSystem`, `EventUserInput`, `EventTodo`, `TodoItem`.
-
-Voice types: `VoiceTokenResp`.
-
-Error types: `ErrorResponse`, `ErrorDetails`.
-
-## API Client (`ApiClient.kt`)
-
-Constructor: `ApiClient(baseURL: String)`
-
-Internal: `OkHttpClient`, `Json { ignoreUnknownKeys = true }`
-
-### JSON Endpoints
-
-Generated `suspend` functions, one per `dto.Route`:
-
-| Method | Path | Function | Request | Response |
-|--------|------|----------|---------|----------|
-| GET | `/api/v1/harnesses` | `listHarnesses()` | — | `List<HarnessInfo>` |
-| GET | `/api/v1/repos` | `listRepos()` | — | `List<Repo>` |
-| GET | `/api/v1/tasks` | `listTasks()` | — | `List<Task>` |
-| POST | `/api/v1/tasks` | `createTask(req)` | `CreateTaskReq` | `CreateTaskResp` |
-| POST | `/api/v1/tasks/{id}/input` | `sendInput(id, req)` | `InputReq` | `StatusResp` |
-| POST | `/api/v1/tasks/{id}/restart` | `restartTask(id, req)` | `RestartReq` | `StatusResp` |
-| POST | `/api/v1/tasks/{id}/terminate` | `terminateTask(id)` | — | `StatusResp` |
-| POST | `/api/v1/tasks/{id}/sync` | `syncTask(id, req)` | `SyncReq` | `SyncResp` |
-| GET | `/api/v1/usage` | `getUsage()` | — | `UsageResp` |
-| GET | `/api/v1/voice/token` | `getVoiceToken()` | — | `VoiceTokenResp` |
-
-### SSE Endpoints
-
-Return `Flow<EventMessage>`, using OkHttp SSE:
-
-| Path | Function |
-|------|----------|
-| `/api/v1/tasks/{id}/events` | `taskEvents(id): Flow<EventMessage>` |
-| `/api/v1/events` | `globalEvents(): Flow<GlobalEvent>` (task list + usage) |
-
-### SSE Reconnection
-
-Wrapper `taskEventsReconnecting()` / `globalEventsReconnecting()`:
-- Initial delay: 500ms
-- Backoff factor: 1.5x
-- Max delay: 4s
-- Reset delay on successful event receipt
-- Rethrow `CancellationException`
-
-This matches the web frontend's backoff logic in `App.tsx` and `TaskView.tsx`.
-
-### Error Handling
-
-`ApiException(statusCode, code, message, details?)` thrown for non-200 responses.
-Callers branch on `code` (from `ErrorCodes`).
-
-## Voice Token Endpoint (Backend)
-
-Backend endpoint that returns a Gemini API credential for the voice client.
-The response includes an `ephemeral` flag that tells the client which WebSocket
-endpoint and auth parameter to use.
-
-### Backend: `GET /api/v1/voice/token`
-
-Response:
-```json
-{
-  "token": "<api-key-or-ephemeral-token>",
-  "expiresAt": "2025-06-15T12:30:00Z",
-  "ephemeral": false
-}
-```
-
-Go types:
-```go
-type VoiceTokenResp struct {
-    Token     string `json:"token"`
-    ExpiresAt string `json:"expiresAt"`
-    Ephemeral bool   `json:"ephemeral"`
-}
-```
+The `GET /api/v1/voice/token` endpoint returns a Gemini API credential. The
+`ephemeral` flag tells the client which WebSocket endpoint and auth parameter
+to use.
 
 **Current mode: raw key (`ephemeral: false`)**
 
@@ -194,16 +70,6 @@ returns 404). The client must connect to
 `?access_token=`. This is more secure but currently produces lower-quality
 responses.
 
-Kotlin type (generated):
-```kotlin
-@Serializable
-data class VoiceTokenResp(
-    val token: String,
-    val expiresAt: String,
-    val ephemeral: Boolean = false,
-)
-```
-
 ## Testing
 
 JVM unit tests using `MockWebServer` (OkHttp):
@@ -216,14 +82,5 @@ JVM unit tests using `MockWebServer` (OkHttp):
 
 ## References
 
-### caic source (canonical)
-- `backend/internal/server/dto/routes.go` — route declarations (source of truth for code generation)
-- `backend/internal/server/dto/types.go` — Go request/response types
-- `backend/internal/server/dto/events.go` — SSE event types
-- `backend/internal/cmd/gen-api-client/main.go` — TypeScript code generator (extend for Kotlin)
-- `sdk/types.gen.ts` — generated TypeScript types (reference for Kotlin output)
-- `sdk/api.gen.ts` — generated TypeScript API client (reference for Kotlin output)
-
-### Ephemeral tokens
 - [Ephemeral tokens docs](https://ai.google.dev/gemini-api/docs/ephemeral-tokens) — token creation API, expiration, constraints
 - [python-genai tokens.py](https://github.com/googleapis/python-genai/blob/main/google/genai/tokens.py) — reference implementation of `auth_tokens.create()`

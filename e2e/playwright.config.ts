@@ -5,7 +5,7 @@ export default defineConfig({
   timeout: 60_000,
   webServer: {
     command: "go run ../backend/cmd/caic -fake",
-    url: "http://localhost:8090/api/v1/repos",
+    url: "http://localhost:8090/api/v1/server/repos",
     reuseExistingServer: false,
     timeout: 30_000,
   },

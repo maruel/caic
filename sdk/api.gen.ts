@@ -25,15 +25,15 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export function getConfig(): Promise<Config> {
-  return request<Config>("GET", "/api/v1/config");
+  return request<Config>("GET", "/api/v1/server/config");
 }
 
 export function listHarnesses(): Promise<HarnessInfo[]> {
-  return request<HarnessInfo[]>("GET", "/api/v1/harnesses");
+  return request<HarnessInfo[]>("GET", "/api/v1/server/harnesses");
 }
 
 export function listRepos(): Promise<Repo[]> {
-  return request<Repo[]>("GET", "/api/v1/repos");
+  return request<Repo[]>("GET", "/api/v1/server/repos");
 }
 
 export function listTasks(): Promise<Task[]> {
@@ -74,6 +74,22 @@ export function terminateTask(id: string): Promise<StatusResp> {
 
 export function syncTask(id: string, req: SyncReq): Promise<SyncResp> {
   return request<SyncResp>("POST", `/api/v1/tasks/${id}/sync`, req);
+}
+
+export function globalTaskEvents(onMessage: (event: Task) => void): EventSource {
+  const es = new EventSource("/api/v1/server/tasks/events");
+  es.addEventListener("message", (e) => {
+    onMessage(JSON.parse(e.data) as Task);
+  });
+  return es;
+}
+
+export function globalUsageEvents(onMessage: (event: UsageResp) => void): EventSource {
+  const es = new EventSource("/api/v1/server/usage/events");
+  es.addEventListener("message", (e) => {
+    onMessage(JSON.parse(e.data) as UsageResp);
+  });
+  return es;
 }
 
 export function getUsage(): Promise<UsageResp> {

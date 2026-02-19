@@ -533,7 +533,7 @@ func TestHandleListRepos(t *testing.T) {
 		changed: make(chan struct{}),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/repos", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/server/repos", http.NoBody)
 	w := httptest.NewRecorder()
 	handle(s.listRepos)(w, req)
 

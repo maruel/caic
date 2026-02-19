@@ -210,18 +210,25 @@ export default function App() {
   // On reconnect, check if the frontend was rebuilt and reload if so.
   const [connected, setConnected] = createSignal(true);
   {
-    let es: EventSource | null = null;
-    let timer: ReturnType<typeof setTimeout> | null = null;
+    let taskES: EventSource | null = null;
+    let usageES: EventSource | null = null;
+    let taskTimer: ReturnType<typeof setTimeout> | null = null;
+    let usageTimer: ReturnType<typeof setTimeout> | null = null;
     let bannerTimer: ReturnType<typeof setTimeout> | null = null;
-    let delay = 500;
+    let taskDelay = 500;
+    let usageDelay = 500;
     const initialScriptSrc = document.querySelector<HTMLScriptElement>("script[src^='/assets/']")?.src ?? "";
 
-    function connect() {
-      es = new EventSource("/api/v1/events");
-      es.addEventListener("open", () => {
-        if (bannerTimer !== null) { clearTimeout(bannerTimer); bannerTimer = null; }
-        setConnected(true);
-        delay = 500;
+    function onOpen() {
+      if (bannerTimer !== null) { clearTimeout(bannerTimer); bannerTimer = null; }
+      setConnected(true);
+    }
+
+    function connectTasks() {
+      taskES = new EventSource("/api/v1/server/tasks/events");
+      taskES.addEventListener("open", () => {
+        onOpen();
+        taskDelay = 500;
         // Check if frontend was rebuilt while disconnected.
         fetch("/index.html")
           .then((r) => r.text())
@@ -234,7 +241,7 @@ export default function App() {
           .catch(() => {});
         listTasks().then(setTasks).catch(() => {});
       });
-      es.addEventListener("tasks", (e) => {
+      taskES.addEventListener("message", (e) => {
         try {
           const updated = JSON.parse(e.data) as Task[];
           for (const t of updated) {
@@ -250,30 +257,46 @@ export default function App() {
           // Ignore unparseable messages.
         }
       });
-      es.addEventListener("usage", (e) => {
+      taskES.onerror = () => {
+        taskES?.close();
+        taskES = null;
+        if (bannerTimer === null) {
+          bannerTimer = setTimeout(() => { bannerTimer = null; setConnected(false); }, 2000);
+        }
+        taskTimer = setTimeout(connectTasks, taskDelay);
+        taskDelay = Math.min(taskDelay * 1.5, 4000);
+      };
+    }
+
+    function connectUsage() {
+      usageES = new EventSource("/api/v1/server/usage/events");
+      usageES.addEventListener("open", () => {
+        onOpen();
+        usageDelay = 500;
+      });
+      usageES.addEventListener("message", (e) => {
         try {
           setUsage(JSON.parse(e.data) as UsageResp);
         } catch {
           // Ignore unparseable messages.
         }
       });
-      es.onerror = () => {
-        es?.close();
-        es = null;
-        // Delay showing the banner so brief disconnects don't flash it.
-        if (bannerTimer === null) {
-          bannerTimer = setTimeout(() => { bannerTimer = null; setConnected(false); }, 2000);
-        }
-        timer = setTimeout(connect, delay);
-        delay = Math.min(delay * 1.5, 4000);
+      usageES.onerror = () => {
+        usageES?.close();
+        usageES = null;
+        usageTimer = setTimeout(connectUsage, usageDelay);
+        usageDelay = Math.min(usageDelay * 1.5, 4000);
       };
     }
 
-    connect();
+    connectTasks();
+    connectUsage();
 
     onCleanup(() => {
-      es?.close();
-      if (timer !== null) clearTimeout(timer);
+      taskES?.close();
+      usageES?.close();
+      if (taskTimer !== null) clearTimeout(taskTimer);
+      if (usageTimer !== null) clearTimeout(usageTimer);
       if (bannerTimer !== null) clearTimeout(bannerTimer);
     });
   }

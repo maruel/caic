@@ -517,7 +517,7 @@ Swipe down or "End" to disconnect.
 
 ### Background SSE & Notifications
 
-`TaskMonitorService` foreground service maintains `/api/v1/events` SSE when
+`TaskMonitorService` foreground service maintains `/api/v1/server/tasks/events` SSE when
 backgrounded. Detects state transitions → Android notifications + voice context.
 
 **Notification triggers**:
@@ -575,8 +575,8 @@ data class TaskListState(
 )
 ```
 
-Subscribes to `/api/v1/events` SSE on init. On `"tasks"` events: update task list.
-On `"usage"` events: update usage. Reconnection uses SDK's backoff wrapper.
+Subscribes to `/api/v1/server/tasks/events` and `/api/v1/server/usage/events` SSE
+on init. Reconnection uses SDK's backoff wrappers.
 
 ### TaskDetailViewModel
 

@@ -285,9 +285,9 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 // ListenAndServe starts the HTTP server.
 func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/config", handle(s.getConfig))
-	mux.HandleFunc("GET /api/v1/harnesses", handle(s.listHarnesses))
-	mux.HandleFunc("GET /api/v1/repos", handle(s.listRepos))
+	mux.HandleFunc("GET /api/v1/server/config", handle(s.getConfig))
+	mux.HandleFunc("GET /api/v1/server/harnesses", handle(s.listHarnesses))
+	mux.HandleFunc("GET /api/v1/server/repos", handle(s.listRepos))
 	mux.HandleFunc("GET /api/v1/tasks", handle(s.listTasks))
 	mux.HandleFunc("POST /api/v1/tasks", handle(s.createTask))
 	mux.HandleFunc("GET /api/v1/tasks/{id}/raw_events", s.handleTaskRawEvents)
@@ -298,7 +298,8 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/sync", handleWithTask(s, s.syncTask))
 	mux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
 	mux.HandleFunc("GET /api/v1/voice/token", handle(s.getVoiceToken))
-	mux.HandleFunc("GET /api/v1/events", s.handleEvents)
+	mux.HandleFunc("GET /api/v1/server/tasks/events", s.handleTaskListEvents)
+	mux.HandleFunc("GET /api/v1/server/usage/events", s.handleUsageEvents)
 
 	// Serve embedded frontend with SPA fallback and precompressed variants.
 	dist, err := fs.Sub(frontend.Files, "dist")
@@ -561,10 +562,10 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleEvents streams the task list as SSE. It pushes immediately when a
-// server-handled mutation fires the changed channel, and falls back to a
-// 2-second ticker to catch runner-internal state transitions.
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+// handleTaskListEvents streams the full task list as SSE. It pushes
+// immediately when a server-handled mutation fires the changed channel, and
+// falls back to a 2-second ticker to catch runner-internal state transitions.
+func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, dto.InternalError("streaming not supported"))
@@ -576,37 +577,10 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	flusher.Flush()
 
-	taskTicker := time.NewTicker(2 * time.Second)
-	defer taskTicker.Stop()
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
 
-	usageTicker := time.NewTicker(30 * time.Second)
-	defer usageTicker.Stop()
-
-	var prevTasks []byte
-	var prevUsage []byte
-
-	emitUsage := func() {
-		if s.usage == nil || !s.usage.hasToken() {
-			return
-		}
-		u := s.usage.get()
-		if u == nil {
-			return
-		}
-		data, err := json.Marshal(u)
-		if err != nil {
-			return
-		}
-		if !bytes.Equal(data, prevUsage) {
-			_, _ = fmt.Fprintf(w, "event: usage\ndata: %s\n\n", data)
-			flusher.Flush()
-			prevUsage = data
-		}
-	}
-
-	// Send initial usage immediately.
-	emitUsage()
-
+	var prev []byte
 	for {
 		s.mu.Lock()
 		out := make([]dto.Task, 0, len(s.tasks))
@@ -622,19 +596,68 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("marshal task list", "err", err)
 			return
 		}
-		if !bytes.Equal(data, prevTasks) {
-			_, _ = fmt.Fprintf(w, "event: tasks\ndata: %s\n\n", data)
+		if !bytes.Equal(data, prev) {
+			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
 			flusher.Flush()
-			prevTasks = data
+			prev = data
 		}
 
 		select {
 		case <-r.Context().Done():
 			return
 		case <-ch:
-		case <-taskTicker.C:
-		case <-usageTicker.C:
-			emitUsage()
+		case <-ticker.C:
+		}
+	}
+}
+
+// handleUsageEvents streams usage snapshots as SSE every 30 seconds (or on
+// change). Each message is a single UsageResp JSON object.
+func (s *Server) handleUsageEvents(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeError(w, dto.InternalError("streaming not supported"))
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher.Flush()
+
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	var prev []byte
+
+	emit := func() {
+		if s.usage == nil || !s.usage.hasToken() {
+			return
+		}
+		u := s.usage.get()
+		if u == nil {
+			return
+		}
+		data, err := json.Marshal(u)
+		if err != nil {
+			return
+		}
+		if !bytes.Equal(data, prev) {
+			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)
+			flusher.Flush()
+			prev = data
+		}
+	}
+
+	// Send initial usage immediately.
+	emit()
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			emit()
 		}
 	}
 }

@@ -19,11 +19,11 @@ export class APIClient {
   constructor(private request: APIRequestContext) {}
 
   async listHarnesses(): Promise<HarnessInfo[]> {
-    return this.get("/api/v1/harnesses");
+    return this.get("/api/v1/server/harnesses");
   }
 
   async listRepos(): Promise<Repo[]> {
-    return this.get("/api/v1/repos");
+    return this.get("/api/v1/server/repos");
   }
 
   async listTasks(): Promise<Task[]> {
