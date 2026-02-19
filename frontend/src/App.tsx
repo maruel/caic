@@ -1,8 +1,9 @@
 // Main application component for caic web UI.
 import { createEffect, createSignal, For, Show, Switch, Match, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
-import type { HarnessJSON, RepoJSON, TaskJSON, UsageResp } from "@sdk/types.gen";
+import type { HarnessJSON, RepoJSON, TaskJSON, UsageResp, ImageData as APIImageData } from "@sdk/types.gen";
 import { getConfig, listHarnesses, listRepos, listTasks, createTask, getUsage } from "@sdk/api.gen";
+import { fileToImageData, imagesFromClipboard } from "./images";
 import TaskView from "./TaskView";
 import TaskList from "./TaskList";
 import AutoResizeTextarea from "./AutoResizeTextarea";
@@ -10,6 +11,7 @@ import Button from "./Button";
 import { requestNotificationPermission, notifyWaiting } from "./notifications";
 import UsageBadges from "./UsageBadges";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
+import AttachIcon from "@material-symbols/svg-400/outlined/attach_file.svg?solid";
 import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
 import DisplayIcon from "@material-symbols/svg-400/outlined/desktop_windows.svg?solid";
 import TailscaleIcon from "./tailscale.svg?solid";
@@ -85,11 +87,24 @@ export default function App() {
   const [displayEnabled, setDisplayEnabled] = createSignal(false);
   const [recentCount, setRecentCount] = createSignal(0);
 
+  // Images attached to the new-task prompt.
+  const [pendingImages, setPendingImages] = createSignal<APIImageData[]>([]);
+
   // Per-task input drafts survive task switching.
   const [inputDrafts, setInputDrafts] = createSignal<Map<string, string>>(new Map());
 
+  const harnessSupportsImages = () => harnesses().find((h) => h.name === selectedHarness())?.supportsImages ?? false;
+
   // Ref to the main prompt textarea for focusing after Escape.
   let promptRef: HTMLTextAreaElement | undefined;
+
+  // Handle paste events on the prompt textarea to capture images.
+  function handlePromptPaste(e: ClipboardEvent) {
+    if (!harnessSupportsImages()) return;
+    imagesFromClipboard(e).then((imgs) => {
+      if (imgs.length > 0) setPendingImages((prev) => [...prev, ...imgs]);
+    });
+  }
 
   // Sort tasks the same way TaskList does: active first, then by ID descending.
   const isTerminal = (s: string) => s === "failed" || s === "terminated";
@@ -275,8 +290,9 @@ export default function App() {
 
   async function submitTask() {
     const p = prompt().trim();
+    const imgs = pendingImages();
     const repo = selectedRepo();
-    if (!p || !repo) return;
+    if ((!p && imgs.length === 0) || !repo) return;
     setSubmitting(true);
     localStorage.setItem("caic:lastRepo", repo);
     addRecentRepo(repo);
@@ -299,8 +315,9 @@ export default function App() {
       const ts = tailscaleEnabled();
       const usb = usbEnabled();
       const disp = displayEnabled();
-      const data = await createTask({ prompt: p, repo, harness: selectedHarness(), ...(model ? { model } : {}), ...(image ? { image } : {}), ...(ts ? { tailscale: true } : {}), ...(usb ? { usb: true } : {}), ...(disp ? { display: true } : {}) });
+      const data = await createTask({ prompt: p, repo, harness: selectedHarness(), ...(model ? { model } : {}), ...(image ? { image } : {}), ...(imgs.length > 0 ? { images: imgs } : {}), ...(ts ? { tailscale: true } : {}), ...(usb ? { usb: true } : {}), ...(disp ? { display: true } : {}) });
       setPrompt("");
+      setPendingImages([]);
       navigate(taskPath(data.id, repo, "", p));
     } finally {
       setSubmitting(false);
@@ -417,7 +434,7 @@ export default function App() {
         </Show>
         <div class={styles.promptRow}>
           <AutoResizeTextarea
-            ref={(el) => { promptRef = el; }}
+            ref={(el) => { promptRef = el; el.addEventListener("paste", handlePromptPaste); }}
             value={prompt()}
             onInput={setPrompt}
             onSubmit={submitTask}
@@ -426,10 +443,38 @@ export default function App() {
             class={styles.promptInput}
             data-testid="prompt-input"
           />
-          <Button type="submit" disabled={submitting() || !prompt().trim() || !selectedRepo()} loading={submitting()} title="Start a new container with this prompt" data-testid="submit-task">
+          <Show when={harnessSupportsImages()}>
+            <Button type="button" variant="gray" disabled={submitting()} title="Attach images" onClick={() => {
+              const input = document.createElement("input");
+              input.type = "file";
+              input.multiple = true;
+              input.accept = "image/png,image/jpeg,image/gif,image/webp";
+              input.onchange = async () => {
+                if (!input.files) return;
+                const imgs = await Promise.all(Array.from(input.files).map(fileToImageData));
+                setPendingImages((prev) => [...prev, ...imgs.filter((i): i is APIImageData => i !== null)]);
+              };
+              input.click();
+            }}>
+              <AttachIcon width="1.2em" height="1.2em" />
+            </Button>
+          </Show>
+          <Button type="submit" disabled={submitting() || (!prompt().trim() && pendingImages().length === 0) || !selectedRepo()} loading={submitting()} title="Start a new container with this prompt" data-testid="submit-task">
             <SendIcon width="1.2em" height="1.2em" />
           </Button>
         </div>
+        <Show when={pendingImages().length > 0}>
+          <div class={styles.imagePreviewRow}>
+            <For each={pendingImages()}>
+              {(img, idx) => (
+                <div class={styles.imageThumb}>
+                  <img src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />
+                  <button class={styles.imageRemove} onClick={() => setPendingImages((prev) => prev.filter((_, i) => i !== idx()))} title="Remove">&times;</button>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
       </form>
 
       <div class={styles.layout}>
@@ -456,6 +501,7 @@ export default function App() {
                   repo={selectedTask()?.repo ?? ""}
                   repoURL={selectedTask()?.repoURL}
                   branch={selectedTask()?.branch ?? ""}
+                  supportsImages={harnesses().find((h) => h.name === (selectedTask()?.harness ?? ""))?.supportsImages}
                   onClose={() => navigate("/")}
                   inputDraft={inputDrafts().get(id) ?? ""}
                   onInputDraft={(v) => setInputDrafts((prev) => { const next = new Map(prev); next.set(id, v); return next; })}
