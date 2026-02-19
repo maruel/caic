@@ -1309,6 +1309,9 @@ func tailscaleURL(t *task.Task) string {
 }
 
 func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
+	// Read all volatile fields in a single locked snapshot to avoid
+	// data races with addMessage/RestoreMessages.
+	snap := e.task.Snapshot()
 	j := dto.TaskJSON{
 		ID:             e.task.ID,
 		Task:           e.task.Prompt,
@@ -1316,31 +1319,30 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 		RepoURL:        s.repoURL(e.task.Repo),
 		Branch:         e.task.Branch,
 		Container:      e.task.Container,
-		State:          e.task.State.String(),
-		StateUpdatedAt: float64(e.task.StateUpdatedAt.UnixMilli()) / 1e3,
+		State:          snap.State.String(),
+		StateUpdatedAt: float64(snap.StateUpdatedAt.UnixMilli()) / 1e3,
 		Harness:        toDTOHarness(e.task.Harness),
-		Model:          e.task.Model,
-		AgentVersion:   e.task.AgentVersion,
-		SessionID:      e.task.SessionID,
-		InPlanMode:     e.task.InPlanMode,
+		Model:          snap.Model,
+		AgentVersion:   snap.AgentVersion,
+		SessionID:      snap.SessionID,
+		InPlanMode:     snap.InPlanMode,
 		Tailscale:      tailscaleURL(e.task),
 		USB:            e.task.USB,
 		Display:        e.task.Display,
+		CostUSD:        snap.CostUSD,
+		NumTurns:       snap.NumTurns,
+		DurationMs:     snap.DurationMs,
 	}
 	if !e.task.StartedAt.IsZero() {
 		j.ContainerUptimeMs = time.Since(e.task.StartedAt).Milliseconds()
 	}
-	// Token usage is per-query in ResultMessage but cumulative in LiveStats.
-	// Always use LiveStats for token totals.
-	var usage, lastUsage agent.Usage
-	j.CostUSD, j.NumTurns, j.DurationMs, usage, lastUsage = e.task.LiveStats()
-	j.CumulativeInputTokens = usage.InputTokens
-	j.CumulativeOutputTokens = usage.OutputTokens
-	j.CumulativeCacheCreationInputTokens = usage.CacheCreationInputTokens
-	j.CumulativeCacheReadInputTokens = usage.CacheReadInputTokens
+	j.CumulativeInputTokens = snap.Usage.InputTokens
+	j.CumulativeOutputTokens = snap.Usage.OutputTokens
+	j.CumulativeCacheCreationInputTokens = snap.Usage.CacheCreationInputTokens
+	j.CumulativeCacheReadInputTokens = snap.Usage.CacheReadInputTokens
 	// Active input tokens includes ephemeral input + cache creation (anything sent over wire).
-	j.ActiveInputTokens = lastUsage.InputTokens + lastUsage.CacheCreationInputTokens
-	j.ActiveCacheReadTokens = lastUsage.CacheReadInputTokens
+	j.ActiveInputTokens = snap.LastUsage.InputTokens + snap.LastUsage.CacheCreationInputTokens
+	j.ActiveCacheReadTokens = snap.LastUsage.CacheReadInputTokens
 	if e.result != nil {
 		j.DiffStat = toDTODiffStat(e.result.DiffStat)
 		j.Result = e.result.AgentResult
@@ -1348,7 +1350,7 @@ func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
 			j.Error = e.result.Err.Error()
 		}
 	} else {
-		j.DiffStat = toDTODiffStat(e.task.LiveDiffStat())
+		j.DiffStat = toDTODiffStat(snap.DiffStat)
 	}
 	return j
 }

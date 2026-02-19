@@ -153,6 +153,46 @@ func (t *Task) LiveDiffStat() agent.DiffStat {
 	return t.liveDiffStat
 }
 
+// Snapshot holds volatile task fields read under the mutex. Used by the
+// server to build API responses without data races on fields that
+// addMessage/RestoreMessages modify concurrently.
+type Snapshot struct {
+	State          State
+	StateUpdatedAt time.Time
+	SessionID      string
+	Model          string
+	AgentVersion   string
+	InPlanMode     bool
+	PlanFile       string
+	CostUSD        float64
+	NumTurns       int
+	DurationMs     int64
+	Usage          agent.Usage
+	LastUsage      agent.Usage
+	DiffStat       agent.DiffStat
+}
+
+// Snapshot returns a consistent read of all volatile fields under the mutex.
+func (t *Task) Snapshot() Snapshot {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return Snapshot{
+		State:          t.State,
+		StateUpdatedAt: t.StateUpdatedAt,
+		SessionID:      t.SessionID,
+		Model:          t.Model,
+		AgentVersion:   t.AgentVersion,
+		InPlanMode:     t.InPlanMode,
+		PlanFile:       t.PlanFile,
+		CostUSD:        t.liveCostUSD,
+		NumTurns:       t.liveNumTurns,
+		DurationMs:     t.liveDurationMs,
+		Usage:          t.liveUsage,
+		LastUsage:      t.lastUsage,
+		DiffStat:       t.liveDiffStat,
+	}
+}
+
 // Messages returns a copy of all received agent messages.
 func (t *Task) Messages() []agent.Message {
 	t.mu.Lock()
