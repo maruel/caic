@@ -1,14 +1,14 @@
 // Sidebar task list with collapsible panel and sorted task cards.
 import { Index, Show } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { TaskJSON } from "@sdk/types.gen";
+import type { Task } from "@sdk/types.gen";
 import TaskItemSummary from "./TaskItemSummary";
 import styles from "./TaskList.module.css";
 import LeftPanelClose from "@material-symbols/svg-400/outlined/left_panel_close.svg?solid";
 import LeftPanelOpen from "@material-symbols/svg-400/outlined/left_panel_open.svg?solid";
 
 export interface TaskListProps {
-  tasks: Accessor<TaskJSON[]>;
+  tasks: Accessor<Task[]>;
   selectedId: string | null;
   sidebarOpen: Accessor<boolean>;
   setSidebarOpen: (open: boolean) => void;

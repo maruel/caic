@@ -80,10 +80,10 @@ class ApiClient(baseURL: String) {
     }
 
     // JSON endpoints
-    suspend fun getConfig(): ConfigJSON = request("GET", "/api/v1/config")
-    suspend fun listHarnesses(): List<HarnessJSON> = request("GET", "/api/v1/harnesses")
-    suspend fun listRepos(): List<RepoJSON> = request("GET", "/api/v1/repos")
-    suspend fun listTasks(): List<TaskJSON> = request("GET", "/api/v1/tasks")
+    suspend fun getConfig(): Config = request("GET", "/api/v1/config")
+    suspend fun listHarnesses(): List<HarnessInfo> = request("GET", "/api/v1/harnesses")
+    suspend fun listRepos(): List<Repo> = request("GET", "/api/v1/repos")
+    suspend fun listTasks(): List<Task> = request("GET", "/api/v1/tasks")
     suspend fun createTask(req: CreateTaskReq): CreateTaskResp = request("POST", "/api/v1/tasks", json.encodeToString(req))
     suspend fun sendInput(id: String, req: InputReq): StatusResp = request("POST", "/api/v1/tasks/$id/input", json.encodeToString(req))
     suspend fun restartTask(id: String, req: RestartReq): StatusResp = request("POST", "/api/v1/tasks/$id/restart", json.encodeToString(req))

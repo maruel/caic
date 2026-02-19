@@ -1,7 +1,7 @@
 // Main application component for caic web UI.
 import { createEffect, createSignal, For, Show, Switch, Match, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
-import type { HarnessJSON, RepoJSON, TaskJSON, UsageResp, ImageData as APIImageData } from "@sdk/types.gen";
+import type { HarnessInfo, Repo, Task, UsageResp, ImageData as APIImageData } from "@sdk/types.gen";
 import { getConfig, listHarnesses, listRepos, listTasks, createTask, getUsage } from "@sdk/api.gen";
 import { fileToImageData, imagesFromClipboard } from "./images";
 import TaskView from "./TaskView";
@@ -69,13 +69,13 @@ export default function App() {
   const location = useLocation();
 
   const [prompt, setPrompt] = createSignal("");
-  const [tasks, setTasks] = createSignal<TaskJSON[]>([]);
+  const [tasks, setTasks] = createSignal<Task[]>([]);
   const [submitting, setSubmitting] = createSignal(false);
-  const [repos, setRepos] = createSignal<RepoJSON[]>([]);
+  const [repos, setRepos] = createSignal<Repo[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
   const [selectedModel, setSelectedModel] = createSignal("");
   const [selectedImage, setSelectedImage] = createSignal("");
-  const [harnesses, setHarnesses] = createSignal<HarnessJSON[]>([]);
+  const [harnesses, setHarnesses] = createSignal<HarnessInfo[]>([]);
   const [selectedHarness, setSelectedHarness] = createSignal("claude");
   const [sidebarOpen, setSidebarOpen] = createSignal(true);
   const [usage, setUsage] = createSignal<UsageResp | null>(null);
@@ -160,7 +160,7 @@ export default function App() {
   }
 
   const selectedId = (): string | null => taskIdFromPath(location.pathname);
-  const selectedTask = (): TaskJSON | null => {
+  const selectedTask = (): Task | null => {
     const id = selectedId();
     return id !== null ? (tasks().find((t) => t.id === id) ?? null) : null;
   };
@@ -183,7 +183,7 @@ export default function App() {
     const data = await listRepos();
     const recentPaths = getRecentRepos();
     const recentSet = new Set(recentPaths);
-    const recentRepos = recentPaths.reduce<RepoJSON[]>((acc, r) => {
+    const recentRepos = recentPaths.reduce<Repo[]>((acc, r) => {
       const repo = data.find((d) => d.path === r);
       if (repo) acc.push(repo);
       return acc;
@@ -246,7 +246,7 @@ export default function App() {
       });
       es.addEventListener("tasks", (e) => {
         try {
-          const updated = JSON.parse(e.data) as TaskJSON[];
+          const updated = JSON.parse(e.data) as Task[];
           for (const t of updated) {
             const needsInput = t.state === "waiting" || t.state === "asking";
             const prevNeedsInput = prevStates.get(t.id) === "waiting" || prevStates.get(t.id) === "asking";
@@ -300,7 +300,7 @@ export default function App() {
       const recent = getRecentRepos();
       const recentSet = new Set(recent);
       const current = repos();
-      const recentRepos = recent.reduce<RepoJSON[]>((acc, r) => {
+      const recentRepos = recent.reduce<Repo[]>((acc, r) => {
         const found = current.find((d) => d.path === r);
         if (found) acc.push(found);
         return acc;

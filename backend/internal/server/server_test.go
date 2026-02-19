@@ -534,7 +534,7 @@ func TestHandleListRepos(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
-	var repos []dto.RepoJSON
+	var repos []dto.Repo
 	if err := json.NewDecoder(w.Body).Decode(&repos); err != nil {
 		t.Fatal(err)
 	}

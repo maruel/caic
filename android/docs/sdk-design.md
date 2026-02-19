@@ -93,7 +93,7 @@ object ErrorCodes {
 Core request/response types, event payloads — all `@Serializable`.
 See the TypeScript types in `sdk/types.gen.ts` as the canonical reference.
 
-Key types: `TaskJSON`, `RepoJSON`, `HarnessJSON`, `CreateTaskReq`, `CreateTaskResp`,
+Key types: `Task`, `Repo`, `HarnessInfo`, `CreateTaskReq`, `CreateTaskResp`,
 `InputReq`, `RestartReq`, `SyncReq`, `SyncResp`, `SafetyIssue`, `StatusResp`,
 `UsageResp`, `UsageWindow`, `ExtraUsage`, `DiffFileStat`.
 
@@ -117,9 +117,9 @@ Generated `suspend` functions, one per `dto.Route`:
 
 | Method | Path | Function | Request | Response |
 |--------|------|----------|---------|----------|
-| GET | `/api/v1/harnesses` | `listHarnesses()` | — | `List<HarnessJSON>` |
-| GET | `/api/v1/repos` | `listRepos()` | — | `List<RepoJSON>` |
-| GET | `/api/v1/tasks` | `listTasks()` | — | `List<TaskJSON>` |
+| GET | `/api/v1/harnesses` | `listHarnesses()` | — | `List<HarnessInfo>` |
+| GET | `/api/v1/repos` | `listRepos()` | — | `List<Repo>` |
+| GET | `/api/v1/tasks` | `listTasks()` | — | `List<Task>` |
 | POST | `/api/v1/tasks` | `createTask(req)` | `CreateTaskReq` | `CreateTaskResp` |
 | POST | `/api/v1/tasks/{id}/input` | `sendInput(id, req)` | `InputReq` | `StatusResp` |
 | POST | `/api/v1/tasks/{id}/restart` | `restartTask(id, req)` | `RestartReq` | `StatusResp` |

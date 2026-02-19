@@ -26,7 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.caic.sdk.Harnesses
-import com.caic.sdk.TaskJSON
+import com.caic.sdk.Task
 import com.fghbuild.caic.ui.theme.stateColor
 import com.fghbuild.caic.util.formatCost
 import com.fghbuild.caic.util.formatElapsed
@@ -39,7 +39,7 @@ private val TerminalStates = setOf("terminated", "failed")
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun TaskCard(task: TaskJSON, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
+fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
     val firstLine = task.task.lineSequence().firstOrNull().orEmpty()
 
     Card(modifier = modifier.fillMaxWidth(), onClick = onClick) {

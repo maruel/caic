@@ -12,7 +12,7 @@ import com.caic.sdk.InputReq
 import com.caic.sdk.RestartReq
 import com.caic.sdk.SafetyIssue
 import com.caic.sdk.SyncReq
-import com.caic.sdk.TaskJSON
+import com.caic.sdk.Task
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.data.TaskSSEEvent
 import com.fghbuild.caic.navigation.Screen
@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class TaskDetailState(
-    val task: TaskJSON? = null,
+    val task: Task? = null,
     val messages: List<ClaudeEventMessage> = emptyList(),
     val groups: List<MessageGroup> = emptyList(),
     val turns: List<Turn> = emptyList(),
@@ -73,7 +73,7 @@ class TaskDetailViewModel @Inject constructor(
             _pendingAction, _actionError, _safetyIssues, _inputDraft,
         )
     ) { values ->
-        val tasks = values[0] as List<TaskJSON>
+        val tasks = values[0] as List<Task>
         val msgs = values[1] as List<ClaudeEventMessage>
         val ready = values[2] as Boolean
         val sending = values[3] as Boolean

@@ -17,8 +17,8 @@ const (
 	HarnessGemini Harness = "gemini"
 )
 
-// HarnessJSON is the JSON representation of an available harness.
-type HarnessJSON struct {
+// HarnessInfo is the JSON representation of an available harness.
+type HarnessInfo struct {
 	Name           string   `json:"name"`
 	Models         []string `json:"models"`
 	SupportsImages bool     `json:"supportsImages"`
@@ -30,22 +30,22 @@ type ImageData struct {
 	Data      string `json:"data"`      // base64-encoded
 }
 
-// ConfigJSON reports server capabilities to the frontend.
-type ConfigJSON struct {
+// Config reports server capabilities to the frontend.
+type Config struct {
 	TailscaleAvailable bool `json:"tailscaleAvailable"`
 	USBAvailable       bool `json:"usbAvailable"`
 	DisplayAvailable   bool `json:"displayAvailable"`
 }
 
-// RepoJSON is the JSON representation of a discovered repo.
-type RepoJSON struct {
+// Repo is the JSON representation of a discovered repo.
+type Repo struct {
 	Path       string `json:"path"`
 	BaseBranch string `json:"baseBranch"`
 	RepoURL    string `json:"repoURL,omitempty"`
 }
 
-// TaskJSON is the JSON representation sent to the frontend.
-type TaskJSON struct {
+// Task is the JSON representation sent to the frontend.
+type Task struct {
 	ID                                 ksid.ID  `json:"id"`
 	Task                               string   `json:"task"`
 	Repo                               string   `json:"repo"`

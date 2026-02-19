@@ -104,7 +104,7 @@ The Gemini CLI backend is implemented in `agent/gemini/`:
 ## Completed: Frontend Harness Selector (Step 4)
 
 - **`GET /api/v1/harnesses`** endpoint returns available harnesses from `Runner.Backends`.
-- **`dto/types.go`** — `HarnessJSON` type with `Name` field.
+- **`dto/types.go`** — `HarnessInfo` type with `Name` field.
 - **`dto/routes.go`** — `listHarnesses` route registered.
 - **`App.tsx`** — Fetches harnesses on mount. Shows a harness selector dropdown when 2+ harnesses are available. `createTask` passes `selectedHarness()` instead of hardcoded `"claude"`.
 - **`TaskItemSummary`** — Already displays harness name for non-claude tasks.
@@ -113,7 +113,7 @@ The Gemini CLI backend is implemented in `agent/gemini/`:
 
 - **`task/task.go`** — `Task.AgentVersion` (was `ClaudeCodeVersion`).
 - **`dto/events.go`** — `EventInit.AgentVersion` with JSON tag `"agentVersion"`.
-- **`dto/types.go`** — `TaskJSON.AgentVersion` with JSON tag `"agentVersion"`.
+- **`dto/types.go`** — `Task.AgentVersion` with JSON tag `"agentVersion"`.
 - **`server/server.go`** — `toJSON` maps `AgentVersion`.
 - **`server/eventconv.go`** — `convertMessage` init case maps `AgentVersion`.
 - **Frontend** — `TaskItemSummary`, `TaskList`, `TaskView` all use `agentVersion`.

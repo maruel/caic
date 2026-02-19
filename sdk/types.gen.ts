@@ -496,9 +496,9 @@ export const HarnessCodex: Harness = "codex";
  */
 export const HarnessGemini: Harness = "gemini";
 /**
- * HarnessJSON is the JSON representation of an available harness.
+ * HarnessInfo is the JSON representation of an available harness.
  */
-export interface HarnessJSON {
+export interface HarnessInfo {
   name: string;
   models: string[];
   supportsImages: boolean;
@@ -511,25 +511,25 @@ export interface ImageData {
   data: string; // base64-encoded
 }
 /**
- * ConfigJSON reports server capabilities to the frontend.
+ * Config reports server capabilities to the frontend.
  */
-export interface ConfigJSON {
+export interface Config {
   tailscaleAvailable: boolean;
   usbAvailable: boolean;
   displayAvailable: boolean;
 }
 /**
- * RepoJSON is the JSON representation of a discovered repo.
+ * Repo is the JSON representation of a discovered repo.
  */
-export interface RepoJSON {
+export interface Repo {
   path: string;
   baseBranch: string;
   repoURL?: string;
 }
 /**
- * TaskJSON is the JSON representation sent to the frontend.
+ * Task is the JSON representation sent to the frontend.
  */
-export interface TaskJSON {
+export interface Task {
   id: string;
   task: string;
   repo: string;

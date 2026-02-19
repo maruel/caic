@@ -2,7 +2,7 @@
 package com.fghbuild.caic.data
 
 import com.caic.sdk.ClaudeEventMessage
-import com.caic.sdk.TaskJSON
+import com.caic.sdk.Task
 import com.caic.sdk.UsageResp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -30,7 +30,7 @@ import javax.inject.Singleton
 
 /** Discriminated union of SSE event types from the global events endpoint. */
 sealed class GlobalEvent {
-    data class Tasks(val tasks: List<TaskJSON>) : GlobalEvent()
+    data class Tasks(val tasks: List<Task>) : GlobalEvent()
     data class Usage(val usage: UsageResp) : GlobalEvent()
 }
 
@@ -44,8 +44,8 @@ sealed class TaskSSEEvent {
 class TaskRepository @Inject constructor(
     private val settingsRepository: SettingsRepository,
 ) {
-    private val _tasks = MutableStateFlow<List<TaskJSON>>(emptyList())
-    val tasks: StateFlow<List<TaskJSON>> = _tasks.asStateFlow()
+    private val _tasks = MutableStateFlow<List<Task>>(emptyList())
+    val tasks: StateFlow<List<Task>> = _tasks.asStateFlow()
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -137,7 +137,7 @@ class TaskRepository @Inject constructor(
                 val event = when (type) {
                     "tasks" -> {
                         try {
-                            GlobalEvent.Tasks(json.decodeFromString<List<TaskJSON>>(data))
+                            GlobalEvent.Tasks(json.decodeFromString<List<Task>>(data))
                         } catch (_: Exception) {
                             null
                         }

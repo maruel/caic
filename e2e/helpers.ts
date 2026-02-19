@@ -3,12 +3,12 @@ import { test as base, expect, type APIRequestContext } from "@playwright/test";
 import type {
   CreateTaskReq,
   CreateTaskResp,
-  HarnessJSON,
+  HarnessInfo,
   InputReq,
-  RepoJSON,
+  Repo,
   RestartReq,
   StatusResp,
-  TaskJSON,
+  Task,
 } from "../sdk/types.gen";
 
 // ---------------------------------------------------------------------------
@@ -18,15 +18,15 @@ import type {
 export class APIClient {
   constructor(private request: APIRequestContext) {}
 
-  async listHarnesses(): Promise<HarnessJSON[]> {
+  async listHarnesses(): Promise<HarnessInfo[]> {
     return this.get("/api/v1/harnesses");
   }
 
-  async listRepos(): Promise<RepoJSON[]> {
+  async listRepos(): Promise<Repo[]> {
     return this.get("/api/v1/repos");
   }
 
-  async listTasks(): Promise<TaskJSON[]> {
+  async listTasks(): Promise<Task[]> {
     return this.get("/api/v1/tasks");
   }
 
@@ -46,7 +46,7 @@ export class APIClient {
     return this.post(`/api/v1/tasks/${id}/terminate`);
   }
 
-  async getTask(id: string): Promise<TaskJSON | undefined> {
+  async getTask(id: string): Promise<Task | undefined> {
     const tasks = await this.listTasks();
     return tasks.find((t) => t.id === id);
   }
@@ -108,8 +108,8 @@ export async function waitForTaskState(
   taskId: string,
   state: string,
   timeoutMs = 15_000,
-): Promise<TaskJSON> {
-  let task: TaskJSON | undefined;
+): Promise<Task> {
+  let task: Task | undefined;
   await expect(async () => {
     task = await api.getTask(taskId);
     expect(task).toBeTruthy();

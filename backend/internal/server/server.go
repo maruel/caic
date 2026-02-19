@@ -352,15 +352,15 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return err
 }
 
-func (s *Server) getConfig(_ context.Context, _ *dto.EmptyReq) (*dto.ConfigJSON, error) {
-	return &dto.ConfigJSON{
+func (s *Server) getConfig(_ context.Context, _ *dto.EmptyReq) (*dto.Config, error) {
+	return &dto.Config{
 		TailscaleAvailable: s.mdClient.TailscaleAPIKey != "",
 		USBAvailable:       runtime.GOOS == "linux",
 		DisplayAvailable:   true,
 	}, nil
 }
 
-func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.HarnessJSON, error) {
+func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.HarnessInfo, error) {
 	// Collect unique harness backends from all runners.
 	seen := make(map[agent.Harness]agent.Backend)
 	for _, r := range s.runners {
@@ -368,27 +368,27 @@ func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.Harne
 			seen[h] = b
 		}
 	}
-	out := make([]dto.HarnessJSON, 0, len(seen))
+	out := make([]dto.HarnessInfo, 0, len(seen))
 	for h, b := range seen {
-		out = append(out, dto.HarnessJSON{Name: string(h), Models: b.Models(), SupportsImages: b.SupportsImages()})
+		out = append(out, dto.HarnessInfo{Name: string(h), Models: b.Models(), SupportsImages: b.SupportsImages()})
 	}
-	slices.SortFunc(out, func(a, b dto.HarnessJSON) int {
+	slices.SortFunc(out, func(a, b dto.HarnessInfo) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return &out, nil
 }
 
-func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]dto.RepoJSON, error) {
-	out := make([]dto.RepoJSON, len(s.repos))
+func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]dto.Repo, error) {
+	out := make([]dto.Repo, len(s.repos))
 	for i, r := range s.repos {
-		out[i] = dto.RepoJSON{Path: r.RelPath, BaseBranch: r.BaseBranch, RepoURL: r.RepoURL}
+		out[i] = dto.Repo{Path: r.RelPath, BaseBranch: r.BaseBranch, RepoURL: r.RepoURL}
 	}
 	return &out, nil
 }
 
-func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]dto.TaskJSON, error) {
+func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]dto.Task, error) {
 	s.mu.Lock()
-	out := make([]dto.TaskJSON, 0, len(s.tasks))
+	out := make([]dto.Task, 0, len(s.tasks))
 	for _, e := range s.tasks {
 		out = append(out, s.toJSON(e))
 	}
@@ -609,7 +609,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	for {
 		s.mu.Lock()
-		out := make([]dto.TaskJSON, 0, len(s.tasks))
+		out := make([]dto.Task, 0, len(s.tasks))
 		for _, e := range s.tasks {
 			out = append(out, s.toJSON(e))
 		}
@@ -1308,11 +1308,11 @@ func tailscaleURL(t *task.Task) string {
 	return ""
 }
 
-func (s *Server) toJSON(e *taskEntry) dto.TaskJSON {
+func (s *Server) toJSON(e *taskEntry) dto.Task {
 	// Read all volatile fields in a single locked snapshot to avoid
 	// data races with addMessage/RestoreMessages.
 	snap := e.task.Snapshot()
-	j := dto.TaskJSON{
+	j := dto.Task{
 		ID:             e.task.ID,
 		Task:           e.task.Prompt,
 		Repo:           e.task.Repo,

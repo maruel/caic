@@ -39,21 +39,21 @@ object ErrorCodes {
 }
 
 @Serializable
-data class ConfigJSON(
+data class Config(
     val tailscaleAvailable: Boolean,
     val usbAvailable: Boolean,
     val displayAvailable: Boolean,
 )
 
 @Serializable
-data class HarnessJSON(
+data class HarnessInfo(
     val name: String,
     val models: List<String>,
     val supportsImages: Boolean,
 )
 
 @Serializable
-data class RepoJSON(
+data class Repo(
     val path: String,
     val baseBranch: String,
     @SerialName("repoURL") val repoURL: String? = null,
@@ -68,7 +68,7 @@ data class DiffFileStat(
 )
 
 @Serializable
-data class TaskJSON(
+data class Task(
     val id: String,
     val task: String,
     val repo: String,

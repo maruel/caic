@@ -30,10 +30,10 @@ func (r *Route) RespName() string {
 // Routes is the authoritative list of API endpoints. The gen-api-client
 // tool reads this slice to generate the typed TypeScript and Kotlin clients.
 var Routes = []Route{
-	{Name: "getConfig", Method: "GET", Path: "/api/v1/config", Resp: reflect.TypeFor[ConfigJSON]()},
-	{Name: "listHarnesses", Method: "GET", Path: "/api/v1/harnesses", Resp: reflect.TypeFor[HarnessJSON](), IsArray: true},
-	{Name: "listRepos", Method: "GET", Path: "/api/v1/repos", Resp: reflect.TypeFor[RepoJSON](), IsArray: true},
-	{Name: "listTasks", Method: "GET", Path: "/api/v1/tasks", Resp: reflect.TypeFor[TaskJSON](), IsArray: true},
+	{Name: "getConfig", Method: "GET", Path: "/api/v1/config", Resp: reflect.TypeFor[Config]()},
+	{Name: "listHarnesses", Method: "GET", Path: "/api/v1/harnesses", Resp: reflect.TypeFor[HarnessInfo](), IsArray: true},
+	{Name: "listRepos", Method: "GET", Path: "/api/v1/repos", Resp: reflect.TypeFor[Repo](), IsArray: true},
+	{Name: "listTasks", Method: "GET", Path: "/api/v1/tasks", Resp: reflect.TypeFor[Task](), IsArray: true},
 	{Name: "createTask", Method: "POST", Path: "/api/v1/tasks", Req: reflect.TypeFor[CreateTaskReq](), Resp: reflect.TypeFor[CreateTaskResp]()},
 	{Name: "taskRawEvents", Method: "GET", Path: "/api/v1/tasks/{id}/raw_events", Resp: reflect.TypeFor[ClaudeEventMessage](), IsSSE: true},
 	{Name: "taskEvents", Method: "GET", Path: "/api/v1/tasks/{id}/events", Resp: reflect.TypeFor[EventMessage](), IsSSE: true},

@@ -5,7 +5,7 @@ import com.caic.sdk.ApiClient
 import com.caic.sdk.CreateTaskReq
 import com.caic.sdk.InputReq
 import com.caic.sdk.SyncReq
-import com.caic.sdk.TaskJSON
+import com.caic.sdk.Task
 import com.fghbuild.caic.util.formatCost
 import com.fghbuild.caic.util.formatElapsed
 import kotlinx.serialization.json.JsonElement
@@ -182,7 +182,7 @@ class FunctionHandlers(
     }
 }
 
-private fun taskSummaryLine(num: Int, t: TaskJSON): String {
+private fun taskSummaryLine(num: Int, t: Task): String {
     val name = t.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: t.id
     val base = "$num. **$name** — ${t.state}, ${formatElapsed(t.durationMs)}, " +
         "${formatCost(t.costUSD)}, ${t.harness}"

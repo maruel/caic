@@ -3,7 +3,7 @@ package com.fghbuild.caic.voice
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.caic.sdk.TaskJSON
+import com.caic.sdk.Task
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.util.formatCost
@@ -80,7 +80,7 @@ class VoiceViewModel @Inject constructor(
         voiceSessionManager.selectAudioDevice(deviceId)
     }
 
-    private fun notifyTaskChanges(tasks: List<TaskJSON>) {
+    private fun notifyTaskChanges(tasks: List<Task>) {
         tasks
             .filter { task ->
                 val prev = previousTaskStates[task.id]
@@ -94,7 +94,7 @@ class VoiceViewModel @Inject constructor(
             }
     }
 
-    private fun buildSnapshot(tasks: List<TaskJSON>): String {
+    private fun buildSnapshot(tasks: List<Task>): String {
         if (tasks.isEmpty()) return "[No active tasks]"
         val lines = tasks.joinToString("\n") { task ->
             val num = taskNumberMap.toNumber(task.id) ?: 0
@@ -106,7 +106,7 @@ class VoiceViewModel @Inject constructor(
         return "[Current tasks at session start]\n$lines"
     }
 
-    private fun buildNotification(task: TaskJSON): String? {
+    private fun buildNotification(task: Task): String? {
         val num = taskNumberMap.toNumber(task.id) ?: return null
         val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
         return when {

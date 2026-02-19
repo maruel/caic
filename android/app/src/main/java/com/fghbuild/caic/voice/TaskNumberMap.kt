@@ -1,7 +1,7 @@
 // Bidirectional map between task IDs and stable 1-based human-friendly numbers.
 package com.fghbuild.caic.voice
 
-import com.caic.sdk.TaskJSON
+import com.caic.sdk.Task
 
 class TaskNumberMap {
     private val idToNumber = mutableMapOf<String, Int>()
@@ -9,7 +9,7 @@ class TaskNumberMap {
     private var nextNumber = 1
 
     /** Sync with current task list. Existing tasks keep their number; new tasks get the next. */
-    fun update(tasks: List<TaskJSON>) {
+    fun update(tasks: List<Task>) {
         val currentIds = tasks.map { it.id }.toSet()
         // Remove stale mappings.
         val stale = idToNumber.keys - currentIds
@@ -38,7 +38,7 @@ class TaskNumberMap {
 
     fun toNumber(id: String): Int? = idToNumber[id]
 
-    fun formatTaskRef(task: TaskJSON): String {
+    fun formatTaskRef(task: Task): String {
         val num = idToNumber[task.id] ?: return task.id
         val shortName = task.task.lines().firstOrNull()?.take(SHORT_NAME_MAX) ?: task.id
         return "task #$num ($shortName)"

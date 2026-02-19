@@ -561,15 +561,15 @@ frontend already provides this functionality. Implement after voice mode is work
 
 ```kotlin
 data class TaskListState(
-    val tasks: List<TaskJSON> = emptyList(),
+    val tasks: List<Task> = emptyList(),
     val usage: UsageResp? = null,
     val connected: Boolean = false,
     val reconnecting: Boolean = false,
     val selectedHarness: Harness = Harnesses.Claude,
     val selectedRepo: String = "",
     val selectedModel: String = "",
-    val repos: List<RepoJSON> = emptyList(),
-    val harnesses: List<HarnessJSON> = emptyList(),
+    val repos: List<Repo> = emptyList(),
+    val harnesses: List<HarnessInfo> = emptyList(),
     val submitting: Boolean = false,
     val error: String? = null,
 )
@@ -582,7 +582,7 @@ On `"usage"` events: update usage. Reconnection uses SDK's backoff wrapper.
 
 ```kotlin
 data class TaskDetailState(
-    val task: TaskJSON? = null,
+    val task: Task? = null,
     val messages: List<EventMessage> = emptyList(),
     val turns: List<Turn> = emptyList(),
     val todos: List<TodoItem> = emptyList(),

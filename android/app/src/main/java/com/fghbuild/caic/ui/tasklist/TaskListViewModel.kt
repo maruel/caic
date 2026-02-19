@@ -4,11 +4,11 @@ package com.fghbuild.caic.ui.tasklist
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.caic.sdk.ApiClient
-import com.caic.sdk.ConfigJSON
+import com.caic.sdk.Config
 import com.caic.sdk.CreateTaskReq
-import com.caic.sdk.HarnessJSON
-import com.caic.sdk.RepoJSON
-import com.caic.sdk.TaskJSON
+import com.caic.sdk.HarnessInfo
+import com.caic.sdk.Repo
+import com.caic.sdk.Task
 import com.caic.sdk.UsageResp
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
@@ -23,12 +23,12 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class TaskListState(
-    val tasks: List<TaskJSON> = emptyList(),
+    val tasks: List<Task> = emptyList(),
     val connected: Boolean = false,
     val serverConfigured: Boolean = false,
-    val repos: List<RepoJSON> = emptyList(),
-    val harnesses: List<HarnessJSON> = emptyList(),
-    val config: ConfigJSON? = null,
+    val repos: List<Repo> = emptyList(),
+    val harnesses: List<HarnessInfo> = emptyList(),
+    val config: Config? = null,
     val usage: UsageResp? = null,
     val selectedRepo: String = "",
     val selectedHarness: String = "claude",
@@ -55,7 +55,7 @@ class TaskListViewModel @Inject constructor(
         _formState,
     ) { tasks, connected, usage, settings, form ->
         val sorted = tasks.sortedWith(
-            compareByDescending<TaskJSON> { it.state in activeStates }
+            compareByDescending<Task> { it.state in activeStates }
                 .thenByDescending { it.id }
         )
         TaskListState(
@@ -164,9 +164,9 @@ class TaskListViewModel @Inject constructor(
     }
 
     private data class FormState(
-        val repos: List<RepoJSON> = emptyList(),
-        val harnesses: List<HarnessJSON> = emptyList(),
-        val config: ConfigJSON? = null,
+        val repos: List<Repo> = emptyList(),
+        val harnesses: List<HarnessInfo> = emptyList(),
+        val config: Config? = null,
         val recentRepoCount: Int = 0,
         val selectedRepo: String = "",
         val selectedHarness: String = "claude",

@@ -592,7 +592,7 @@ function groupMessages(msgs: ClaudeEventMessage[]): MessageGroup[] {
         }
         break;
       case "diffStat":
-        // Metadata-only; live diff stat shown in the task list via TaskJSON.diffStat.
+        // Metadata-only; live diff stat shown in the task list via Task.diffStat.
         break;
       default:
         groups.push({ kind: "other", events: [ev], toolCalls: [] });
