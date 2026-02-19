@@ -18,6 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 class FunctionHandlers(
     private val apiClient: ApiClient,
     private val taskNumberMap: TaskNumberMap,
+    private val excludedTaskIds: () -> Set<String>,
 ) {
 
     suspend fun handle(name: String, args: JsonObject): JsonElement {
@@ -40,7 +41,8 @@ class FunctionHandlers(
     }
 
     private suspend fun handleListTasks(): JsonElement {
-        val tasks = apiClient.listTasks()
+        val excluded = excludedTaskIds()
+        val tasks = apiClient.listTasks().filter { it.id !in excluded }
         if (tasks.isEmpty()) return textResult("No tasks running.")
         val lines = tasks.joinToString("\n") { t ->
             val num = taskNumberMap.toNumber(t.id) ?: 0
@@ -64,7 +66,8 @@ class FunctionHandlers(
             )
         )
         // Refresh the map so the new task gets a number.
-        val tasks = apiClient.listTasks()
+        val excluded = excludedTaskIds()
+        val tasks = apiClient.listTasks().filter { it.id !in excluded }
         taskNumberMap.update(tasks)
         val num = taskNumberMap.toNumber(resp.id)
         return if (num != null) {

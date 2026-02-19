@@ -98,6 +98,10 @@ class VoiceSessionManager @Inject constructor(
 
     val taskNumberMap = TaskNumberMap()
 
+    /** Task IDs to exclude from AI context (e.g. already-terminated tasks at session start). */
+    @Volatile
+    var excludedTaskIds: Set<String> = emptySet()
+
     fun setError(message: String) {
         Log.e(TAG, "setError: $message")
         releaseAudio()
@@ -134,7 +138,7 @@ class VoiceSessionManager @Inject constructor(
                 }
 
                 val apiClient = ApiClient(settings.serverURL)
-                functionHandlers = FunctionHandlers(apiClient, taskNumberMap)
+                functionHandlers = FunctionHandlers(apiClient, taskNumberMap) { excludedTaskIds }
 
                 val tokenResp = apiClient.getVoiceToken()
                 setStatus("Connecting…")

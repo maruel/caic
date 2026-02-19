@@ -27,6 +27,13 @@ class TaskNumberMap {
         }
     }
 
+    /** Clear all mappings and reset the counter. */
+    fun reset() {
+        idToNumber.clear()
+        numberToId.clear()
+        nextNumber = 1
+    }
+
     fun toId(number: Int): String? = numberToId[number]
 
     fun toNumber(id: String): Int? = idToNumber[id]

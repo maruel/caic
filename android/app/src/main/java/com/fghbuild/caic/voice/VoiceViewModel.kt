@@ -47,7 +47,9 @@ class VoiceViewModel @Inject constructor(
                             .filter { it.state == "terminated" || it.state == "failed" }
                             .map { it.id }
                             .toSet()
+                        voiceSessionManager.excludedTaskIds = preTerminatedIds
                         val active = tasks.filter { it.id !in preTerminatedIds }
+                        taskNumberMap.reset()
                         taskNumberMap.update(active)
                         voiceSessionManager.injectText(buildSnapshot(active))
                         previousTaskStates = tasks.associate { it.id to it.state }
@@ -57,8 +59,8 @@ class VoiceViewModel @Inject constructor(
         // Track state changes for diff-based notifications while connected.
         viewModelScope.launch {
             taskRepository.tasks.collect { tasks ->
-                taskNumberMap.update(tasks.filter { it.id !in preTerminatedIds })
                 if (voiceSessionManager.state.value.connected) {
+                    taskNumberMap.update(tasks.filter { it.id !in preTerminatedIds })
                     notifyTaskChanges(tasks)
                 }
                 previousTaskStates = tasks.associate { it.id to it.state }
