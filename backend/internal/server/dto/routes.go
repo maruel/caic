@@ -1,31 +1,46 @@
-// API route declarations used by the code generator to produce a typed TS client.
+// API route declarations used by the code generator to produce typed TS and Kotlin clients.
 package dto
+
+import "reflect"
 
 // Route describes a single API endpoint for code generation.
 type Route struct {
-	Name     string // TS function name, e.g. "listRepos"
-	Method   string // "GET" or "POST"
-	Path     string // "/api/v1/tasks/{id}/input"
-	ReqType  string // TS type name or "" for no body
-	RespType string // TS type name
-	IsArray  bool   // response is T[] not T
-	IsSSE    bool   // SSE stream, not JSON
+	Name    string       // Function name, e.g. "listRepos"
+	Method  string       // "GET" or "POST"
+	Path    string       // "/api/v1/tasks/{id}/input"
+	Req     reflect.Type // Request body type; nil for no body.
+	Resp    reflect.Type // Response body type.
+	IsArray bool         // response is T[] not T
+	IsSSE   bool         // SSE stream, not JSON
+}
+
+// ReqName returns the request type name, or "" if Req is nil.
+func (r *Route) ReqName() string {
+	if r.Req == nil {
+		return ""
+	}
+	return r.Req.Name()
+}
+
+// RespName returns the response type name.
+func (r *Route) RespName() string {
+	return r.Resp.Name()
 }
 
 // Routes is the authoritative list of API endpoints. The gen-api-client
-// tool reads this slice to generate the typed TypeScript client.
+// tool reads this slice to generate the typed TypeScript and Kotlin clients.
 var Routes = []Route{
-	{Name: "getConfig", Method: "GET", Path: "/api/v1/config", RespType: "ConfigJSON"},
-	{Name: "listHarnesses", Method: "GET", Path: "/api/v1/harnesses", RespType: "HarnessJSON", IsArray: true},
-	{Name: "listRepos", Method: "GET", Path: "/api/v1/repos", RespType: "RepoJSON", IsArray: true},
-	{Name: "listTasks", Method: "GET", Path: "/api/v1/tasks", RespType: "TaskJSON", IsArray: true},
-	{Name: "createTask", Method: "POST", Path: "/api/v1/tasks", ReqType: "CreateTaskReq", RespType: "CreateTaskResp"},
-	{Name: "taskRawEvents", Method: "GET", Path: "/api/v1/tasks/{id}/raw_events", IsSSE: true, RespType: "ClaudeEventMessage"},
-	{Name: "taskEvents", Method: "GET", Path: "/api/v1/tasks/{id}/events", IsSSE: true, RespType: "EventMessage"},
-	{Name: "sendInput", Method: "POST", Path: "/api/v1/tasks/{id}/input", ReqType: "InputReq", RespType: "StatusResp"},
-	{Name: "restartTask", Method: "POST", Path: "/api/v1/tasks/{id}/restart", ReqType: "RestartReq", RespType: "StatusResp"},
-	{Name: "terminateTask", Method: "POST", Path: "/api/v1/tasks/{id}/terminate", RespType: "StatusResp"},
-	{Name: "syncTask", Method: "POST", Path: "/api/v1/tasks/{id}/sync", ReqType: "SyncReq", RespType: "SyncResp"},
-	{Name: "getUsage", Method: "GET", Path: "/api/v1/usage", RespType: "UsageResp"},
-	{Name: "getVoiceToken", Method: "GET", Path: "/api/v1/voice/token", RespType: "VoiceTokenResp"},
+	{Name: "getConfig", Method: "GET", Path: "/api/v1/config", Resp: reflect.TypeFor[ConfigJSON]()},
+	{Name: "listHarnesses", Method: "GET", Path: "/api/v1/harnesses", Resp: reflect.TypeFor[HarnessJSON](), IsArray: true},
+	{Name: "listRepos", Method: "GET", Path: "/api/v1/repos", Resp: reflect.TypeFor[RepoJSON](), IsArray: true},
+	{Name: "listTasks", Method: "GET", Path: "/api/v1/tasks", Resp: reflect.TypeFor[TaskJSON](), IsArray: true},
+	{Name: "createTask", Method: "POST", Path: "/api/v1/tasks", Req: reflect.TypeFor[CreateTaskReq](), Resp: reflect.TypeFor[CreateTaskResp]()},
+	{Name: "taskRawEvents", Method: "GET", Path: "/api/v1/tasks/{id}/raw_events", Resp: reflect.TypeFor[ClaudeEventMessage](), IsSSE: true},
+	{Name: "taskEvents", Method: "GET", Path: "/api/v1/tasks/{id}/events", Resp: reflect.TypeFor[EventMessage](), IsSSE: true},
+	{Name: "sendInput", Method: "POST", Path: "/api/v1/tasks/{id}/input", Req: reflect.TypeFor[InputReq](), Resp: reflect.TypeFor[StatusResp]()},
+	{Name: "restartTask", Method: "POST", Path: "/api/v1/tasks/{id}/restart", Req: reflect.TypeFor[RestartReq](), Resp: reflect.TypeFor[StatusResp]()},
+	{Name: "terminateTask", Method: "POST", Path: "/api/v1/tasks/{id}/terminate", Resp: reflect.TypeFor[StatusResp]()},
+	{Name: "syncTask", Method: "POST", Path: "/api/v1/tasks/{id}/sync", Req: reflect.TypeFor[SyncReq](), Resp: reflect.TypeFor[SyncResp]()},
+	{Name: "getUsage", Method: "GET", Path: "/api/v1/usage", Resp: reflect.TypeFor[UsageResp]()},
+	{Name: "getVoiceToken", Method: "GET", Path: "/api/v1/voice/token", Resp: reflect.TypeFor[VoiceTokenResp]()},
 }

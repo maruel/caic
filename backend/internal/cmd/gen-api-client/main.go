@@ -55,13 +55,12 @@ func run() error {
 func generateTS(outDir string) error {
 	// Collect all referenced types for the import statement.
 	types := map[string]struct{}{}
-	for _, r := range dto.Routes {
-		if r.ReqType != "" {
-			types[r.ReqType] = struct{}{}
+	for i := range dto.Routes {
+		r := &dto.Routes[i]
+		if n := r.ReqName(); n != "" {
+			types[n] = struct{}{}
 		}
-		if r.RespType != "" {
-			types[r.RespType] = struct{}{}
-		}
+		types[r.RespName()] = struct{}{}
 	}
 	types["ErrorResponse"] = struct{}{}
 
@@ -115,7 +114,7 @@ func generateTS(outDir string) error {
 }
 
 func writeTSJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
-	respType := r.RespType
+	respType := r.RespName()
 	if r.IsArray {
 		respType += "[]"
 	}
@@ -125,14 +124,15 @@ func writeTSJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
 	for _, p := range params {
 		args = append(args, p+": string")
 	}
-	if r.ReqType != "" {
-		args = append(args, "req: "+r.ReqType)
+	hasReq := r.Req != nil
+	if hasReq {
+		args = append(args, "req: "+r.ReqName())
 	}
 
 	tsPath := buildTSPath(r.Path, params)
 
 	fmt.Fprintf(b, "export function %s(%s): Promise<%s> {\n", r.Name, strings.Join(args, ", "), respType)
-	if r.ReqType != "" {
+	if hasReq {
 		fmt.Fprintf(b, "  return request<%s>(%q, %s, req);\n", respType, r.Method, tsPath)
 	} else {
 		fmt.Fprintf(b, "  return request<%s>(%q, %s);\n", respType, r.Method, tsPath)
@@ -146,18 +146,14 @@ func writeTSSSEFunc(b *strings.Builder, r *dto.Route, params []string) {
 		args = append(args, p+": string")
 	}
 	tsPath := buildTSPath(r.Path, params)
-	if r.RespType != "" {
-		args = append(args, "onMessage: (event: "+r.RespType+") => void")
-		fmt.Fprintf(b, "export function %s(%s): EventSource {\n", r.Name, strings.Join(args, ", "))
-		fmt.Fprintf(b, "  const es = new EventSource(%s);\n", tsPath)
-		b.WriteString("  es.addEventListener(\"message\", (e) => {\n")
-		fmt.Fprintf(b, "    onMessage(JSON.parse(e.data) as %s);\n", r.RespType)
-		b.WriteString("  });\n")
-		b.WriteString("  return es;\n")
-	} else {
-		fmt.Fprintf(b, "export function %s(%s): EventSource {\n", r.Name, strings.Join(args, ", "))
-		fmt.Fprintf(b, "  return new EventSource(%s);\n", tsPath)
-	}
+	respName := r.RespName()
+	args = append(args, "onMessage: (event: "+respName+") => void")
+	fmt.Fprintf(b, "export function %s(%s): EventSource {\n", r.Name, strings.Join(args, ", "))
+	fmt.Fprintf(b, "  const es = new EventSource(%s);\n", tsPath)
+	b.WriteString("  es.addEventListener(\"message\", (e) => {\n")
+	fmt.Fprintf(b, "    onMessage(JSON.parse(e.data) as %s);\n", respName)
+	b.WriteString("  });\n")
+	b.WriteString("  return es;\n")
 	b.WriteString("}\n\n")
 }
 
@@ -246,28 +242,6 @@ var kotlinErrorCodes = []kotlinConstant{
 	{"InternalError", string(dto.CodeInternalError)},
 }
 
-// kotlinRouteTypes maps route ReqType/RespType names to their reflect.Type.
-// New dto structs referenced by routes are picked up automatically; structs
-// reachable transitively through fields are discovered by discoverKotlinStructs.
-var kotlinRouteTypes = map[string]reflect.Type{
-	"HarnessJSON":        reflect.TypeFor[dto.HarnessJSON](),
-	"ConfigJSON":         reflect.TypeFor[dto.ConfigJSON](),
-	"RepoJSON":           reflect.TypeFor[dto.RepoJSON](),
-	"TaskJSON":           reflect.TypeFor[dto.TaskJSON](),
-	"StatusResp":         reflect.TypeFor[dto.StatusResp](),
-	"CreateTaskResp":     reflect.TypeFor[dto.CreateTaskResp](),
-	"CreateTaskReq":      reflect.TypeFor[dto.CreateTaskReq](),
-	"InputReq":           reflect.TypeFor[dto.InputReq](),
-	"RestartReq":         reflect.TypeFor[dto.RestartReq](),
-	"SyncReq":            reflect.TypeFor[dto.SyncReq](),
-	"SyncResp":           reflect.TypeFor[dto.SyncResp](),
-	"UsageResp":          reflect.TypeFor[dto.UsageResp](),
-	"VoiceTokenResp":     reflect.TypeFor[dto.VoiceTokenResp](),
-	"EventMessage":       reflect.TypeFor[dto.EventMessage](),
-	"ClaudeEventMessage": reflect.TypeFor[dto.ClaudeEventMessage](),
-	"ErrorResponse":      reflect.TypeFor[dto.ErrorResponse](),
-}
-
 // kotlinSectionComments maps type names to section comments emitted before
 // the struct in the generated output.
 var kotlinSectionComments = map[string]string{
@@ -275,8 +249,8 @@ var kotlinSectionComments = map[string]string{
 	"ClaudeEventMessage": "Claude-specific event types",
 }
 
-// discoverKotlinStructs walks the dto struct types reachable from
-// kotlinRouteTypes and returns them in dependency order (leaves first).
+// discoverKotlinStructs walks the dto struct types reachable from route
+// ReqRT/RespRT fields and returns them in dependency order (leaves first).
 func discoverKotlinStructs() []kotlinStruct {
 	dtoPkgPath := reflect.TypeFor[dto.StatusResp]().PkgPath()
 	seen := map[reflect.Type]bool{}
@@ -306,22 +280,16 @@ func discoverKotlinStructs() []kotlinStruct {
 		order = append(order, t)
 	}
 
-	// Seed from routes.
+	// Seed from route types.
 	for i := range dto.Routes {
 		r := &dto.Routes[i]
-		if r.ReqType != "" {
-			if t, ok := kotlinRouteTypes[r.ReqType]; ok {
-				walk(t)
-			}
+		if r.Req != nil {
+			walk(r.Req)
 		}
-		if r.RespType != "" {
-			if t, ok := kotlinRouteTypes[r.RespType]; ok {
-				walk(t)
-			}
-		}
+		walk(r.Resp)
 	}
 	// Always include error types.
-	walk(kotlinRouteTypes["ErrorResponse"])
+	walk(reflect.TypeFor[dto.ErrorResponse]())
 
 	result := make([]kotlinStruct, len(order))
 	for i, t := range order {
@@ -752,7 +720,7 @@ class ApiClient(baseURL: String) {
 }
 
 func writeKotlinJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
-	respType := r.RespType
+	respType := r.RespName()
 	if r.IsArray {
 		respType = "List<" + respType + ">"
 	}
@@ -762,14 +730,15 @@ func writeKotlinJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
 	for _, p := range params {
 		args = append(args, p+": String")
 	}
-	if r.ReqType != "" {
-		args = append(args, "req: "+r.ReqType)
+	hasReq := r.Req != nil
+	if hasReq {
+		args = append(args, "req: "+r.ReqName())
 	}
 
 	ktPath := buildKotlinPath(r.Path, params)
 
 	sig := strings.Join(args, ", ")
-	if r.ReqType != "" {
+	if hasReq {
 		fmt.Fprintf(b, "    suspend fun %s(%s): %s = request(%q, %s, json.encodeToString(req))\n", r.Name, sig, respType, r.Method, ktPath)
 	} else {
 		fmt.Fprintf(b, "    suspend fun %s(%s): %s = request(%q, %s)\n", r.Name, sig, respType, r.Method, ktPath)
@@ -782,7 +751,8 @@ func writeKotlinSSEFunc(b *strings.Builder, r *dto.Route, params []string) {
 		args = append(args, p+": String")
 	}
 	ktPath := buildKotlinPath(r.Path, params)
-	fmt.Fprintf(b, "    fun %s(%s): Flow<%s> = sseFlow<%s>(%s)\n", r.Name, strings.Join(args, ", "), r.RespType, r.RespType, ktPath)
+	respName := r.RespName()
+	fmt.Fprintf(b, "    fun %s(%s): Flow<%s> = sseFlow<%s>(%s)\n", r.Name, strings.Join(args, ", "), respName, respName, ktPath)
 }
 
 func writeKotlinReconnectingFunc(b *strings.Builder, r *dto.Route, params []string) {
@@ -797,7 +767,7 @@ func writeKotlinReconnectingFunc(b *strings.Builder, r *dto.Route, params []stri
 	}
 
 	fmt.Fprintf(b, "    fun %s(%s): Flow<%s> = reconnectingFlow { %s(%s) }\n",
-		reconnectName, strings.Join(args, ", "), r.RespType, r.Name, strings.Join(callArgs, ", "))
+		reconnectName, strings.Join(args, ", "), r.RespName(), r.Name, strings.Join(callArgs, ", "))
 }
 
 // buildKotlinPath returns a Kotlin string expression for the path. Uses string
