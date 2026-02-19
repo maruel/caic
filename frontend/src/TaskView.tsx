@@ -371,7 +371,7 @@ export default function TaskView(props: Props) {
 
       <TodoPanel messages={messages()} />
 
-      <Show when={isActive() || !!pendingAction()}>
+      <Show when={isActive() || !!pendingAction() || synced()}>
         <form onSubmit={(e) => { e.preventDefault(); sendInput(); }} class={styles.inputForm}>
           <PromptInput
             value={props.inputDraft}
