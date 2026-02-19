@@ -410,7 +410,7 @@ class VoiceSessionManager @Inject constructor(
                 // into the recording as garbled input. AEC alone is not reliable.
                 pauseRecording()
                 playAudio(pcmBytes)
-                _state.update { it.copy(speaking = true) }
+                _state.update { it.copy(speaking = true, micLevel = 0f) }
             }
         }
         content.inputTranscription?.text?.let { text ->
@@ -685,7 +685,8 @@ class VoiceSessionManager @Inject constructor(
         }
     }
 
-    /** RMS of PCM 16-bit LE mono samples, normalized to 0..1. */
+    /** RMS of PCM 16-bit LE mono samples, normalized to 0..1.
+     *  Applies sqrt scaling so normal speech levels produce visible indicator movement. */
     private fun rmsLevel(buffer: ByteArray, bytesRead: Int): Float {
         val samples = bytesRead / 2
         var sumSq = 0.0
@@ -695,7 +696,10 @@ class VoiceSessionManager @Inject constructor(
             val sample = (hi shl 8) or lo
             sumSq += sample.toDouble() * sample
         }
-        return (Math.sqrt(sumSq / samples) / Short.MAX_VALUE).toFloat().coerceIn(0f, 1f)
+        val linear = (Math.sqrt(sumSq / samples) / Short.MAX_VALUE).toFloat()
+        // Sqrt compresses the range so typical speech (~0.02-0.10 linear) maps to ~0.15-0.30,
+        // making the indicator visibly responsive.
+        return Math.sqrt(linear.toDouble()).toFloat().coerceIn(0f, 1f)
     }
 
     private fun sendAudioChunk(pcmBytes: ByteArray) {

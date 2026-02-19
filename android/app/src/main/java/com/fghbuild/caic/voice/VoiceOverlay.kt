@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
@@ -54,12 +53,10 @@ import androidx.compose.ui.unit.dp
 private const val PulseMinAlpha = 0.5f
 private const val PulseMaxAlpha = 1.0f
 private const val PulseDurationMs = 1000
-private const val BarAnimDurationMs = 400
 private const val BarCount = 3
-private const val BarMinHeight = 4
-private const val BarMaxHeight = 20
-private const val MicLevelMinSize = 10
-private const val MicLevelMaxSize = 18
+private const val BarMinHeight = 4f
+private const val BarMaxHeight = 20f
+private const val BarContainerSize = 24
 private val TranscriptHeight = 220.dp
 
 @Composable
@@ -161,11 +158,7 @@ private fun ActivePanel(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (voiceState.speaking) {
-                SpeakingIndicator()
-            } else {
-                ListeningIndicator(micLevel = voiceState.micLevel)
-            }
+            MicLevelIndicator(micLevel = voiceState.micLevel)
 
             val statusText = when {
                 voiceState.activeTool != null -> voiceState.activeTool!!
@@ -280,15 +273,34 @@ private fun TranscriptLog(
 }
 
 @Composable
-private fun ListeningIndicator(micLevel: Float = 0f) {
-    val sizeDp = MicLevelMinSize + micLevel * (MicLevelMaxSize - MicLevelMinSize)
-    val size by animateFloatAsState(targetValue = sizeDp, label = "micSize")
+private fun MicLevelIndicator(micLevel: Float = 0f) {
+    // Per-bar animation durations: center bar reacts fastest, outer bars lag behind.
+    val durations = intArrayOf(80, 40, 120)
     Box(
-        modifier = Modifier
-            .size(size.dp)
-            .clip(CircleShape)
-            .background(MaterialTheme.colorScheme.primary),
-    )
+        modifier = Modifier.size(BarContainerSize.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            repeat(BarCount) { index ->
+                val target = BarMinHeight + micLevel * (BarMaxHeight - BarMinHeight)
+                val height by animateFloatAsState(
+                    targetValue = target,
+                    animationSpec = tween(durationMillis = durations[index]),
+                    label = "bar$index",
+                )
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(height.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -311,38 +323,3 @@ private fun AudioDevicePicker(
     }
 }
 
-@Composable
-private fun SpeakingIndicator() {
-    val infiniteTransition = rememberInfiniteTransition(label = "speaking")
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        repeat(BarCount) { index ->
-            val fraction by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(
-                        durationMillis = BarAnimDurationMs,
-                        delayMillis = index * (BarAnimDurationMs / BarCount),
-                    ),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-                label = "bar$index",
-            )
-            val heightTarget = BarMinHeight + fraction * (BarMaxHeight - BarMinHeight)
-            val height by animateFloatAsState(
-                targetValue = heightTarget,
-                label = "barHeight$index",
-            )
-            Box(
-                modifier = Modifier
-                    .width(3.dp)
-                    .height(height.dp)
-                    .clip(RoundedCornerShape(1.dp))
-                    .background(MaterialTheme.colorScheme.primary),
-            )
-        }
-    }
-}
