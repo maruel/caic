@@ -60,15 +60,11 @@ export default function PromptInput(props: Props) {
   let fileInputRef!: HTMLInputElement;
 
   async function handleFileChange() {
-    const files = fileInputRef.files;
-    if (!files?.length) return;
-    // Snapshot and reset synchronously to prevent double-processing when
-    // browsers fire both "change" and "input" for the same selection.
-    const snapshot = Array.from(files);
-    fileInputRef.value = "";
-    const imgs = await Promise.all(snapshot.map(fileToImageData));
+    if (!fileInputRef.files?.length) return;
+    const imgs = await Promise.all(Array.from(fileInputRef.files).map(fileToImageData));
     const valid = imgs.filter((i): i is APIImageData => i !== null);
     if (valid.length > 0) props.onImagesChange([...props.images, ...valid]);
+    fileInputRef.value = "";
   }
 
   function removeImage(idx: number) {
@@ -99,19 +95,12 @@ export default function PromptInput(props: Props) {
         />
         <Show when={props.supportsImages}>
           <input
-            ref={(el) => {
-              fileInputRef = el;
-              // Chrome Android may not fire "change" on file inputs; listen
-              // to both "change" and "input" via addEventListener so at least
-              // one fires. The guard in handleFileChange (files?.length + value
-              // reset) prevents double-processing on browsers that fire both.
-              el.addEventListener("change", handleFileChange);
-              el.addEventListener("input", handleFileChange);
-            }}
+            ref={(el) => { fileInputRef = el; }}
             type="file"
             multiple
             accept="image/png,image/jpeg,image/gif,image/webp"
             class={styles.hiddenFileInput}
+            onChange={handleFileChange}
           />
           <Button type="button" variant="gray" disabled={props.disabled} title="Attach images" onClick={() => fileInputRef.click()}>
             <AttachIcon width="1.2em" height="1.2em" />
