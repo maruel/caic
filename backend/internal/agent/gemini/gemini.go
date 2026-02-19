@@ -30,6 +30,9 @@ func (b *Backend) Harness() agent.Harness { return agent.Gemini }
 // Models returns the model names supported by Gemini CLI.
 func (b *Backend) Models() []string { return []string{"gemini-2.5-pro", "gemini-2.5-flash"} }
 
+// SupportsImages reports that Gemini CLI does not yet accept image input.
+func (b *Backend) SupportsImages() bool { return false }
+
 // Start launches a Gemini CLI process via the relay daemon in the given
 // container.
 func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
@@ -64,7 +67,7 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 	log := slog.With("container", opts.Container)
 	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
 	if opts.Prompt != "" {
-		if err := s.Send(opts.Prompt); err != nil {
+		if err := s.Send(opts.Prompt, nil); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("write prompt: %w", err)
 		}
@@ -128,8 +131,8 @@ func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
 }
 
 // WritePrompt writes a single user message to Gemini CLI's stdin.
-// Gemini CLI in -p mode reads plain text lines from stdin.
-func (*Backend) WritePrompt(w io.Writer, prompt string, logW io.Writer) error {
+// Gemini CLI in -p mode reads plain text lines from stdin. Images are ignored.
+func (*Backend) WritePrompt(w io.Writer, prompt string, _ []agent.ImageData, logW io.Writer) error {
 	data := []byte(prompt + "\n")
 	if _, err := w.Write(data); err != nil {
 		return err

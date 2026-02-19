@@ -325,7 +325,7 @@ func (*fakeBackend) Start(_ context.Context, opts *agent.Options, msgCh chan<- a
 	}
 	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, claude.Wire, nil)
 	if opts.Prompt != "" {
-		if err := s.Send(opts.Prompt); err != nil {
+		if err := s.Send(opts.Prompt, nil); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("write prompt: %w", err)
 		}
@@ -346,6 +346,8 @@ func (*fakeBackend) ParseMessage(line []byte) (agent.Message, error) {
 }
 
 func (*fakeBackend) Models() []string { return []string{"fake-model"} }
+
+func (*fakeBackend) SupportsImages() bool { return true }
 
 // cacheDir returns the caic log/cache directory, using $XDG_CACHE_HOME/caic/
 // with a fallback to ~/.cache/caic/.

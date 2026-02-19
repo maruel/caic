@@ -249,6 +249,7 @@ export interface EventSystem {
  */
 export interface EventUserInput {
   text: string;
+  images?: ImageData[];
 }
 /**
  * TodoItem is a single todo entry from a TodoWrite tool call.
@@ -447,6 +448,7 @@ export interface ClaudeEventSystem {
  */
 export interface ClaudeEventUserInput {
   text: string;
+  images?: ImageData[];
 }
 /**
  * ClaudeTodoItem is a single todo entry from a Claude TodoWrite tool call.
@@ -499,6 +501,14 @@ export const HarnessGemini: Harness = "gemini";
 export interface HarnessJSON {
   name: string;
   models: string[];
+  supportsImages: boolean;
+}
+/**
+ * ImageData carries a single base64-encoded image.
+ */
+export interface ImageData {
+  mediaType: string; // e.g. "image/png", "image/jpeg"
+  data: string; // base64-encoded
 }
 /**
  * ConfigJSON reports server capabilities to the frontend.
@@ -575,6 +585,7 @@ export interface CreateTaskReq {
   model?: string;
   harness: Harness;
   image?: string;
+  images?: ImageData[];
   tailscale?: boolean;
   usb?: boolean;
   display?: boolean;
@@ -584,6 +595,7 @@ export interface CreateTaskReq {
  */
 export interface InputReq {
   prompt: string;
+  images?: ImageData[];
 }
 /**
  * RestartReq is the request body for POST /api/v1/tasks/{id}/restart.

@@ -30,6 +30,9 @@ func (b *Backend) Harness() agent.Harness { return agent.Claude }
 // Models returns the model aliases supported by Claude Code CLI.
 func (b *Backend) Models() []string { return []string{"opus", "sonnet", "haiku"} }
 
+// SupportsImages reports that Claude Code accepts image content blocks.
+func (b *Backend) SupportsImages() bool { return true }
+
 // Start launches a Claude Code process via the relay daemon in the given
 // container. It deploys the relay script and starts claude via serve-attach.
 func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
@@ -63,8 +66,8 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 
 	log := slog.With("container", opts.Container)
 	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
-	if opts.Prompt != "" {
-		if err := s.Send(opts.Prompt); err != nil {
+	if opts.Prompt != "" || len(opts.Images) > 0 {
+		if err := s.Send(opts.Prompt, opts.Images); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("write prompt: %w", err)
 		}
@@ -135,14 +138,48 @@ type userInputMessage struct {
 
 type userInputContent struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"` // string or []contentBlock
+}
+
+// contentBlock is a single block in the content array sent to Claude Code.
+type contentBlock struct {
+	Type   string       `json:"type"`
+	Source *imageSource `json:"source,omitempty"`
+	Text   string       `json:"text,omitempty"`
+}
+
+type imageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 // WritePrompt writes a single user message in Claude Code's stdin format.
-func (*Backend) WritePrompt(w io.Writer, prompt string, logW io.Writer) error {
+// When images are provided, content is emitted as an array of content blocks.
+func (*Backend) WritePrompt(w io.Writer, prompt string, images []agent.ImageData, logW io.Writer) error {
+	var content any
+	if len(images) == 0 {
+		content = prompt
+	} else {
+		blocks := make([]contentBlock, 0, len(images)+1)
+		for _, img := range images {
+			blocks = append(blocks, contentBlock{
+				Type: "image",
+				Source: &imageSource{
+					Type:      "base64",
+					MediaType: img.MediaType,
+					Data:      img.Data,
+				},
+			})
+		}
+		if prompt != "" {
+			blocks = append(blocks, contentBlock{Type: "text", Text: prompt})
+		}
+		content = blocks
+	}
 	msg := userInputMessage{
 		Type:    "user",
-		Message: userInputContent{Role: "user", Content: prompt},
+		Message: userInputContent{Role: "user", Content: content},
 	}
 	data, err := json.Marshal(msg)
 	if err != nil {

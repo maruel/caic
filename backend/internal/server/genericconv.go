@@ -164,14 +164,14 @@ func (gt *genericToolTimingTracker) convertAssistant(m *agent.AssistantMessage, 
 
 func (gt *genericToolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now time.Time) []dto.EventMessage {
 	if m.ParentToolUseID == nil {
-		text := extractUserInputText(m.Message)
-		if text == "" {
+		ui := extractUserInput(m.Message)
+		if ui.Text == "" && len(ui.Images) == 0 {
 			return nil
 		}
 		return []dto.EventMessage{{
 			Kind:      dto.EventKindUserInput,
 			Ts:        ts,
-			UserInput: &dto.EventUserInput{Text: text},
+			UserInput: &dto.EventUserInput{Text: ui.Text, Images: ui.Images},
 		}}
 	}
 	toolUseID := *m.ParentToolUseID

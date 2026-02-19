@@ -15,13 +15,31 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("InputReq", func(t *testing.T) {
-		t.Run("MissingPrompt", func(t *testing.T) {
-			assertBadRequest(t, (&InputReq{}).Validate(), "prompt is required")
+		t.Run("MissingPromptAndImages", func(t *testing.T) {
+			assertBadRequest(t, (&InputReq{}).Validate(), "prompt or images required")
 		})
 		t.Run("Valid", func(t *testing.T) {
 			if err := (&InputReq{Prompt: "hello"}).Validate(); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
+		})
+		t.Run("ImagesOnly", func(t *testing.T) {
+			r := &InputReq{Images: []ImageData{{MediaType: "image/png", Data: "abc"}}}
+			if err := r.Validate(); err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+		t.Run("InvalidImageMediaType", func(t *testing.T) {
+			r := &InputReq{Prompt: "x", Images: []ImageData{{MediaType: "image/bmp", Data: "abc"}}}
+			assertBadRequest(t, r.Validate(), "unsupported image mediaType: image/bmp")
+		})
+		t.Run("MissingImageData", func(t *testing.T) {
+			r := &InputReq{Prompt: "x", Images: []ImageData{{MediaType: "image/png"}}}
+			assertBadRequest(t, r.Validate(), "image data is required")
+		})
+		t.Run("MissingImageMediaType", func(t *testing.T) {
+			r := &InputReq{Prompt: "x", Images: []ImageData{{Data: "abc"}}}
+			assertBadRequest(t, r.Validate(), "image mediaType is required")
 		})
 	})
 
@@ -56,7 +74,7 @@ func TestValidate(t *testing.T) {
 		t.Run("MissingPrompt", func(t *testing.T) {
 			r := valid
 			r.Prompt = ""
-			assertBadRequest(t, r.Validate(), "prompt is required")
+			assertBadRequest(t, r.Validate(), "prompt or images required")
 		})
 		t.Run("MissingRepo", func(t *testing.T) {
 			r := valid

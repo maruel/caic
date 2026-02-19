@@ -423,23 +423,76 @@ func TestConvertUserNoParentID_Empty(t *testing.T) {
 }
 
 func TestConvertUserInput(t *testing.T) {
-	tt := newToolTimingTracker()
-	user := &agent.UserMessage{
-		MessageType: "user",
-		Message:     json.RawMessage(`{"role":"user","content":"hello agent"}`),
-	}
-	events := tt.convertMessage(user, time.Now())
-	if len(events) != 1 {
-		t.Fatalf("got %d events, want 1", len(events))
-	}
-	ev := events[0]
-	if ev.Kind != dto.ClaudeEventKindUserInput {
-		t.Errorf("kind = %q, want %q", ev.Kind, dto.ClaudeEventKindUserInput)
-	}
-	if ev.UserInput == nil {
-		t.Fatal("userInput payload is nil")
-	}
-	if ev.UserInput.Text != "hello agent" {
-		t.Errorf("text = %q, want %q", ev.UserInput.Text, "hello agent")
-	}
+	t.Run("TextOnly", func(t *testing.T) {
+		tt := newToolTimingTracker()
+		user := &agent.UserMessage{
+			MessageType: "user",
+			Message:     json.RawMessage(`{"role":"user","content":"hello agent"}`),
+		}
+		events := tt.convertMessage(user, time.Now())
+		if len(events) != 1 {
+			t.Fatalf("got %d events, want 1", len(events))
+		}
+		ev := events[0]
+		if ev.Kind != dto.ClaudeEventKindUserInput {
+			t.Errorf("kind = %q, want %q", ev.Kind, dto.ClaudeEventKindUserInput)
+		}
+		if ev.UserInput == nil {
+			t.Fatal("userInput payload is nil")
+		}
+		if ev.UserInput.Text != "hello agent" {
+			t.Errorf("text = %q, want %q", ev.UserInput.Text, "hello agent")
+		}
+		if len(ev.UserInput.Images) != 0 {
+			t.Errorf("images = %d, want 0", len(ev.UserInput.Images))
+		}
+	})
+
+	t.Run("WithImages", func(t *testing.T) {
+		tt := newToolTimingTracker()
+		raw := `{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"abc123"}},{"type":"text","text":"describe this"}]}`
+		user := &agent.UserMessage{
+			MessageType: "user",
+			Message:     json.RawMessage(raw),
+		}
+		events := tt.convertMessage(user, time.Now())
+		if len(events) != 1 {
+			t.Fatalf("got %d events, want 1", len(events))
+		}
+		ev := events[0]
+		if ev.Kind != dto.ClaudeEventKindUserInput {
+			t.Errorf("kind = %q, want %q", ev.Kind, dto.ClaudeEventKindUserInput)
+		}
+		if ev.UserInput.Text != "describe this" {
+			t.Errorf("text = %q, want %q", ev.UserInput.Text, "describe this")
+		}
+		if len(ev.UserInput.Images) != 1 {
+			t.Fatalf("images = %d, want 1", len(ev.UserInput.Images))
+		}
+		if ev.UserInput.Images[0].MediaType != "image/png" {
+			t.Errorf("mediaType = %q, want %q", ev.UserInput.Images[0].MediaType, "image/png")
+		}
+		if ev.UserInput.Images[0].Data != "abc123" {
+			t.Errorf("data = %q, want %q", ev.UserInput.Images[0].Data, "abc123")
+		}
+	})
+
+	t.Run("ImagesOnly", func(t *testing.T) {
+		tt := newToolTimingTracker()
+		raw := `{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"xyz"}}]}`
+		user := &agent.UserMessage{
+			MessageType: "user",
+			Message:     json.RawMessage(raw),
+		}
+		events := tt.convertMessage(user, time.Now())
+		if len(events) != 1 {
+			t.Fatalf("got %d events, want 1", len(events))
+		}
+		if events[0].UserInput.Text != "" {
+			t.Errorf("text = %q, want empty", events[0].UserInput.Text)
+		}
+		if len(events[0].UserInput.Images) != 1 {
+			t.Fatalf("images = %d, want 1", len(events[0].UserInput.Images))
+		}
+	})
 }

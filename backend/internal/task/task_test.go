@@ -131,7 +131,7 @@ func TestTask(t *testing.T) {
 	t.Run("SendInput", func(t *testing.T) {
 		t.Run("NoSession", func(t *testing.T) {
 			tk := &Task{Prompt: "test", State: StateWaiting}
-			err := tk.SendInput("hello")
+			err := tk.SendInput("hello", nil)
 			if err == nil {
 				t.Fatal("expected error when no session is active")
 			}
@@ -163,7 +163,7 @@ func TestTask(t *testing.T) {
 			s := agent.NewSession(cmd, stdin, stdout, nil, nil, &testWire{}, nil)
 			<-s.Done()
 			tk.AttachSession(&SessionHandle{Session: s})
-			err = tk.SendInput("hello")
+			err = tk.SendInput("hello", nil)
 			if err == nil {
 				t.Fatal("expected error for dead session")
 			}

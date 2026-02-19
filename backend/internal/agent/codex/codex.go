@@ -29,6 +29,9 @@ func (b *Backend) Harness() agent.Harness { return agent.Codex }
 // Models returns the model names supported by Codex CLI.
 func (b *Backend) Models() []string { return []string{"o4-mini", "codex-mini-latest"} }
 
+// SupportsImages reports that Codex CLI does not accept image input.
+func (b *Backend) SupportsImages() bool { return false }
+
 // Start launches a Codex CLI process via the relay daemon in the given
 // container.
 func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
@@ -121,7 +124,7 @@ func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
 
 // WritePrompt returns an error because Codex exec mode is non-interactive.
 // It does not read follow-up prompts from stdin.
-func (*Backend) WritePrompt(_ io.Writer, _ string, _ io.Writer) error {
+func (*Backend) WritePrompt(_ io.Writer, _ string, _ []agent.ImageData, _ io.Writer) error {
 	return errors.New("codex exec mode does not support follow-up prompts")
 }
 

@@ -145,7 +145,8 @@ type EventSystem struct {
 
 // EventUserInput is emitted when a user sends a text message to the agent.
 type EventUserInput struct {
-	Text string `json:"text"`
+	Text   string      `json:"text"`
+	Images []ImageData `json:"images,omitempty"`
 }
 
 // TodoItem is a single todo entry from a TodoWrite tool call.
@@ -295,7 +296,8 @@ type ClaudeEventSystem struct {
 
 // ClaudeEventUserInput is emitted when a user sends a text message to Claude.
 type ClaudeEventUserInput struct {
-	Text string `json:"text"`
+	Text   string      `json:"text"`
+	Images []ImageData `json:"images,omitempty"`
 }
 
 // ClaudeTodoItem is a single todo entry from a Claude TodoWrite tool call.

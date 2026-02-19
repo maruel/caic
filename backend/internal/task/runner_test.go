@@ -50,10 +50,13 @@ func (b *testBackend) ParseMessage(line []byte) (agent.Message, error) {
 
 func (b *testBackend) Models() []string { return []string{"test-model"} }
 
+// SupportsImages always returns false in the test backend.
+func (b *testBackend) SupportsImages() bool { return false }
+
 // testWire implements agent.WireFormat for testing.
 type testWire struct{}
 
-func (*testWire) WritePrompt(w io.Writer, prompt string, logW io.Writer) error {
+func (*testWire) WritePrompt(w io.Writer, prompt string, _ []agent.ImageData, logW io.Writer) error {
 	msg := struct {
 		Type    string `json:"type"`
 		Message struct {

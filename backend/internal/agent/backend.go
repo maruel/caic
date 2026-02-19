@@ -34,4 +34,7 @@ type Backend interface {
 
 	// Models returns the list of model names supported by this backend.
 	Models() []string
+
+	// SupportsImages reports whether this backend accepts image content blocks.
+	SupportsImages() bool
 }

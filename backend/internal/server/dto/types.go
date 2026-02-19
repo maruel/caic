@@ -19,8 +19,15 @@ const (
 
 // HarnessJSON is the JSON representation of an available harness.
 type HarnessJSON struct {
-	Name   string   `json:"name"`
-	Models []string `json:"models"`
+	Name           string   `json:"name"`
+	Models         []string `json:"models"`
+	SupportsImages bool     `json:"supportsImages"`
+}
+
+// ImageData carries a single base64-encoded image.
+type ImageData struct {
+	MediaType string `json:"mediaType"` // e.g. "image/png", "image/jpeg"
+	Data      string `json:"data"`      // base64-encoded
 }
 
 // ConfigJSON reports server capabilities to the frontend.
@@ -84,19 +91,21 @@ type CreateTaskResp struct {
 
 // CreateTaskReq is the request body for POST /api/v1/tasks.
 type CreateTaskReq struct {
-	Prompt    string  `json:"prompt"`
-	Repo      string  `json:"repo"`
-	Model     string  `json:"model,omitempty"`
-	Harness   Harness `json:"harness"`
-	Image     string  `json:"image,omitempty"`
-	Tailscale bool    `json:"tailscale,omitempty"`
-	USB       bool    `json:"usb,omitempty"`
-	Display   bool    `json:"display,omitempty"`
+	Prompt    string      `json:"prompt"`
+	Repo      string      `json:"repo"`
+	Model     string      `json:"model,omitempty"`
+	Harness   Harness     `json:"harness"`
+	Image     string      `json:"image,omitempty"`
+	Images    []ImageData `json:"images,omitempty"`
+	Tailscale bool        `json:"tailscale,omitempty"`
+	USB       bool        `json:"usb,omitempty"`
+	Display   bool        `json:"display,omitempty"`
 }
 
 // InputReq is the request body for POST /api/v1/tasks/{id}/input.
 type InputReq struct {
-	Prompt string `json:"prompt"`
+	Prompt string      `json:"prompt"`
+	Images []ImageData `json:"images,omitempty"`
 }
 
 // RestartReq is the request body for POST /api/v1/tasks/{id}/restart.

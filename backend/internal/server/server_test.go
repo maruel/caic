@@ -43,6 +43,8 @@ func (stubBackend) ParseMessage([]byte) (agent.Message, error) {
 
 func (stubBackend) Models() []string { return []string{"m1", "m2"} }
 
+func (stubBackend) SupportsImages() bool { return false }
+
 func decodeError(t *testing.T, w *httptest.ResponseRecorder) dto.ErrorDetails {
 	t.Helper()
 	var resp dto.ErrorResponse

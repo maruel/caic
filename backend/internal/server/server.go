@@ -370,7 +370,7 @@ func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.Harne
 	}
 	out := make([]dto.HarnessJSON, 0, len(seen))
 	for h, b := range seen {
-		out = append(out, dto.HarnessJSON{Name: string(h), Models: b.Models()})
+		out = append(out, dto.HarnessJSON{Name: string(h), Models: b.Models(), SupportsImages: b.SupportsImages()})
 	}
 	slices.SortFunc(out, func(a, b dto.HarnessJSON) int {
 		return strings.Compare(a.Name, b.Name)
@@ -413,7 +413,11 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest("unsupported model for " + string(req.Harness) + ": " + req.Model)
 	}
 
-	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display}
+	if len(req.Images) > 0 && !backend.SupportsImages() {
+		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
+	}
+
+	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model, Images: toAgentImages(req.Images), Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display}
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()
@@ -663,7 +667,13 @@ const (
 // SSH round-trip may outlive a cancelled HTTP request, and we want the log line
 // regardless.
 func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *dto.InputReq) (*dto.StatusResp, error) {
-	if err := entry.task.SendInput(req.Prompt); err != nil {
+	if len(req.Images) > 0 {
+		runner := s.runners[entry.task.Repo]
+		if b := runner.Backends[entry.task.Harness]; b != nil && !b.SupportsImages() {
+			return nil, dto.BadRequest(string(entry.task.Harness) + " does not support images")
+		}
+	}
+	if err := entry.task.SendInput(req.Prompt, toAgentImages(req.Images)); err != nil {
 		t := entry.task
 		rs := relayNoContainer
 		if t.Container != "" {

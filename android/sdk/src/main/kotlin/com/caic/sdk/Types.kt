@@ -39,7 +39,11 @@ object ErrorCodes {
 }
 
 @Serializable
-data class HarnessJSON(val name: String, val models: List<String>)
+data class HarnessJSON(
+    val name: String,
+    val models: List<String>,
+    val supportsImages: Boolean,
+)
 
 @Serializable
 data class ConfigJSON(
@@ -101,13 +105,14 @@ data class CreateTaskReq(
     val model: String? = null,
     val harness: Harness,
     val image: String? = null,
+    val images: List<ImageData>? = null,
     val tailscale: Boolean? = null,
     val usb: Boolean? = null,
     val display: Boolean? = null,
 )
 
 @Serializable
-data class InputReq(val prompt: String)
+data class InputReq(val prompt: String, val images: List<ImageData>? = null)
 
 @Serializable
 data class RestartReq(val prompt: String)
@@ -256,7 +261,7 @@ data class EventResult(
 data class EventSystem(val subtype: String)
 
 @Serializable
-data class EventUserInput(val text: String)
+data class EventUserInput(val text: String, val images: List<ImageData>? = null)
 
 @Serializable
 data class TodoItem(
@@ -367,7 +372,7 @@ data class ClaudeEventResult(
 data class ClaudeEventSystem(val subtype: String)
 
 @Serializable
-data class ClaudeEventUserInput(val text: String)
+data class ClaudeEventUserInput(val text: String, val images: List<ImageData>? = null)
 
 @Serializable
 data class ClaudeTodoItem(

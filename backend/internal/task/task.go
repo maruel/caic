@@ -77,13 +77,14 @@ type SessionHandle struct {
 type Task struct {
 	ID             ksid.ID
 	Prompt         string
-	Repo           string        // Relative repo path (for display/API).
-	Harness        agent.Harness // Agent harness ("claude", "gemini", etc.).
-	Image          string        // Custom Docker base image; empty means use the default.
-	Tailscale      bool          // Enable Tailscale networking in the container.
-	TailscaleFQDN  string        // Tailscale FQDN assigned to the container (empty if not available).
-	USB            bool          // Enable USB passthrough in the container.
-	Display        bool          // Enable Xvfb display in the container.
+	Repo           string            // Relative repo path (for display/API).
+	Harness        agent.Harness     // Agent harness ("claude", "gemini", etc.).
+	Images         []agent.ImageData // Base64-encoded images attached to the initial prompt.
+	Image          string            // Custom Docker base image; empty means use the default.
+	Tailscale      bool              // Enable Tailscale networking in the container.
+	TailscaleFQDN  string            // Tailscale FQDN assigned to the container (empty if not available).
+	USB            bool              // Enable USB passthrough in the container.
+	Display        bool              // Enable Xvfb display in the container.
 	MaxTurns       int
 	Branch         string
 	Container      string
@@ -396,11 +397,41 @@ func (t *Task) ClearMessages() {
 // syntheticUserInput creates a UserMessage representing user-provided text
 // input. It is injected into the message stream so that the JSONL log and SSE
 // events contain an explicit record of every user message.
-func syntheticUserInput(text string) *agent.UserMessage {
+//
+// When images are present, the Content field is a JSON array of content blocks
+// (matching the Claude API format) so that event converters can extract both
+// text and images from the raw message.
+func syntheticUserInput(text string, images []agent.ImageData) *agent.UserMessage {
+	var content any
+	if len(images) == 0 {
+		content = text
+	} else {
+		type imgSrc struct {
+			Type      string `json:"type"`
+			MediaType string `json:"media_type"`
+			Data      string `json:"data"`
+		}
+		type block struct {
+			Type   string  `json:"type"`
+			Source *imgSrc `json:"source,omitempty"`
+			Text   string  `json:"text,omitempty"`
+		}
+		blocks := make([]block, 0, len(images)+1)
+		for _, img := range images {
+			blocks = append(blocks, block{
+				Type:   "image",
+				Source: &imgSrc{Type: "base64", MediaType: img.MediaType, Data: img.Data},
+			})
+		}
+		if text != "" {
+			blocks = append(blocks, block{Type: "text", Text: text})
+		}
+		content = blocks
+	}
 	raw, _ := json.Marshal(struct {
 		Role    string `json:"role"`
-		Content string `json:"content"`
-	}{Role: "user", Content: text})
+		Content any    `json:"content"`
+	}{Role: "user", Content: content})
 	return &agent.UserMessage{
 		MessageType: "user",
 		Message:     raw,
@@ -540,7 +571,7 @@ const (
 // (e.g. relay died vs. never connected). The session watcher now handles
 // dead-session detection proactively, so SendInput no longer does lazy
 // cleanup.
-func (t *Task) SendInput(prompt string) error {
+func (t *Task) SendInput(prompt string, images []agent.ImageData) error {
 	t.mu.Lock()
 	h := t.handle
 	sessionStatus := SessionNone
@@ -560,6 +591,6 @@ func (t *Task) SendInput(prompt string) error {
 	if h == nil {
 		return fmt.Errorf("no active session (state=%s session=%s)", state, sessionStatus)
 	}
-	t.addMessage(syntheticUserInput(prompt))
-	return h.Session.Send(prompt)
+	t.addMessage(syntheticUserInput(prompt, images))
+	return h.Session.Send(prompt, images)
 }

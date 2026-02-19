@@ -177,14 +177,14 @@ func (tt *toolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now tim
 	// stream-json output. The frontend must infer completion for these tools
 	// from subsequent events rather than waiting for an explicit toolResult.
 	if m.ParentToolUseID == nil {
-		text := extractUserInputText(m.Message)
-		if text == "" {
+		ui := extractUserInput(m.Message)
+		if ui.Text == "" && len(ui.Images) == 0 {
 			return nil
 		}
 		return []dto.ClaudeEventMessage{{
 			Kind:      dto.ClaudeEventKindUserInput,
 			Ts:        ts,
-			UserInput: &dto.ClaudeEventUserInput{Text: text},
+			UserInput: &dto.ClaudeEventUserInput{Text: ui.Text, Images: ui.Images},
 		}}
 	}
 	toolUseID := *m.ParentToolUseID
@@ -253,20 +253,70 @@ func parseClaudeAskInput(raw json.RawMessage) []dto.ClaudeAskQuestion {
 	return nil
 }
 
-// extractUserInputText extracts the text from a user input message.
-// User inputs have the shape {"role":"user","content":"the text"}.
-func extractUserInputText(raw json.RawMessage) string {
+// userInput holds the text and optional images extracted from a synthetic
+// UserMessage. See syntheticUserInput in task.go for the two shapes:
+//   - {"role":"user","content":"text"}           (text only)
+//   - {"role":"user","content":[...blocks...]}   (images + optional text)
+type userInput struct {
+	Text   string
+	Images []dto.ImageData
+}
+
+// extractUserInput extracts text and images from a user input message.
+func extractUserInput(raw json.RawMessage) userInput {
 	if len(raw) == 0 {
-		return ""
+		return userInput{}
 	}
-	var msg struct {
+	// Try text-only shape first (most common).
+	var textMsg struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	}
-	if json.Unmarshal(raw, &msg) == nil && msg.Role == "user" {
-		return msg.Content
+	if json.Unmarshal(raw, &textMsg) == nil && textMsg.Role == "user" && textMsg.Content != "" {
+		return userInput{Text: textMsg.Content}
 	}
-	return ""
+	// Try content-block array shape (images).
+	var blockMsg struct {
+		Role    string `json:"role"`
+		Content []struct {
+			Type   string `json:"type"`
+			Text   string `json:"text,omitempty"`
+			Source *struct {
+				MediaType string `json:"media_type"`
+				Data      string `json:"data"`
+			} `json:"source,omitempty"`
+		} `json:"content"`
+	}
+	if json.Unmarshal(raw, &blockMsg) == nil && blockMsg.Role == "user" {
+		var ui userInput
+		for _, b := range blockMsg.Content {
+			switch b.Type {
+			case "text":
+				ui.Text = b.Text
+			case "image":
+				if b.Source != nil {
+					ui.Images = append(ui.Images, dto.ImageData{
+						MediaType: b.Source.MediaType,
+						Data:      b.Source.Data,
+					})
+				}
+			}
+		}
+		return ui
+	}
+	return userInput{}
+}
+
+// toAgentImages converts []dto.ImageData to []agent.ImageData at the server boundary.
+func toAgentImages(imgs []dto.ImageData) []agent.ImageData {
+	if len(imgs) == 0 {
+		return nil
+	}
+	out := make([]agent.ImageData, len(imgs))
+	for i, img := range imgs {
+		out[i] = agent.ImageData{MediaType: img.MediaType, Data: img.Data}
+	}
+	return out
 }
 
 // toDTOHarness converts agent.Harness to dto.Harness at the server boundary.

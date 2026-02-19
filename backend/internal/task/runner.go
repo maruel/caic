@@ -270,6 +270,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
 		Prompt:    t.Prompt,
+		Images:    t.Images,
 	}, msgCh, logW)
 	if err != nil {
 		_ = logW.Close()
@@ -283,7 +284,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
-	t.addMessage(syntheticUserInput(t.Prompt))
+	t.addMessage(syntheticUserInput(t.Prompt, t.Images))
 	t.setState(StateRunning)
 	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", name)
 	return h, nil
@@ -532,7 +533,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) (*S
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
-	t.addMessage(syntheticUserInput(prompt))
+	t.addMessage(syntheticUserInput(prompt, nil))
 
 	t.mu.Lock()
 	t.setState(StateRunning)
