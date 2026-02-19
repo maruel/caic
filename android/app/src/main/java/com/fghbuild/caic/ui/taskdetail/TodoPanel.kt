@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Circle
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
@@ -34,7 +36,7 @@ import com.caic.sdk.ClaudeTodoItem
 @Composable
 fun TodoPanel(todos: List<ClaudeTodoItem>, modifier: Modifier = Modifier) {
     if (todos.isEmpty()) return
-    var expanded by rememberSaveable { mutableStateOf(true) }
+    var expanded by rememberSaveable { mutableStateOf(false) }
     val completed = todos.count { it.status == "completed" }
 
     Card(modifier = modifier.fillMaxWidth()) {
@@ -51,6 +53,13 @@ fun TodoPanel(todos: List<ClaudeTodoItem>, modifier: Modifier = Modifier) {
                     text = "TODOS $completed/${todos.size}",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
+                )
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp
+                    else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Collapse" else "Expand",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp),
                 )
             }
             AnimatedVisibility(visible = expanded) {
