@@ -14,7 +14,7 @@ import (
 // testWire implements WireFormat for testing.
 type testWire struct{}
 
-func (testWire) WritePrompt(w io.Writer, prompt string, _ []ImageData, logW io.Writer) error {
+func (testWire) WritePrompt(w io.Writer, p Prompt, logW io.Writer) error {
 	msg := struct {
 		Type    string `json:"type"`
 		Message struct {
@@ -23,7 +23,7 @@ func (testWire) WritePrompt(w io.Writer, prompt string, _ []ImageData, logW io.W
 		} `json:"message"`
 	}{Type: "user"}
 	msg.Message.Role = "user"
-	msg.Message.Content = prompt
+	msg.Message.Content = p.Text
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -76,7 +76,7 @@ func TestSession(t *testing.T) {
 		}()
 
 		// Send a prompt.
-		if err := s.Send("test prompt", nil); err != nil {
+		if err := s.Send(Prompt{Text: "test prompt"}); err != nil {
 			t.Fatal(err)
 		}
 
@@ -95,7 +95,7 @@ func TestSession(t *testing.T) {
 		}
 
 		// Send a second message (multi-turn).
-		if err := s.Send("follow-up", nil); err != nil {
+		if err := s.Send(Prompt{Text: "follow-up"}); err != nil {
 			t.Fatal(err)
 		}
 

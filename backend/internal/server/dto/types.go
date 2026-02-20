@@ -30,6 +30,12 @@ type ImageData struct {
 	Data      string `json:"data"`      // base64-encoded
 }
 
+// Prompt bundles user text with optional images.
+type Prompt struct {
+	Text   string      `json:"text"`
+	Images []ImageData `json:"images,omitempty"`
+}
+
 // Config reports server capabilities to the frontend.
 type Config struct {
 	TailscaleAvailable bool `json:"tailscaleAvailable"`
@@ -47,7 +53,7 @@ type Repo struct {
 // Task is the JSON representation sent to the frontend.
 type Task struct {
 	ID                                 ksid.ID  `json:"id"`
-	Task                               string   `json:"task"`
+	InitialPrompt                      string   `json:"initialPrompt"`
 	Title                              string   `json:"title"`
 	Repo                               string   `json:"repo"`
 	RepoURL                            string   `json:"repoURL,omitempty"`
@@ -92,26 +98,24 @@ type CreateTaskResp struct {
 
 // CreateTaskReq is the request body for POST /api/v1/tasks.
 type CreateTaskReq struct {
-	Prompt    string      `json:"prompt"`
-	Repo      string      `json:"repo"`
-	Model     string      `json:"model,omitempty"`
-	Harness   Harness     `json:"harness"`
-	Image     string      `json:"image,omitempty"`
-	Images    []ImageData `json:"images,omitempty"`
-	Tailscale bool        `json:"tailscale,omitempty"`
-	USB       bool        `json:"usb,omitempty"`
-	Display   bool        `json:"display,omitempty"`
+	InitialPrompt Prompt  `json:"initialPrompt"`
+	Repo          string  `json:"repo"`
+	Model         string  `json:"model,omitempty"`
+	Harness       Harness `json:"harness"`
+	Image         string  `json:"image,omitempty"`
+	Tailscale     bool    `json:"tailscale,omitempty"`
+	USB           bool    `json:"usb,omitempty"`
+	Display       bool    `json:"display,omitempty"`
 }
 
 // InputReq is the request body for POST /api/v1/tasks/{id}/input.
 type InputReq struct {
-	Prompt string      `json:"prompt"`
-	Images []ImageData `json:"images,omitempty"`
+	Prompt Prompt `json:"prompt"`
 }
 
 // RestartReq is the request body for POST /api/v1/tasks/{id}/restart.
 type RestartReq struct {
-	Prompt string `json:"prompt"`
+	Prompt Prompt `json:"prompt"`
 }
 
 // DiffFileStat describes changes to a single file.

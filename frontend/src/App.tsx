@@ -328,7 +328,7 @@ export default function App() {
       const ts = tailscaleEnabled();
       const usb = usbEnabled();
       const disp = displayEnabled();
-      const data = await createTask({ prompt: p, repo, harness: selectedHarness(), ...(model ? { model } : {}), ...(image ? { image } : {}), ...(imgs.length > 0 ? { images: imgs } : {}), ...(ts ? { tailscale: true } : {}), ...(usb ? { usb: true } : {}), ...(disp ? { display: true } : {}) });
+      const data = await createTask({ initialPrompt: { text: p, ...(imgs.length > 0 ? { images: imgs } : {}) }, repo, harness: selectedHarness(), ...(model ? { model } : {}), ...(image ? { image } : {}), ...(ts ? { tailscale: true } : {}), ...(usb ? { usb: true } : {}), ...(disp ? { display: true } : {}) });
       setPrompt("");
       setPendingImages([]);
       navigate(taskPath(data.id, repo, "", p));

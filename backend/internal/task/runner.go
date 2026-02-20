@@ -266,12 +266,11 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 
 	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", name, "agent", t.Harness, "maxTurns", maxTurns)
 	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
-		Container: name,
-		Dir:       r.containerDir(),
-		MaxTurns:  maxTurns,
-		Model:     t.Model,
-		Prompt:    t.InitialPrompt,
-		Images:    t.Images,
+		Container:     name,
+		Dir:           r.containerDir(),
+		MaxTurns:      maxTurns,
+		Model:         t.Model,
+		InitialPrompt: t.InitialPrompt,
 	}, msgCh, logW)
 	if err != nil {
 		_ = logW.Close()
@@ -285,7 +284,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
-	t.addMessage(syntheticUserInput(t.InitialPrompt, t.Images))
+	t.addMessage(syntheticUserInput(t.InitialPrompt))
 	t.setState(StateRunning)
 	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", name)
 	return h, nil
@@ -345,7 +344,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	}
 
 	res := Result{
-		Task:      t.InitialPrompt,
+		Task:      t.InitialPrompt.Text,
 		Title:     t.Title(),
 		Repo:      t.Repo,
 		Branch:    t.Branch,
@@ -471,7 +470,7 @@ func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, for
 // RestartSession closes the current agent session and starts a fresh one in
 // the same container with a new prompt. Returns the new SessionHandle so the
 // caller can start a session watcher.
-func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) (*SessionHandle, error) {
+func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Prompt) (*SessionHandle, error) {
 	r.initDefaults()
 
 	t.mu.Lock()
@@ -515,12 +514,13 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) (*S
 	}
 	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "agent", t.Harness, "maxTurns", maxTurns)
 	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
-		Container: t.Container,
-		Dir:       r.containerDir(),
-		MaxTurns:  maxTurns,
-		Model:     t.Model,
-		Prompt:    prompt,
+		Container:     t.Container,
+		Dir:           r.containerDir(),
+		MaxTurns:      maxTurns,
+		Model:         t.Model,
+		InitialPrompt: prompt,
 	}, msgCh, logW)
+
 	if err != nil {
 		_ = logW.Close()
 		close(msgCh)
@@ -534,7 +534,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) (*S
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
-	t.addMessage(syntheticUserInput(prompt, nil))
+	t.addMessage(syntheticUserInput(prompt))
 
 	t.mu.Lock()
 	t.setState(StateRunning)
@@ -609,7 +609,7 @@ func (r *Runner) openLog(t *Task) (io.WriteCloser, error) {
 	meta := agent.MetaMessage{
 		MessageType: "caic_meta",
 		Version:     1,
-		Prompt:      t.InitialPrompt,
+		Prompt:      t.InitialPrompt.Text,
 		Title:       t.Title(),
 		Repo:        t.Repo,
 		Branch:      t.Branch,

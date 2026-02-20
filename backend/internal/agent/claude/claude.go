@@ -66,8 +66,8 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 
 	log := slog.With("container", opts.Container)
 	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
-	if opts.Prompt != "" || len(opts.Images) > 0 {
-		if err := s.Send(opts.Prompt, opts.Images); err != nil {
+	if opts.InitialPrompt.Text != "" || len(opts.InitialPrompt.Images) > 0 {
+		if err := s.Send(opts.InitialPrompt); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("write prompt: %w", err)
 		}
@@ -157,13 +157,13 @@ type imageSource struct {
 
 // WritePrompt writes a single user message in Claude Code's stdin format.
 // When images are provided, content is emitted as an array of content blocks.
-func (*Backend) WritePrompt(w io.Writer, prompt string, images []agent.ImageData, logW io.Writer) error {
+func (*Backend) WritePrompt(w io.Writer, p agent.Prompt, logW io.Writer) error {
 	var content any
-	if len(images) == 0 {
-		content = prompt
+	if len(p.Images) == 0 {
+		content = p.Text
 	} else {
-		blocks := make([]contentBlock, 0, len(images)+1)
-		for _, img := range images {
+		blocks := make([]contentBlock, 0, len(p.Images)+1)
+		for _, img := range p.Images {
 			blocks = append(blocks, contentBlock{
 				Type: "image",
 				Source: &imageSource{
@@ -173,8 +173,8 @@ func (*Backend) WritePrompt(w io.Writer, prompt string, images []agent.ImageData
 				},
 			})
 		}
-		if prompt != "" {
-			blocks = append(blocks, contentBlock{Type: "text", Text: prompt})
+		if p.Text != "" {
+			blocks = append(blocks, contentBlock{Type: "text", Text: p.Text})
 		}
 		content = blocks
 	}

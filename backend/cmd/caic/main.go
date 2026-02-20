@@ -324,8 +324,8 @@ func (*fakeBackend) Start(_ context.Context, opts *agent.Options, msgCh chan<- a
 		return nil, err
 	}
 	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, claude.Wire, nil)
-	if opts.Prompt != "" {
-		if err := s.Send(opts.Prompt, nil); err != nil {
+	if opts.InitialPrompt.Text != "" {
+		if err := s.Send(opts.InitialPrompt); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("write prompt: %w", err)
 		}

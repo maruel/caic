@@ -22,7 +22,7 @@ test("send input to a waiting task triggers another turn", async ({ api }) => {
   const id = await createTaskAPI(api, "api input test");
   await waitForTaskState(api, id, "waiting");
 
-  await api.sendInput(id, { prompt: "continue" });
+  await api.sendInput(id, { prompt: { text: "continue" } });
 
   // After input the task runs again and returns to waiting (maxTurns=1).
   const task = await waitForTaskState(api, id, "waiting", 20_000);
@@ -34,7 +34,7 @@ test("restart a waiting task starts a new session", async ({ api }) => {
   await waitForTaskState(api, id, "waiting");
 
   // Restart while waiting — this starts a new agent session with a new prompt.
-  await api.restartTask(id, { prompt: "try again" });
+  await api.restartTask(id, { prompt: { text: "try again" } });
   const task = await waitForTaskState(api, id, "waiting", 20_000);
   // numTurns may reset on restart; just verify the task completed another turn.
   expect(task.numTurns).toBeGreaterThanOrEqual(1);
@@ -49,7 +49,7 @@ test("list tasks includes created task", async ({ api }) => {
   const tasks = await api.listTasks();
   const found = tasks.find((t) => t.id === id);
   expect(found).toBeTruthy();
-  expect(found!.task).toBe("api list test");
+  expect(found!.initialPrompt).toBe("api list test");
   expect(found!.repo).toBeTruthy();
   expect(found!.branch).toBeTruthy();
 });

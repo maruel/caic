@@ -38,7 +38,7 @@ test("create task, verify streaming text and result, then terminate", async ({ p
 
   // Poll API until our task is "terminated" — uses typed helper.
   const tasks = await api.listTasks();
-  const task = tasks.find((t) => t.task === prompt);
+  const task = tasks.find((t) => t.initialPrompt === prompt);
   expect(task).toBeTruthy();
   await waitForTaskState(api, task!.id, "terminated");
 });

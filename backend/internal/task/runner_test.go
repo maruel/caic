@@ -56,7 +56,7 @@ func (b *testBackend) SupportsImages() bool { return false }
 // testWire implements agent.WireFormat for testing.
 type testWire struct{}
 
-func (*testWire) WritePrompt(w io.Writer, prompt string, _ []agent.ImageData, logW io.Writer) error {
+func (*testWire) WritePrompt(w io.Writer, p agent.Prompt, logW io.Writer) error {
 	msg := struct {
 		Type    string `json:"type"`
 		Message struct {
@@ -65,7 +65,7 @@ func (*testWire) WritePrompt(w io.Writer, prompt string, _ []agent.ImageData, lo
 		} `json:"message"`
 	}{Type: "user"}
 	msg.Message.Role = "user"
-	msg.Message.Content = prompt
+	msg.Message.Content = p.Text
 	data, err := json.Marshal(msg)
 	if err != nil {
 		return err
@@ -133,7 +133,7 @@ func TestRunner(t *testing.T) {
 
 			tk := &Task{
 				ID:            ksid.NewID(),
-				InitialPrompt: "test",
+				InitialPrompt: agent.Prompt{Text: "test"},
 				Repo:          "org/repo",
 				Branch:        "main",
 				State:         StateRunning,
@@ -170,7 +170,7 @@ func TestRunner(t *testing.T) {
 			dir := t.TempDir()
 			logDir := filepath.Join(dir, "logs")
 			r := &Runner{LogDir: logDir}
-			tk := &Task{ID: ksid.NewID(), InitialPrompt: "test", Repo: "org/repo", Branch: "caic/w0"}
+			tk := &Task{ID: ksid.NewID(), InitialPrompt: agent.Prompt{Text: "test"}, Repo: "org/repo", Branch: "caic/w0"}
 			w, err := r.openLog(tk)
 			if err != nil {
 				t.Fatal(err)
@@ -218,7 +218,7 @@ func TestRunner(t *testing.T) {
 		r := &Runner{Container: stub}
 		r.initDefaults()
 
-		tk := &Task{InitialPrompt: "test", State: StateRunning, Branch: "caic/w0"}
+		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, State: StateRunning, Branch: "caic/w0"}
 		_, ch, unsub := tk.Subscribe(t.Context())
 		defer unsub()
 
@@ -258,7 +258,7 @@ func TestRunner(t *testing.T) {
 
 		tk := &Task{
 			ID:            ksid.NewID(),
-			InitialPrompt: "old prompt",
+			InitialPrompt: agent.Prompt{Text: "old prompt"},
 			Repo:          "org/repo",
 			Harness:       "test",
 			Branch:        "caic/w0",
@@ -266,7 +266,7 @@ func TestRunner(t *testing.T) {
 			State:         StateWaiting,
 		}
 
-		h, err := r.RestartSession(t.Context(), tk, "new plan")
+		h, err := r.RestartSession(t.Context(), tk, agent.Prompt{Text: "new plan"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -276,8 +276,8 @@ func TestRunner(t *testing.T) {
 		if tk.State != StateRunning {
 			t.Errorf("state = %v, want %v", tk.State, StateRunning)
 		}
-		if tk.InitialPrompt != "old prompt" {
-			t.Errorf("InitialPrompt = %q, want %q (must not be mutated by RestartSession)", tk.InitialPrompt, "old prompt")
+		if tk.InitialPrompt.Text != "old prompt" {
+			t.Errorf("Prompt.Text = %q, want %q (must not be mutated by RestartSession)", tk.InitialPrompt.Text, "old prompt")
 		}
 
 		// The context passed to AgentBackend.Start must still be valid after

@@ -19,26 +19,26 @@ func TestValidate(t *testing.T) {
 			assertBadRequest(t, (&InputReq{}).Validate(), "prompt or images required")
 		})
 		t.Run("Valid", func(t *testing.T) {
-			if err := (&InputReq{Prompt: "hello"}).Validate(); err != nil {
+			if err := (&InputReq{Prompt: Prompt{Text: "hello"}}).Validate(); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 		t.Run("ImagesOnly", func(t *testing.T) {
-			r := &InputReq{Images: []ImageData{{MediaType: "image/png", Data: "abc"}}}
+			r := &InputReq{Prompt: Prompt{Images: []ImageData{{MediaType: "image/png", Data: "abc"}}}}
 			if err := r.Validate(); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
 		t.Run("InvalidImageMediaType", func(t *testing.T) {
-			r := &InputReq{Prompt: "x", Images: []ImageData{{MediaType: "image/bmp", Data: "abc"}}}
+			r := &InputReq{Prompt: Prompt{Text: "x", Images: []ImageData{{MediaType: "image/bmp", Data: "abc"}}}}
 			assertBadRequest(t, r.Validate(), "unsupported image mediaType: image/bmp")
 		})
 		t.Run("MissingImageData", func(t *testing.T) {
-			r := &InputReq{Prompt: "x", Images: []ImageData{{MediaType: "image/png"}}}
+			r := &InputReq{Prompt: Prompt{Text: "x", Images: []ImageData{{MediaType: "image/png"}}}}
 			assertBadRequest(t, r.Validate(), "image data is required")
 		})
 		t.Run("MissingImageMediaType", func(t *testing.T) {
-			r := &InputReq{Prompt: "x", Images: []ImageData{{Data: "abc"}}}
+			r := &InputReq{Prompt: Prompt{Text: "x", Images: []ImageData{{Data: "abc"}}}}
 			assertBadRequest(t, r.Validate(), "image mediaType is required")
 		})
 	})
@@ -50,7 +50,7 @@ func TestValidate(t *testing.T) {
 			}
 		})
 		t.Run("WithPrompt", func(t *testing.T) {
-			if err := (&RestartReq{Prompt: "continue"}).Validate(); err != nil {
+			if err := (&RestartReq{Prompt: Prompt{Text: "continue"}}).Validate(); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
@@ -63,7 +63,7 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("CreateTaskReq", func(t *testing.T) {
-		valid := CreateTaskReq{Prompt: "do stuff", Repo: "/repo", Harness: HarnessClaude}
+		valid := CreateTaskReq{InitialPrompt: Prompt{Text: "do stuff"}, Repo: "/repo", Harness: HarnessClaude}
 
 		t.Run("Valid", func(t *testing.T) {
 			r := valid
@@ -73,7 +73,7 @@ func TestValidate(t *testing.T) {
 		})
 		t.Run("MissingPrompt", func(t *testing.T) {
 			r := valid
-			r.Prompt = ""
+			r.InitialPrompt = Prompt{}
 			assertBadRequest(t, r.Validate(), "prompt or images required")
 		})
 		t.Run("MissingRepo", func(t *testing.T) {

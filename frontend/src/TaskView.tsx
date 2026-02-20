@@ -155,7 +155,7 @@ export default function TaskView(props: Props) {
     if (!text && imgs.length === 0) return;
     setSending(true);
     try {
-      await apiSendInput(props.taskId, { prompt: text, ...(imgs.length > 0 ? { images: imgs } : {}) });
+      await apiSendInput(props.taskId, { prompt: { text, ...(imgs.length > 0 ? { images: imgs } : {}) } });
       props.onInputDraft("");
       setPendingImages([]);
     } catch (e) {
@@ -257,7 +257,7 @@ export default function TaskView(props: Props) {
           async function sendAskAnswer(text: string) {
             setSending(true);
             try {
-              await apiSendInput(props.taskId, { prompt: text });
+              await apiSendInput(props.taskId, { prompt: { text } });
             } catch (e) {
               const msg = e instanceof Error ? e.message : "Unknown error";
               setActionError(`send failed: ${msg}`);
@@ -271,7 +271,7 @@ export default function TaskView(props: Props) {
             const prompt = props.inputDraft.trim();
             // eslint-disable-next-line solid/reactivity -- only called from onClick
             runAction("restart", async () => {
-              await apiRestartTask(props.taskId, { prompt });
+              await apiRestartTask(props.taskId, { prompt: { text: prompt } });
               props.onInputDraft("");
             });
           }

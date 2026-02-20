@@ -100,11 +100,11 @@ func TestHandleTaskInput(t *testing.T) {
 	t.Run("NotRunning", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{InitialPrompt: "test"},
+			task: &task.Task{InitialPrompt: agent.Prompt{Text: "test"}},
 			done: make(chan struct{}),
 		}
 
-		body := strings.NewReader(`{"prompt":"hello"}`)
+		body := strings.NewReader(`{"prompt":{"text":"hello"}}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/input", body)
 		req.SetPathValue("id", "t1")
 		w := httptest.NewRecorder()
@@ -121,11 +121,11 @@ func TestHandleTaskInput(t *testing.T) {
 	t.Run("EmptyPrompt", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{InitialPrompt: "test"},
+			task: &task.Task{InitialPrompt: agent.Prompt{Text: "test"}},
 			done: make(chan struct{}),
 		}
 
-		body := strings.NewReader(`{"prompt":""}`)
+		body := strings.NewReader(`{"prompt":{"text":""}}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/input", body)
 		req.SetPathValue("id", "t1")
 		w := httptest.NewRecorder()
@@ -144,11 +144,11 @@ func TestHandleRestart(t *testing.T) {
 	t.Run("NotWaiting", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{InitialPrompt: "test", State: task.StateRunning},
+			task: &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, State: task.StateRunning},
 			done: make(chan struct{}),
 		}
 
-		body := strings.NewReader(`{"prompt":"new plan"}`)
+		body := strings.NewReader(`{"prompt":{"text":"new plan"}}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/restart", body)
 		req.SetPathValue("id", "t1")
 		w := httptest.NewRecorder()
@@ -165,11 +165,11 @@ func TestHandleRestart(t *testing.T) {
 	t.Run("EmptyPrompt", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{InitialPrompt: "test", State: task.StateWaiting},
+			task: &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, State: task.StateWaiting},
 			done: make(chan struct{}),
 		}
 
-		body := strings.NewReader(`{"prompt":""}`)
+		body := strings.NewReader(`{"prompt":{"text":""}}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/t1/restart", body)
 		req.SetPathValue("id", "t1")
 		w := httptest.NewRecorder()
@@ -188,7 +188,7 @@ func TestHandleTerminate(t *testing.T) {
 	t.Run("NotWaiting", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{InitialPrompt: "test", State: task.StatePending},
+			task: &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, State: task.StatePending},
 			done: make(chan struct{}),
 		}
 
@@ -206,7 +206,7 @@ func TestHandleTerminate(t *testing.T) {
 	})
 
 	t.Run("Waiting", func(t *testing.T) {
-		tk := &task.Task{InitialPrompt: "test", State: task.StateWaiting, Repo: "r"}
+		tk := &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, State: task.StateWaiting, Repo: "r"}
 		s := newTestServer(t)
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
 		s.tasks["t1"] = &taskEntry{
@@ -235,7 +235,7 @@ func TestHandleTerminate(t *testing.T) {
 	})
 
 	t.Run("CancelledContext", func(t *testing.T) {
-		tk := &task.Task{InitialPrompt: "test", State: task.StateRunning, Repo: "r"}
+		tk := &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, State: task.StateRunning, Repo: "r"}
 		s := newTestServer(t)
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
 		s.tasks["t1"] = &taskEntry{
@@ -262,7 +262,7 @@ func TestHandleContainerDeath(t *testing.T) {
 	t.Run("TriggersCleanup", func(t *testing.T) {
 		s := newTestServer(t)
 		tk := &task.Task{
-			InitialPrompt: "test",
+			InitialPrompt: agent.Prompt{Text: "test"},
 			State:         task.StateRunning,
 			Repo:          "r",
 			Container:     "md-repo-caic-w0",
@@ -315,7 +315,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test task","repo":"myrepo","harness":"claude"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test task"},"repo":"myrepo","harness":"claude"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -336,7 +336,7 @@ func TestHandleCreateTask(t *testing.T) {
 		s := newTestServer(t)
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test task"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test task"}}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -354,7 +354,7 @@ func TestHandleCreateTask(t *testing.T) {
 		s := newTestServer(t)
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test","repo":"nonexistent","harness":"claude"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"nonexistent","harness":"claude"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -379,7 +379,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test","repo":"myrepo","harness":"nonexistent"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"nonexistent"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -411,7 +411,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test","repo":"myrepo","harness":"stub","model":"nonexistent"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"stub","model":"nonexistent"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -443,7 +443,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test","repo":"myrepo","harness":"stub","model":"m1"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"stub","model":"m1"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -475,7 +475,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test","repo":"myrepo","harness":"claude","image":"ghcr.io/my/image:v1"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"claude","image":"ghcr.io/my/image:v1"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -507,7 +507,7 @@ func TestHandleCreateTask(t *testing.T) {
 		s := newTestServer(t)
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"prompt":"test","repo":"r","harness":"claude","bogus":true}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"r","harness":"claude","bogus":true}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -610,7 +610,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		prompts := make([]string, 0, len(s.tasks))
 		var anyEntry *taskEntry
 		for _, e := range s.tasks {
-			prompts = append(prompts, e.task.InitialPrompt)
+			prompts = append(prompts, e.task.InitialPrompt.Text)
 			if anyEntry == nil {
 				anyEntry = e
 			}

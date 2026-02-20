@@ -45,14 +45,19 @@ type ImageData struct {
 	Data      string // base64-encoded
 }
 
+// Prompt bundles user text with optional images for a single interaction.
+type Prompt struct {
+	Text   string      `json:"text"`
+	Images []ImageData `json:"images,omitempty"`
+}
+
 // Options configures an agent session launch.
 type Options struct {
 	Container       string
 	Dir             string // Working directory inside the container.
 	MaxTurns        int
-	Model           string      // Model alias ("opus", "sonnet", "haiku") or full ID. Empty = default.
-	Prompt          string      // Initial prompt. Backends deliver it at launch time.
-	Images          []ImageData // Images sent with the initial prompt.
+	Model           string // Model alias ("opus", "sonnet", "haiku") or full ID. Empty = default.
+	InitialPrompt   Prompt // Initial prompt; never mutated after creation.
 	ResumeSessionID string
 }
 
@@ -61,8 +66,8 @@ type Options struct {
 // for the same protocol.
 type WireFormat interface {
 	// WritePrompt writes a user prompt to the agent's stdin in the
-	// backend's wire format. images may be nil. logW receives a copy (may be nil).
-	WritePrompt(w io.Writer, prompt string, images []ImageData, logW io.Writer) error
+	// backend's wire format. logW receives a copy (may be nil).
+	WritePrompt(w io.Writer, p Prompt, logW io.Writer) error
 
 	// ParseMessage decodes a single NDJSON line into a typed Message.
 	ParseMessage(line []byte) (Message, error)
@@ -139,10 +144,10 @@ func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh cha
 
 // Send writes a user message to the agent's stdin. It is safe for concurrent
 // use. The first call typically provides the initial task prompt.
-func (s *Session) Send(prompt string, images []ImageData) error {
+func (s *Session) Send(p Prompt) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.wire.WritePrompt(s.stdin, prompt, images, s.logW)
+	return s.wire.WritePrompt(s.stdin, p, s.logW)
 }
 
 // Close sends the null-byte sentinel to the relay daemon (triggering graceful

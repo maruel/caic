@@ -416,12 +416,12 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest("unsupported model for " + string(req.Harness) + ": " + req.Model)
 	}
 
-	if len(req.Images) > 0 && !backend.SupportsImages() {
+	if len(req.InitialPrompt.Images) > 0 && !backend.SupportsImages() {
 		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
 	}
 
-	t := &task.Task{ID: ksid.NewID(), InitialPrompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model, Images: toAgentImages(req.Images), Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display}
-	t.SetTitle(req.Prompt)
+	t := &task.Task{ID: ksid.NewID(), InitialPrompt: dtoPromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display}
+	t.SetTitle(req.InitialPrompt.Text)
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()
@@ -433,7 +433,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 	go func() {
 		h, err := runner.Start(s.ctx, t)
 		if err != nil {
-			result := task.Result{Task: t.InitialPrompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
+			result := task.Result{Task: t.InitialPrompt.Text, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
 			s.mu.Lock()
 			entry.result = &result
 			s.taskChanged()
@@ -694,13 +694,13 @@ const (
 // SSH round-trip may outlive a cancelled HTTP request, and we want the log line
 // regardless.
 func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *dto.InputReq) (*dto.StatusResp, error) {
-	if len(req.Images) > 0 {
+	if len(req.Prompt.Images) > 0 {
 		runner := s.runners[entry.task.Repo]
 		if b := runner.Backends[entry.task.Harness]; b != nil && !b.SupportsImages() {
 			return nil, dto.BadRequest(string(entry.task.Harness) + " does not support images")
 		}
 	}
-	if err := entry.task.SendInput(req.Prompt, toAgentImages(req.Images)); err != nil {
+	if err := entry.task.SendInput(dtoPromptToAgent(req.Prompt)); err != nil {
 		t := entry.task
 		rs := relayNoContainer
 		if t.Container != "" {
@@ -735,14 +735,14 @@ func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *dto.Resta
 	if t.State != task.StateWaiting && t.State != task.StateAsking {
 		return nil, dto.Conflict("task is not waiting or asking")
 	}
-	prompt := req.Prompt
-	if prompt == "" {
+	prompt := dtoPromptToAgent(req.Prompt)
+	if prompt.Text == "" {
 		// Read the plan file from the container.
 		plan, err := agent.ReadPlan(s.ctx, t.Container, t.PlanFile) //nolint:contextcheck // intentionally using server context
 		if err != nil {
 			return nil, dto.BadRequest("no prompt provided and failed to read plan from container: " + err.Error())
 		}
-		prompt = plan
+		prompt.Text = plan
 	}
 	runner := s.runners[t.Repo]
 	// Use the server-lifetime context, not the HTTP request context.
@@ -944,7 +944,7 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 	for _, lt := range terminated {
 		t := &task.Task{
 			ID:            ksid.NewID(),
-			InitialPrompt: lt.Prompt,
+			InitialPrompt: agent.Prompt{Text: lt.Prompt},
 			Repo:          lt.Repo,
 			Harness:       lt.Harness,
 			Branch:        lt.Branch,
@@ -1099,7 +1099,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	}
 	t := &task.Task{
 		ID:             taskID,
-		InitialPrompt:  prompt,
+		InitialPrompt:  agent.Prompt{Text: prompt},
 		Repo:           ri.RelPath,
 		Harness:        harnessName,
 		Branch:         branch,
@@ -1401,7 +1401,7 @@ func (s *Server) toJSON(e *taskEntry) dto.Task {
 	snap := e.task.Snapshot()
 	j := dto.Task{
 		ID:             e.task.ID,
-		Task:           e.task.InitialPrompt,
+		InitialPrompt:  e.task.InitialPrompt.Text,
 		Title:          snap.Title,
 		Repo:           e.task.Repo,
 		RepoURL:        s.repoURL(e.task.Repo),

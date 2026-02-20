@@ -66,8 +66,8 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 
 	log := slog.With("container", opts.Container)
 	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
-	if opts.Prompt != "" {
-		if err := s.Send(opts.Prompt, nil); err != nil {
+	if opts.InitialPrompt.Text != "" {
+		if err := s.Send(opts.InitialPrompt); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("write prompt: %w", err)
 		}
@@ -133,8 +133,8 @@ func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
 
 // WritePrompt writes a single user message to Gemini CLI's stdin.
 // Gemini CLI in -p mode reads plain text lines from stdin. Images are ignored.
-func (*Backend) WritePrompt(w io.Writer, prompt string, _ []agent.ImageData, logW io.Writer) error {
-	data := []byte(prompt + "\n")
+func (*Backend) WritePrompt(w io.Writer, p agent.Prompt, logW io.Writer) error {
+	data := []byte(p.Text + "\n")
 	if _, err := w.Write(data); err != nil {
 		return err
 	}
@@ -142,7 +142,7 @@ func (*Backend) WritePrompt(w io.Writer, prompt string, _ []agent.ImageData, log
 		// Log as NDJSON for consistency with our log format.
 		entry, _ := json.Marshal(map[string]string{
 			"type":    "user_input",
-			"content": prompt,
+			"content": p.Text,
 		})
 		_, _ = logW.Write(append(entry, '\n'))
 	}

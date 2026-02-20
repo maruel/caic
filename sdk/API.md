@@ -97,7 +97,7 @@ All errors return:
 | Field | Type | Required |
 |-------|------|----------|
 | `id` | `string` | yes |
-| `task` | `string` | yes |
+| `initialPrompt` | `string` | yes |
 | `title` | `string` | yes |
 | `repo` | `string` | yes |
 | `repoURL` | `string` |  |
@@ -134,16 +134,22 @@ All errors return:
 | `mediaType` | `string` | yes |
 | `data` | `string` | yes |
 
+### Prompt
+
+| Field | Type | Required |
+|-------|------|----------|
+| `text` | `string` | yes |
+| `images` | `ImageData[]` |  |
+
 ### CreateTaskReq
 
 | Field | Type | Required |
 |-------|------|----------|
-| `prompt` | `string` | yes |
+| `initialPrompt` | `Prompt` | yes |
 | `repo` | `string` | yes |
 | `model` | `string` |  |
 | `harness` | `string` | yes |
 | `image` | `string` |  |
-| `images` | `ImageData[]` |  |
 | `tailscale` | `boolean` |  |
 | `usb` | `boolean` |  |
 | `display` | `boolean` |  |
@@ -438,8 +444,7 @@ All errors return:
 
 | Field | Type | Required |
 |-------|------|----------|
-| `prompt` | `string` | yes |
-| `images` | `ImageData[]` |  |
+| `prompt` | `Prompt` | yes |
 
 ### StatusResp
 
@@ -451,7 +456,7 @@ All errors return:
 
 | Field | Type | Required |
 |-------|------|----------|
-| `prompt` | `string` | yes |
+| `prompt` | `Prompt` | yes |
 
 ### SyncReq
 

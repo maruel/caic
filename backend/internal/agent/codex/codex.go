@@ -79,8 +79,8 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 
 	log := slog.With("container", opts.Container)
 	s := agent.NewSession(cmd, stdin, br, msgCh, logW, wire, log)
-	if opts.Prompt != "" {
-		if err := s.Send(opts.Prompt, nil); err != nil {
+	if opts.InitialPrompt.Text != "" {
+		if err := s.Send(opts.InitialPrompt); err != nil {
 			s.Close()
 			return nil, fmt.Errorf("write prompt: %w", err)
 		}
@@ -158,7 +158,7 @@ type wireFormat struct {
 
 // WritePrompt sends a turn/start JSON-RPC request to begin a new turn with
 // the given user message. Images are ignored (Codex does not support them).
-func (w *wireFormat) WritePrompt(wr io.Writer, prompt string, _ []agent.ImageData, logW io.Writer) error {
+func (w *wireFormat) WritePrompt(wr io.Writer, p agent.Prompt, logW io.Writer) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.threadID == "" {
@@ -171,7 +171,7 @@ func (w *wireFormat) WritePrompt(wr io.Writer, prompt string, _ []agent.ImageDat
 		"method":  "turn/start",
 		"params": map[string]any{
 			"thread_id": w.threadID,
-			"input":     prompt,
+			"input":     p.Text,
 		},
 	}
 	data, err := json.Marshal(req)

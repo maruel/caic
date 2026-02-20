@@ -307,16 +307,16 @@ func extractUserInput(raw json.RawMessage) userInput {
 	return userInput{}
 }
 
-// toAgentImages converts []dto.ImageData to []agent.ImageData at the server boundary.
-func toAgentImages(imgs []dto.ImageData) []agent.ImageData {
-	if len(imgs) == 0 {
-		return nil
+// dtoPromptToAgent converts dto.Prompt to agent.Prompt at the server boundary.
+func dtoPromptToAgent(p dto.Prompt) agent.Prompt {
+	var images []agent.ImageData
+	if len(p.Images) > 0 {
+		images = make([]agent.ImageData, len(p.Images))
+		for i, img := range p.Images {
+			images[i] = agent.ImageData{MediaType: img.MediaType, Data: img.Data}
+		}
 	}
-	out := make([]agent.ImageData, len(imgs))
-	for i, img := range imgs {
-		out[i] = agent.ImageData{MediaType: img.MediaType, Data: img.Data}
-	}
-	return out
+	return agent.Prompt{Text: p.Text, Images: images}
 }
 
 // toDTOHarness converts agent.Harness to dto.Harness at the server boundary.

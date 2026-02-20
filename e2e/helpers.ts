@@ -91,7 +91,7 @@ export async function createTaskAPI(
   const harnesses = await api.listHarnesses();
   expect(harnesses.length).toBeGreaterThan(0);
   const resp = await api.createTask({
-    prompt,
+    initialPrompt: { text: prompt },
     repo: repos[0].path,
     harness: harnesses[0].name,
   });

@@ -14,7 +14,7 @@ func TestWritePrompt(t *testing.T) {
 		var buf bytes.Buffer
 		var logBuf bytes.Buffer
 		var b Backend
-		if err := b.WritePrompt(&buf, "hello", nil, &logBuf); err != nil {
+		if err := b.WritePrompt(&buf, agent.Prompt{Text: "hello"}, &logBuf); err != nil {
 			t.Fatal(err)
 		}
 		if buf.String() != logBuf.String() {
@@ -31,7 +31,7 @@ func TestWritePrompt(t *testing.T) {
 		images := []agent.ImageData{
 			{MediaType: "image/png", Data: "iVBOR..."},
 		}
-		if err := b.WritePrompt(&buf, "describe this", images, nil); err != nil {
+		if err := b.WritePrompt(&buf, agent.Prompt{Text: "describe this", Images: images}, nil); err != nil {
 			t.Fatal(err)
 		}
 		// Content must be an array of content blocks, not a string.
@@ -76,7 +76,7 @@ func TestWritePrompt(t *testing.T) {
 		images := []agent.ImageData{
 			{MediaType: "image/jpeg", Data: "/9j/..."},
 		}
-		if err := b.WritePrompt(&buf, "", images, nil); err != nil {
+		if err := b.WritePrompt(&buf, agent.Prompt{Images: images}, nil); err != nil {
 			t.Fatal(err)
 		}
 		var msg struct {

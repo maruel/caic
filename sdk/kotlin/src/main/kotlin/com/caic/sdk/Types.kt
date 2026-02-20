@@ -70,7 +70,7 @@ data class DiffFileStat(
 @Serializable
 data class Task(
     val id: String,
-    val task: String,
+    val initialPrompt: String,
     val title: String,
     val repo: String,
     @SerialName("repoURL") val repoURL: String? = null,
@@ -105,13 +105,15 @@ data class Task(
 data class ImageData(val mediaType: String, val data: String)
 
 @Serializable
+data class Prompt(val text: String, val images: List<ImageData>? = null)
+
+@Serializable
 data class CreateTaskReq(
-    val prompt: String,
+    val initialPrompt: Prompt,
     val repo: String,
     val model: String? = null,
     val harness: Harness,
     val image: String? = null,
-    val images: List<ImageData>? = null,
     val tailscale: Boolean? = null,
     val usb: Boolean? = null,
     val display: Boolean? = null,
@@ -344,13 +346,13 @@ data class EventMessage(
 )
 
 @Serializable
-data class InputReq(val prompt: String, val images: List<ImageData>? = null)
+data class InputReq(val prompt: Prompt)
 
 @Serializable
 data class StatusResp(val status: String)
 
 @Serializable
-data class RestartReq(val prompt: String)
+data class RestartReq(val prompt: Prompt)
 
 @Serializable
 data class SyncReq(val force: Boolean? = null)

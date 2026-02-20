@@ -12,14 +12,14 @@ test("POST /api/v1/tasks with missing prompt returns 400", async ({ request }) =
 
 test("POST /api/v1/tasks with missing repo returns 400", async ({ request }) => {
   const res = await request.post("/api/v1/tasks", {
-    data: { prompt: "hello", harness: "fake" },
+    data: { initialPrompt: { text: "hello" }, harness: "fake" },
   });
   expect(res.status()).toBe(400);
 });
 
 test("POST /api/v1/tasks with unknown harness returns 400", async ({ request }) => {
   const res = await request.post("/api/v1/tasks", {
-    data: { prompt: "hello", repo: "nonexistent", harness: "does-not-exist" },
+    data: { initialPrompt: { text: "hello" }, repo: "nonexistent", harness: "does-not-exist" },
   });
   expect(res.status()).toBe(400);
 });
@@ -31,7 +31,7 @@ test("terminate nonexistent task returns 404", async ({ request }) => {
 
 test("send input to nonexistent task returns 404", async ({ request }) => {
   const res = await request.post("/api/v1/tasks/nonexistent-id/input", {
-    data: { prompt: "hello" },
+    data: { prompt: { text: "hello" } },
   });
   expect(res.status()).toBe(404);
 });
@@ -69,5 +69,5 @@ test("creating a task with special characters in prompt", async ({ api }) => {
 
   const task = await api.getTask(id);
   expect(task).toBeTruthy();
-  expect(task!.task).toBe(prompt);
+  expect(task!.initialPrompt).toBe(prompt);
 });

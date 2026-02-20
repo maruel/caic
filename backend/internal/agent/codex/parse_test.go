@@ -308,7 +308,7 @@ func TestParseMessage(t *testing.T) {
 
 func TestBuildArgs(t *testing.T) {
 	t.Run("AppServer", func(t *testing.T) {
-		args := buildArgs(&agent.Options{Prompt: "fix the bug", Model: "o4-mini"})
+		args := buildArgs(&agent.Options{InitialPrompt: agent.Prompt{Text: "fix the bug"}, Model: "o4-mini"})
 		if len(args) != 2 || args[0] != "codex" || args[1] != "app-server" {
 			t.Errorf("args = %v, want [codex app-server]", args)
 		}
@@ -319,7 +319,7 @@ func TestWireFormat(t *testing.T) {
 	t.Run("WritePromptBasic", func(t *testing.T) {
 		w := &wireFormat{threadID: "t1"}
 		var buf bytes.Buffer
-		if err := w.WritePrompt(&buf, "fix the bug", nil, nil); err != nil {
+		if err := w.WritePrompt(&buf, agent.Prompt{Text: "fix the bug"}, nil); err != nil {
 			t.Fatal(err)
 		}
 		var req map[string]any
@@ -343,7 +343,7 @@ func TestWireFormat(t *testing.T) {
 	t.Run("WritePromptNoThreadID", func(t *testing.T) {
 		w := &wireFormat{}
 		var buf bytes.Buffer
-		err := w.WritePrompt(&buf, "hello", nil, nil)
+		err := w.WritePrompt(&buf, agent.Prompt{Text: "hello"}, nil)
 		if err == nil {
 			t.Fatal("expected error for missing thread ID")
 		}

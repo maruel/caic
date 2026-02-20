@@ -11,10 +11,10 @@ func (EmptyReq) Validate() error { return nil }
 
 // Validate checks that prompt or images are provided.
 func (r *InputReq) Validate() error {
-	if r.Prompt == "" && len(r.Images) == 0 {
+	if r.Prompt.Text == "" && len(r.Prompt.Images) == 0 {
 		return BadRequest("prompt or images required")
 	}
-	return validateImages(r.Images)
+	return validateImages(r.Prompt.Images)
 }
 
 // Validate is a no-op; prompt is optional (read from container plan file if empty).
@@ -25,7 +25,7 @@ func (SyncReq) Validate() error { return nil }
 
 // Validate checks that prompt, repo, and harness are valid.
 func (r *CreateTaskReq) Validate() error {
-	if r.Prompt == "" && len(r.Images) == 0 {
+	if r.InitialPrompt.Text == "" && len(r.InitialPrompt.Images) == 0 {
 		return BadRequest("prompt or images required")
 	}
 	if r.Repo == "" {
@@ -34,7 +34,7 @@ func (r *CreateTaskReq) Validate() error {
 	if r.Harness == "" {
 		return BadRequest("harness is required")
 	}
-	return validateImages(r.Images)
+	return validateImages(r.InitialPrompt.Images)
 }
 
 // allowedImageTypes is the set of MIME types accepted for image uploads.

@@ -15,7 +15,7 @@ test("multi-turn: send input cycles to next joke", async ({ page, api }) => {
   ).toBeVisible({ timeout: 15_000 });
 
   // Send input to trigger the second turn.
-  await api.sendInput(id, { prompt: "tell me another" });
+  await api.sendInput(id, { prompt: { text: "tell me another" } });
   await waitForTaskState(api, id, "waiting", 20_000);
 
   // Second joke: "A SQL query walks into a bar..."

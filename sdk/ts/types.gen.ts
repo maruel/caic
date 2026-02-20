@@ -511,6 +511,13 @@ export interface ImageData {
   data: string; // base64-encoded
 }
 /**
+ * Prompt bundles user text with optional images.
+ */
+export interface Prompt {
+  text: string;
+  images?: ImageData[];
+}
+/**
  * Config reports server capabilities to the frontend.
  */
 export interface Config {
@@ -531,7 +538,7 @@ export interface Repo {
  */
 export interface Task {
   id: string;
-  task: string;
+  initialPrompt: string;
   title: string;
   repo: string;
   repoURL?: string;
@@ -581,12 +588,11 @@ export interface CreateTaskResp {
  * CreateTaskReq is the request body for POST /api/v1/tasks.
  */
 export interface CreateTaskReq {
-  prompt: string;
+  initialPrompt: Prompt;
   repo: string;
   model?: string;
   harness: Harness;
   image?: string;
-  images?: ImageData[];
   tailscale?: boolean;
   usb?: boolean;
   display?: boolean;
@@ -595,14 +601,13 @@ export interface CreateTaskReq {
  * InputReq is the request body for POST /api/v1/tasks/{id}/input.
  */
 export interface InputReq {
-  prompt: string;
-  images?: ImageData[];
+  prompt: Prompt;
 }
 /**
  * RestartReq is the request body for POST /api/v1/tasks/{id}/restart.
  */
 export interface RestartReq {
-  prompt: string;
+  prompt: Prompt;
 }
 /**
  * DiffFileStat describes changes to a single file.
