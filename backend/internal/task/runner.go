@@ -458,7 +458,7 @@ func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, for
 	ref := "refs/remotes/" + container + "/" + branch
 	safetyCtx, safetyCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer safetyCancel()
-	issues, err := CheckSafety(safetyCtx, r.Dir, branch, r.BaseBranch, ds)
+	issues, err := CheckSafety(safetyCtx, r.Dir, ref, r.BaseBranch, ds)
 	if err != nil {
 		return ds, issues, fmt.Errorf("safety check: %w", err)
 	}
@@ -490,17 +490,16 @@ func (r *Runner) SyncToDefault(ctx context.Context, branch, container, message s
 	}
 	r.branchMu.Unlock()
 
+	ref := "refs/remotes/" + container + "/" + branch
 	safetyCtx, safetyCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer safetyCancel()
-	issues, err := CheckSafety(safetyCtx, r.Dir, branch, r.BaseBranch, ds)
+	issues, err := CheckSafety(safetyCtx, r.Dir, ref, r.BaseBranch, ds)
 	if err != nil {
 		return ds, issues, fmt.Errorf("safety check: %w", err)
 	}
 	if len(issues) > 0 {
 		return ds, issues, nil
 	}
-
-	ref := "refs/remotes/" + container + "/" + branch
 	squashCtx, squashCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer squashCancel()
 	if err := gitutil.SquashOnto(squashCtx, r.Dir, ref, r.BaseBranch, message); err != nil {

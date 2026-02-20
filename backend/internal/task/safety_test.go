@@ -139,6 +139,36 @@ func TestCheckSafety(t *testing.T) {
 		}
 	})
 
+	t.Run("RemoteRef", func(t *testing.T) {
+		// After Container.Fetch, commits live at refs/remotes/<container>/<branch>,
+		// not a local branch. CheckSafety must work with full ref paths.
+		ctx := t.Context()
+		clone := initTestRepo(t, "main")
+
+		runGit(t, clone, "checkout", "-b", "caic-0")
+		if err := os.WriteFile(filepath.Join(clone, "new.go"), []byte("package new\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		runGit(t, clone, "add", "new.go")
+		runGit(t, clone, "commit", "-m", "add file")
+
+		// Simulate what Container.Fetch does: store the commit under a remote ref.
+		runGit(t, clone, "update-ref", "refs/remotes/md-caic-0/caic-0", "caic-0")
+		// Delete the local branch so only the remote ref remains.
+		runGit(t, clone, "checkout", "main")
+		runGit(t, clone, "branch", "-D", "caic-0")
+
+		// Using the bare branch name would fail (the old bug).
+		ref := "refs/remotes/md-caic-0/caic-0"
+		issues, err := CheckSafety(ctx, clone, ref, "main", nil)
+		if err != nil {
+			t.Fatalf("CheckSafety with remote ref failed: %v", err)
+		}
+		if len(issues) != 0 {
+			t.Errorf("got %d issues, want 0: %+v", len(issues), issues)
+		}
+	})
+
 	t.Run("NoIssues", func(t *testing.T) {
 		ctx := t.Context()
 		clone := initTestRepo(t, "main")
