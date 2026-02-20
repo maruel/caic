@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
@@ -65,6 +66,7 @@ fun VoicePanel(
     voiceEnabled: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
+    onToggleMute: () -> Unit,
     onSelectDevice: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -82,6 +84,7 @@ fun VoicePanel(
                 voiceState.listening || voiceState.speaking -> ActivePanel(
                     voiceState = voiceState,
                     onDisconnect = onDisconnect,
+                    onToggleMute = onToggleMute,
                     onSelectDevice = onSelectDevice,
                 )
                 !voiceState.connected -> IdlePanel(onConnect)
@@ -146,6 +149,7 @@ private fun ConnectingPanel(status: String) {
 private fun ActivePanel(
     voiceState: VoiceState,
     onDisconnect: () -> Unit,
+    onToggleMute: () -> Unit,
     onSelectDevice: (Int) -> Unit,
 ) {
     Column(
@@ -162,6 +166,7 @@ private fun ActivePanel(
 
             val statusText = when {
                 voiceState.activeTool != null -> voiceState.activeTool!!
+                voiceState.muted && !voiceState.speaking -> "Muted"
                 voiceState.speaking -> "Speaking…"
                 else -> "Listening…"
             }
@@ -175,6 +180,13 @@ private fun ActivePanel(
                 },
                 modifier = Modifier.weight(1f),
             )
+
+            IconButton(onClick = onToggleMute) {
+                Icon(
+                    imageVector = if (voiceState.muted) Icons.Default.MicOff else Icons.Default.Mic,
+                    contentDescription = if (voiceState.muted) "Unmute" else "Mute",
+                )
+            }
 
             IconButton(onClick = onDisconnect) {
                 Icon(Icons.Default.Stop, contentDescription = "End voice")

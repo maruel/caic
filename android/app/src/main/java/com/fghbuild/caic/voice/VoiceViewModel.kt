@@ -77,6 +77,10 @@ class VoiceViewModel @Inject constructor(
         voiceSessionManager.disconnect()
     }
 
+    fun toggleMute() {
+        voiceSessionManager.toggleMute()
+    }
+
     fun selectAudioDevice(deviceId: Int) {
         voiceSessionManager.selectAudioDevice(deviceId)
     }

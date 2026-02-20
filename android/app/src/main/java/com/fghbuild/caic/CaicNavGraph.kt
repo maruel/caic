@@ -146,6 +146,7 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
                     }
                 },
                 onDisconnect = { voiceViewModel.disconnect() },
+                onToggleMute = { voiceViewModel.toggleMute() },
                 onSelectDevice = { voiceViewModel.selectAudioDevice(it) },
                 modifier = Modifier.fillMaxWidth(),
             )

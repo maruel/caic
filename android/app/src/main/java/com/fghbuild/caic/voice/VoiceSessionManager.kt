@@ -102,6 +102,10 @@ class VoiceSessionManager @Inject constructor(
     @Volatile
     var excludedTaskIds: Set<String> = emptySet()
 
+    /** Hot-path mute flag — avoids StateFlow read on every audio chunk. */
+    @Volatile
+    private var muted = false
+
     fun setError(message: String) {
         Log.e(TAG, "setError: $message")
         releaseAudio()
@@ -229,7 +233,22 @@ class VoiceSessionManager @Inject constructor(
         clearCommunicationDevice()
     }
 
+    /** Toggle microphone mute. Recording continues but audio is discarded. */
+    fun toggleMute() {
+        muted = !muted
+        _state.update { it.copy(muted = muted) }
+        if (!muted) {
+            // Drain stale audio buffered while muted.
+            val rec = audioRecord ?: return
+            val drain = ByteArray(AUDIO_BUFFER_SIZE)
+            while (rec.read(drain, 0, drain.size, AudioRecord.READ_NON_BLOCKING) > 0) {
+                // discard
+            }
+        }
+    }
+
     fun disconnect() {
+        muted = false
         releaseAudio()
         webSocket?.close(WS_CLOSE_NORMAL, "User disconnected")
         webSocket = null
@@ -660,8 +679,12 @@ class VoiceSessionManager @Inject constructor(
                 val bytesRead = readMicChunk(rec, buffer)
                 if (bytesRead < 0) return@launch
                 if (bytesRead > 0) {
-                    sendAudioChunk(buffer.copyOf(bytesRead))
-                    _state.update { it.copy(micLevel = rmsLevel(buffer, bytesRead)) }
+                    if (muted) {
+                        _state.update { it.copy(micLevel = 0f) }
+                    } else {
+                        sendAudioChunk(buffer.copyOf(bytesRead))
+                        _state.update { it.copy(micLevel = rmsLevel(buffer, bytesRead)) }
+                    }
                 }
             }
         }
@@ -807,6 +830,7 @@ data class VoiceState(
     val connected: Boolean = false,
     val listening: Boolean = false,
     val speaking: Boolean = false,
+    val muted: Boolean = false,
     val activeTool: String? = null,
     val error: String? = null,
     val errorId: Long = 0,
