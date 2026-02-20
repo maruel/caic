@@ -321,10 +321,16 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 			t.trackPlanState(am)
 		}
 	}
-	// Restore live diff stat from the last DiffStatMessage.
+	// Restore live diff stat from the last DiffStatMessage or ResultMessage,
+	// whichever appears later. ResultMessage carries the authoritative
+	// host-side diff stat but a DiffStatMessage from the relay may follow it.
 	for i := len(msgs) - 1; i >= 0; i-- {
 		if ds, ok := msgs[i].(*agent.DiffStatMessage); ok {
 			t.liveDiffStat = ds.DiffStat
+			break
+		}
+		if rm, ok := msgs[i].(*agent.ResultMessage); ok && len(rm.DiffStat) > 0 {
+			t.liveDiffStat = rm.DiffStat
 			break
 		}
 	}
@@ -390,6 +396,9 @@ func (t *Task) addMessage(m agent.Message) {
 	}
 	// Transition to waiting/asking when a result arrives.
 	if rm, ok := m.(*agent.ResultMessage); ok {
+		if len(rm.DiffStat) > 0 {
+			t.liveDiffStat = rm.DiffStat
+		}
 		t.liveCostUSD = rm.TotalCostUSD
 		t.liveNumTurns = rm.NumTurns
 		t.liveDuration = time.Duration(rm.DurationMs) * time.Millisecond

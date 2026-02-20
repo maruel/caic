@@ -329,52 +329,107 @@ func TestTask(t *testing.T) {
 	})
 
 	t.Run("addMessageDiffStat", func(t *testing.T) {
-		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
-		tk.SetState(StateRunning)
-		ds := agent.DiffStat{
-			{Path: "main.go", Added: 10, Deleted: 3},
-			{Path: "img.png", Binary: true},
-		}
-		tk.addMessage(&agent.DiffStatMessage{
-			MessageType: "caic_diff_stat",
-			DiffStat:    ds,
+		t.Run("DiffStatMessage", func(t *testing.T) {
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			ds := agent.DiffStat{
+				{Path: "main.go", Added: 10, Deleted: 3},
+				{Path: "img.png", Binary: true},
+			}
+			tk.addMessage(&agent.DiffStatMessage{
+				MessageType: "caic_diff_stat",
+				DiffStat:    ds,
+			})
+			got := tk.LiveDiffStat()
+			if len(got) != 2 {
+				t.Fatalf("LiveDiffStat len = %d, want 2", len(got))
+			}
+			if got[0].Path != "main.go" || got[0].Added != 10 {
+				t.Errorf("LiveDiffStat[0] = %+v", got[0])
+			}
+			// Update with new diff stat.
+			tk.addMessage(&agent.DiffStatMessage{
+				MessageType: "caic_diff_stat",
+				DiffStat:    agent.DiffStat{{Path: "new.go", Added: 1, Deleted: 0}},
+			})
+			got = tk.LiveDiffStat()
+			if len(got) != 1 || got[0].Path != "new.go" {
+				t.Errorf("LiveDiffStat after update = %+v", got)
+			}
 		})
-		got := tk.LiveDiffStat()
-		if len(got) != 2 {
-			t.Fatalf("LiveDiffStat len = %d, want 2", len(got))
-		}
-		if got[0].Path != "main.go" || got[0].Added != 10 {
-			t.Errorf("LiveDiffStat[0] = %+v", got[0])
-		}
-		// Update with new diff stat.
-		tk.addMessage(&agent.DiffStatMessage{
-			MessageType: "caic_diff_stat",
-			DiffStat:    agent.DiffStat{{Path: "new.go", Added: 1, Deleted: 0}},
+
+		t.Run("ResultMessageUpdatesLiveDiffStat", func(t *testing.T) {
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			tk.addMessage(&agent.ResultMessage{
+				MessageType: "result",
+				DiffStat:    agent.DiffStat{{Path: "a.go", Added: 5, Deleted: 2}},
+			})
+			got := tk.LiveDiffStat()
+			if len(got) != 1 || got[0].Path != "a.go" || got[0].Added != 5 {
+				t.Errorf("LiveDiffStat = %+v, want [{a.go 5 2}]", got)
+			}
 		})
-		got = tk.LiveDiffStat()
-		if len(got) != 1 || got[0].Path != "new.go" {
-			t.Errorf("LiveDiffStat after update = %+v", got)
-		}
 	})
 
 	t.Run("RestoreMessagesDiffStat", func(t *testing.T) {
-		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
-		tk.SetState(StateTerminated)
-		tk.RestoreMessages([]agent.Message{
-			&agent.DiffStatMessage{
-				MessageType: "caic_diff_stat",
-				DiffStat:    agent.DiffStat{{Path: "old.go", Added: 1}},
-			},
-			&agent.AssistantMessage{MessageType: "assistant"},
-			&agent.DiffStatMessage{
-				MessageType: "caic_diff_stat",
-				DiffStat:    agent.DiffStat{{Path: "latest.go", Added: 5}},
-			},
+		t.Run("DiffStatMessage", func(t *testing.T) {
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateTerminated)
+			tk.RestoreMessages([]agent.Message{
+				&agent.DiffStatMessage{
+					MessageType: "caic_diff_stat",
+					DiffStat:    agent.DiffStat{{Path: "old.go", Added: 1}},
+				},
+				&agent.AssistantMessage{MessageType: "assistant"},
+				&agent.DiffStatMessage{
+					MessageType: "caic_diff_stat",
+					DiffStat:    agent.DiffStat{{Path: "latest.go", Added: 5}},
+				},
+			})
+			got := tk.LiveDiffStat()
+			if len(got) != 1 || got[0].Path != "latest.go" {
+				t.Errorf("LiveDiffStat = %+v, want latest.go", got)
+			}
 		})
-		got := tk.LiveDiffStat()
-		if len(got) != 1 || got[0].Path != "latest.go" {
-			t.Errorf("LiveDiffStat = %+v, want latest.go", got)
-		}
+
+		t.Run("ResultMessageAfterDiffStat", func(t *testing.T) {
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateTerminated)
+			tk.RestoreMessages([]agent.Message{
+				&agent.DiffStatMessage{
+					MessageType: "caic_diff_stat",
+					DiffStat:    agent.DiffStat{{Path: "stale.go", Added: 1}},
+				},
+				&agent.ResultMessage{
+					MessageType: "result",
+					DiffStat:    agent.DiffStat{{Path: "authoritative.go", Added: 10}},
+				},
+			})
+			got := tk.LiveDiffStat()
+			if len(got) != 1 || got[0].Path != "authoritative.go" {
+				t.Errorf("LiveDiffStat = %+v, want authoritative.go", got)
+			}
+		})
+
+		t.Run("DiffStatAfterResult", func(t *testing.T) {
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateTerminated)
+			tk.RestoreMessages([]agent.Message{
+				&agent.ResultMessage{
+					MessageType: "result",
+					DiffStat:    agent.DiffStat{{Path: "result.go", Added: 5}},
+				},
+				&agent.DiffStatMessage{
+					MessageType: "caic_diff_stat",
+					DiffStat:    agent.DiffStat{{Path: "relay.go", Added: 3}},
+				},
+			})
+			got := tk.LiveDiffStat()
+			if len(got) != 1 || got[0].Path != "relay.go" {
+				t.Errorf("LiveDiffStat = %+v, want relay.go", got)
+			}
+		})
 	})
 
 	t.Run("LiveUsageCumulative", func(t *testing.T) {
