@@ -15,7 +15,7 @@ func TestCheckSafety(t *testing.T) {
 		clone := initTestRepo(t, "main")
 
 		// Create a branch with a large binary file.
-		runGit(t, clone, "checkout", "-b", "caic/w0")
+		runGit(t, clone, "checkout", "-b", "caic-0")
 		data := make([]byte, 600*1024) // 600 KB > 500 KB threshold
 		for i := range data {
 			data[i] = byte(i % 256)
@@ -27,7 +27,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "commit", "-m", "add binary")
 
 		ds := agent.DiffStat{{Path: "big.bin", Binary: true}}
-		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", ds)
+		issues, err := CheckSafety(ctx, clone, "caic-0", "main", ds)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -46,7 +46,7 @@ func TestCheckSafety(t *testing.T) {
 		ctx := t.Context()
 		clone := initTestRepo(t, "main")
 
-		runGit(t, clone, "checkout", "-b", "caic/w0")
+		runGit(t, clone, "checkout", "-b", "caic-0")
 		data := make([]byte, 100) // well under threshold
 		if err := os.WriteFile(filepath.Join(clone, "small.bin"), data, 0o600); err != nil {
 			t.Fatal(err)
@@ -55,7 +55,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "commit", "-m", "add small binary")
 
 		ds := agent.DiffStat{{Path: "small.bin", Binary: true}}
-		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", ds)
+		issues, err := CheckSafety(ctx, clone, "caic-0", "main", ds)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -68,7 +68,7 @@ func TestCheckSafety(t *testing.T) {
 		ctx := t.Context()
 		clone := initTestRepo(t, "main")
 
-		runGit(t, clone, "checkout", "-b", "caic/w0")
+		runGit(t, clone, "checkout", "-b", "caic-0")
 		content := "package main\n" + `const awsKey = "AK` + `IAIOSFODNN7EXAMPLE"` + "\n"
 		if err := os.WriteFile(filepath.Join(clone, "config.go"), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -76,7 +76,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "add", "config.go")
 		runGit(t, clone, "commit", "-m", "add config")
 
-		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", nil)
+		issues, err := CheckSafety(ctx, clone, "caic-0", "main", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,7 +95,7 @@ func TestCheckSafety(t *testing.T) {
 		ctx := t.Context()
 		clone := initTestRepo(t, "main")
 
-		runGit(t, clone, "checkout", "-b", "caic/w0")
+		runGit(t, clone, "checkout", "-b", "caic-0")
 		content := "-----BEGIN RSA " + "PRIVATE KEY-----\nblahblah\n-----END RSA PRIVATE KEY-----\n"
 		if err := os.WriteFile(filepath.Join(clone, "key.pem"), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -103,7 +103,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "add", "key.pem")
 		runGit(t, clone, "commit", "-m", "add key")
 
-		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", nil)
+		issues, err := CheckSafety(ctx, clone, "caic-0", "main", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -119,7 +119,7 @@ func TestCheckSafety(t *testing.T) {
 		ctx := t.Context()
 		clone := initTestRepo(t, "main")
 
-		runGit(t, clone, "checkout", "-b", "caic/w0")
+		runGit(t, clone, "checkout", "-b", "caic-0")
 		content := "pass" + `word = "supersecretpassword123"` + "\n"
 		if err := os.WriteFile(filepath.Join(clone, "app.conf"), []byte(content), 0o600); err != nil {
 			t.Fatal(err)
@@ -127,7 +127,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "add", "app.conf")
 		runGit(t, clone, "commit", "-m", "add config")
 
-		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", nil)
+		issues, err := CheckSafety(ctx, clone, "caic-0", "main", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -143,7 +143,7 @@ func TestCheckSafety(t *testing.T) {
 		ctx := t.Context()
 		clone := initTestRepo(t, "main")
 
-		runGit(t, clone, "checkout", "-b", "caic/w0")
+		runGit(t, clone, "checkout", "-b", "caic-0")
 		if err := os.WriteFile(filepath.Join(clone, "clean.go"), []byte("package clean\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
@@ -151,7 +151,7 @@ func TestCheckSafety(t *testing.T) {
 		runGit(t, clone, "commit", "-m", "add clean")
 
 		ds := agent.DiffStat{{Path: "clean.go", Added: 1}}
-		issues, err := CheckSafety(ctx, clone, "caic/w0", "main", ds)
+		issues, err := CheckSafety(ctx, clone, "caic-0", "main", ds)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -185,7 +185,7 @@ func TestScanDiffForSecrets_Deduplication(t *testing.T) {
 	ctx := t.Context()
 	clone := initTestRepo(t, "main")
 
-	runGit(t, clone, "checkout", "-b", "caic/w0")
+	runGit(t, clone, "checkout", "-b", "caic-0")
 	// Multiple AWS keys in the same file should produce only one issue.
 	content := "key1 = \"AK" + "IAIOSFODNN7EXAMPLE\"\nkey2 = \"AK" + "IAIOSFODNN7EXAMPLE\"\n"
 	if err := os.WriteFile(filepath.Join(clone, "keys.go"), []byte(content), 0o600); err != nil {
@@ -194,7 +194,7 @@ func TestScanDiffForSecrets_Deduplication(t *testing.T) {
 	runGit(t, clone, "add", "keys.go")
 	runGit(t, clone, "commit", "-m", "add keys")
 
-	issues, err := scanDiffForSecrets(ctx, clone, "caic/w0", "main")
+	issues, err := scanDiffForSecrets(ctx, clone, "caic-0", "main")
 	if err != nil {
 		t.Fatal(err)
 	}

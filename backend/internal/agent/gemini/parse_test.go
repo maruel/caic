@@ -83,7 +83,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ToolResult", func(t *testing.T) {
-		const input = `{"type":"tool_result","timestamp":"2026-02-13T19:00:26.397Z","tool_id":"run_shell_command-123","status":"success","output":"md-caic-w0"}`
+		const input = `{"type":"tool_result","timestamp":"2026-02-13T19:00:26.397Z","tool_id":"run_shell_command-123","status":"success","output":"md-caic-0"}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)

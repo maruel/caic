@@ -117,7 +117,7 @@ func TestMaxBranchSeqNum(t *testing.T) {
 	}
 
 	// Create branches: push some to origin, some to the md remote.
-	for _, b := range []string{"caic/w0", "caic/w3", "other/branch"} {
+	for _, b := range []string{"caic-0", "caic-3", "other/branch"} {
 		cmd := exec.CommandContext(ctx, "git", "branch", b) //nolint:gosec // test helper, args are constant.
 		cmd.Dir = clone
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -130,19 +130,19 @@ func TestMaxBranchSeqNum(t *testing.T) {
 		}
 	}
 	// Push the highest branch only to the md remote.
-	cmd = exec.CommandContext(ctx, "git", "branch", "caic/w7")
+	cmd = exec.CommandContext(ctx, "git", "branch", "caic-7")
 	cmd.Dir = clone
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git branch caic/w7: %v\n%s", err, out)
+		t.Fatalf("git branch caic-7: %v\n%s", err, out)
 	}
-	cmd = exec.CommandContext(ctx, "git", "push", "md-abc123", "caic/w7")
+	cmd = exec.CommandContext(ctx, "git", "push", "md-abc123", "caic-7")
 	cmd.Dir = clone
 	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("git push md-abc123 caic/w7: %v\n%s", err, out)
+		t.Fatalf("git push md-abc123 caic-7: %v\n%s", err, out)
 	}
 
 	// Delete all local branches so only remote refs remain.
-	for _, b := range []string{"caic/w0", "caic/w3", "caic/w7", "other/branch"} {
+	for _, b := range []string{"caic-0", "caic-3", "caic-7", "other/branch"} {
 		cmd := exec.CommandContext(ctx, "git", "branch", "-d", b) //nolint:gosec // test helper, args are constant.
 		cmd.Dir = clone
 		if out, err := cmd.CombinedOutput(); err != nil {
@@ -150,7 +150,7 @@ func TestMaxBranchSeqNum(t *testing.T) {
 		}
 	}
 
-	// Must find caic/w7 even though it's on the md remote, not origin.
+	// Must find caic-7 even though it's on the md remote, not origin.
 	n, err = MaxBranchSeqNum(ctx, clone)
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestPushRef(t *testing.T) {
 		{"", []string{"clone", bare, clone}},
 		{clone, []string{"-c", "user.name=Test", "-c", "user.email=test@test", "commit", "--allow-empty", "-m", "init"}},
 		{clone, []string{"push", "origin", "main"}},
-		{clone, []string{"checkout", "-b", "caic/w0"}},
+		{clone, []string{"checkout", "-b", "caic-0"}},
 	} {
 		cmd := exec.CommandContext(ctx, "git", c.args...) //nolint:gosec // test helper, args are constant.
 		if c.dir != "" {
@@ -266,20 +266,20 @@ func TestPushRef(t *testing.T) {
 		t.Fatalf("git commit: %v\n%s", err, out)
 	}
 
-	// Push the local branch ref to origin as caic/w0.
-	if err := PushRef(ctx, clone, "caic/w0", "caic/w0", false); err != nil {
+	// Push the local branch ref to origin as caic-0.
+	if err := PushRef(ctx, clone, "caic-0", "caic-0", false); err != nil {
 		t.Fatal(err)
 	}
 
 	// Verify the branch exists on the remote.
-	cmd = exec.CommandContext(ctx, "git", "branch", "--list", "caic/w0")
+	cmd = exec.CommandContext(ctx, "git", "branch", "--list", "caic-0")
 	cmd.Dir = bare
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(out), "caic/w0") {
-		t.Errorf("branch caic/w0 not found on remote, got: %q", string(out))
+	if !strings.Contains(string(out), "caic-0") {
+		t.Errorf("branch caic-0 not found on remote, got: %q", string(out))
 	}
 }
 

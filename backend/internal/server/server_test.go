@@ -273,14 +273,14 @@ func TestHandleContainerDeath(t *testing.T) {
 		tk := &task.Task{
 			InitialPrompt: agent.Prompt{Text: "test"},
 			Repo:          "r",
-			Container:     "md-repo-caic-w0",
+			Container:     "md-repo-caic-0",
 		}
 		tk.SetState(task.StateRunning)
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
 		entry := &taskEntry{task: tk, done: make(chan struct{})}
 		s.tasks["t1"] = entry
 
-		s.handleContainerDeath("md-repo-caic-w0")
+		s.handleContainerDeath("md-repo-caic-0")
 
 		// Wait for the async cleanup goroutine to complete.
 		select {
@@ -593,7 +593,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		for i, state := range []string{"terminated", "failed", "terminated"} {
 			meta := mustJSON(t, agent.MetaMessage{
 				MessageType: "caic_meta", Version: 1, Prompt: fmt.Sprintf("task %d", i), Repo: "r",
-				Branch: "caic/w" + strings.Repeat("0", i+1), Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
+				Branch: "caic-" + strings.Repeat("0", i+1), Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
 			})
 			trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: state, CostUSD: float64(i + 1)})
 			writeLogFile(t, logDir, fmt.Sprintf("%d.jsonl", i), meta, trailer)
@@ -649,7 +649,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "fix bug",
-			Repo: "r", Branch: "caic/w0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, agent.SystemInitMessage{
 			MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",
@@ -706,7 +706,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		// but the messages contain a ResultMessage with cost.
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "fix bug",
-			Repo: "r", Branch: "caic/w0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, agent.SystemInitMessage{
 			MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",
@@ -801,7 +801,7 @@ func TestHandleTaskRawEvents(t *testing.T) {
 		// Write a terminated task log with real agent messages.
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "fix the bug",
-			Repo: "r", Branch: "caic/w0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, agent.SystemInitMessage{
 			MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",
@@ -889,7 +889,7 @@ func TestHandleTaskRawEvents(t *testing.T) {
 		// by the final assistant message, simulating --include-partial-messages output.
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "explain streaming",
-			Repo: "r", Branch: "caic/w0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, agent.SystemInitMessage{
 			MessageType: "system", Subtype: "init", Model: "claude-opus-4-6", Version: "2.0", SessionID: "s1",

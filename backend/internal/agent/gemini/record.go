@@ -189,7 +189,7 @@ func (r *ToolUseRecord) UnmarshalJSON(data []byte) error {
 //
 // Example (success):
 //
-//	{"type":"tool_result","timestamp":"...","tool_id":"run_shell_command-...","status":"success","output":"md-caic-w0"}
+//	{"type":"tool_result","timestamp":"...","tool_id":"run_shell_command-...","status":"success","output":"md-caic-0"}
 //
 // Example (error):
 //

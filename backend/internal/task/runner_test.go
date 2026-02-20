@@ -103,10 +103,10 @@ func TestRunner(t *testing.T) {
 		t.Run("SkipsExisting", func(t *testing.T) {
 			clone := initTestRepo(t, "main")
 			// Pre-create branches and push to remote.
-			runGit(t, clone, "branch", "caic/w0")
-			runGit(t, clone, "push", "origin", "caic/w0")
-			runGit(t, clone, "branch", "caic/w3")
-			runGit(t, clone, "push", "origin", "caic/w3")
+			runGit(t, clone, "branch", "caic-0")
+			runGit(t, clone, "push", "origin", "caic-0")
+			runGit(t, clone, "branch", "caic-3")
+			runGit(t, clone, "push", "origin", "caic-3")
 
 			r := &Runner{
 				BaseBranch: "main",
@@ -359,7 +359,7 @@ func TestRunner(t *testing.T) {
 			dir := t.TempDir()
 			logDir := filepath.Join(dir, "logs")
 			r := &Runner{LogDir: logDir}
-			tk := &Task{ID: ksid.NewID(), InitialPrompt: agent.Prompt{Text: "test"}, Repo: "org/repo", Branch: "caic/w0"}
+			tk := &Task{ID: ksid.NewID(), InitialPrompt: agent.Prompt{Text: "test"}, Repo: "org/repo", Branch: "caic-0"}
 			w, err := r.openLog(tk)
 			if err != nil {
 				t.Fatal(err)
@@ -377,7 +377,7 @@ func TestRunner(t *testing.T) {
 				t.Fatalf("expected 1 file, got %d", len(entries))
 			}
 			name := entries[0].Name()
-			want := tk.ID.String() + "-org-repo-caic-w0.jsonl"
+			want := tk.ID.String() + "-org-repo-caic-0.jsonl"
 			if name != want {
 				t.Errorf("filename = %q, want %q", name, want)
 			}
@@ -408,7 +408,7 @@ func TestRunner(t *testing.T) {
 			r := &Runner{Container: stub}
 			r.initDefaults()
 
-			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic/w0"}
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic-0"}
 			tk.SetState(StateRunning)
 			_, ch, unsub := tk.Subscribe(t.Context())
 			defer unsub()
@@ -445,7 +445,7 @@ func TestRunner(t *testing.T) {
 					r := &Runner{Container: stub}
 					r.initDefaults()
 
-					tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic/w0"}
+					tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic-0"}
 					tk.SetState(StateRunning)
 					_, ch, unsub := tk.Subscribe(t.Context())
 					defer unsub()
@@ -498,7 +498,7 @@ func TestRunner(t *testing.T) {
 			r := &Runner{Container: stub}
 			r.initDefaults()
 
-			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic/w0"}
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic-0"}
 			tk.SetState(StateRunning)
 			_, ch, unsub := tk.Subscribe(t.Context())
 			defer unsub()
@@ -546,7 +546,7 @@ func TestRunner(t *testing.T) {
 			InitialPrompt: agent.Prompt{Text: "old prompt"},
 			Repo:          "org/repo",
 			Harness:       "test",
-			Branch:        "caic/w0",
+			Branch:        "caic-0",
 			Container:     "fake-container",
 		}
 		tk.SetState(StateWaiting)

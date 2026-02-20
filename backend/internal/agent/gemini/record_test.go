@@ -115,7 +115,7 @@ func TestToolUseRecord(t *testing.T) {
 
 func TestToolResultRecord(t *testing.T) {
 	t.Run("Success", func(t *testing.T) {
-		const input = `{"type":"tool_result","timestamp":"2026-02-13T19:00:26.397Z","tool_id":"run_shell_command-123","status":"success","output":"md-caic-w0"}`
+		const input = `{"type":"tool_result","timestamp":"2026-02-13T19:00:26.397Z","tool_id":"run_shell_command-123","status":"success","output":"md-caic-0"}`
 		var rec Record
 		if err := json.Unmarshal([]byte(input), &rec); err != nil {
 			t.Fatal(err)
@@ -127,7 +127,7 @@ func TestToolResultRecord(t *testing.T) {
 		if r.Status != "success" {
 			t.Errorf("Status = %q", r.Status)
 		}
-		if r.Output != "md-caic-w0" {
+		if r.Output != "md-caic-0" {
 			t.Errorf("Output = %q", r.Output)
 		}
 		if r.Error != nil {

@@ -99,7 +99,7 @@ func (r *Runner) containerDir() string {
 	return "/home/user/src/" + filepath.Base(r.Dir)
 }
 
-// Init sets nextID past any existing caic/w* branches so that restarts don't
+// Init sets nextID past any existing caic-* branches so that restarts don't
 // waste attempts on branches that already exist.
 func (r *Runner) Init(ctx context.Context) error {
 	r.initDefaults()
@@ -405,7 +405,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 		if gitCtx.Err() != nil {
 			return setupResult{}, gitCtx.Err()
 		}
-		branch = fmt.Sprintf("caic/w%d", r.nextID)
+		branch = fmt.Sprintf("caic-%d", r.nextID)
 		r.nextID++
 		slog.Info("creating branch", "repo", t.Repo, "branch", branch)
 		err = gitutil.CreateBranch(gitCtx, r.Dir, branch, "origin/"+r.BaseBranch)
