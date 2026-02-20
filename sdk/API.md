@@ -26,6 +26,7 @@ RESTful JSON API served at `/api/v1/`. SSE endpoints stream newline-delimited JS
 | POST | `/api/v1/tasks/{id}/restart` | `RestartReq` | `StatusResp` |
 | POST | `/api/v1/tasks/{id}/terminate` |  | `StatusResp` |
 | POST | `/api/v1/tasks/{id}/sync` | `SyncReq` | `SyncResp` |
+| GET | `/api/v1/tasks/{id}/diff` |  | `DiffResp` |
 
 ## Usage
 
@@ -481,6 +482,12 @@ All errors return:
 | `branch` | `string` |  |
 | `diffStat` | `DiffFileStat[]` |  |
 | `safetyIssues` | `SafetyIssue[]` |  |
+
+### DiffResp
+
+| Field | Type | Required |
+|-------|------|----------|
+| `diff` | `string` | yes |
 
 ### UsageWindow
 

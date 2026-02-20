@@ -373,6 +373,9 @@ data class SyncResp(
 )
 
 @Serializable
+data class DiffResp(val diff: String)
+
+@Serializable
 data class UsageWindow(val utilization: Double, val resetsAt: String)
 
 @Serializable

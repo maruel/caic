@@ -296,6 +296,14 @@ a.headerRepo:hover {
   gap: 0.5rem;
 }
 
+.diffFileClickable {
+  cursor: pointer;
+}
+
+.diffFileClickable:hover .diffPath {
+  text-decoration: underline;
+}
+
 .diffPath {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -322,6 +330,47 @@ a.headerRepo:hover {
   color: #6a737d;
   font-style: italic;
   flex-shrink: 0;
+}
+
+.diffContent {
+  margin: 0.25rem 0;
+  padding: 0.5rem;
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  border-radius: 4px;
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.diffContent div {
+  white-space: pre;
+}
+
+.diffLineAdded {
+  color: #4ec94e;
+}
+
+.diffLineDeleted {
+  color: #f44;
+}
+
+.diffLineHunk {
+  color: #b48ead;
+}
+
+.diffLoading {
+  font-size: 0.75rem;
+  color: #888;
+  padding: 0.25rem 0;
+}
+
+.diffError {
+  font-size: 0.75rem;
+  color: #c00;
+  padding: 0.25rem 0;
 }
 
 .toolResult {

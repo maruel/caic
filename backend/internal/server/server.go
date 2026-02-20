@@ -299,6 +299,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("POST /api/v1/tasks/{id}/restart", handleWithTask(s, s.restartTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/terminate", handleWithTask(s, s.terminateTask))
 	mux.HandleFunc("POST /api/v1/tasks/{id}/sync", handleWithTask(s, s.syncTask))
+	mux.HandleFunc("GET /api/v1/tasks/{id}/diff", s.handleGetDiff)
 	mux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
 	mux.HandleFunc("GET /api/v1/voice/token", handle(s.getVoiceToken))
 	mux.HandleFunc("GET /api/v1/server/tasks/events", s.handleTaskListEvents)
@@ -821,6 +822,32 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 		status = "blocked"
 	}
 	return &v1.SyncResp{Status: status, Branch: t.Branch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
+}
+
+func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
+	entry, err := s.getTask(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	t := entry.task
+	if t.Container == "" {
+		writeError(w, dto.Conflict("task has no container"))
+		return
+	}
+	runner, ok := s.runners[t.Repo]
+	if !ok {
+		writeError(w, dto.InternalError("unknown repo"))
+		return
+	}
+	path := r.URL.Query().Get("path")
+	diff, err := runner.DiffContent(r.Context(), t.Branch, path)
+	if err != nil {
+		writeError(w, dto.InternalError(err.Error()))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v1.DiffResp{Diff: diff})
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {

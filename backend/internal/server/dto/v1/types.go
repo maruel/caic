@@ -190,5 +190,10 @@ type VoiceTokenResp struct {
 	Ephemeral bool   `json:"ephemeral"`
 }
 
+// DiffResp is the response for GET /api/v1/tasks/{id}/diff.
+type DiffResp struct {
+	Diff string `json:"diff"`
+}
+
 // EmptyReq is used for endpoints that take no request body.
 type EmptyReq = dto.EmptyReq

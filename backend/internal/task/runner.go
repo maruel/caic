@@ -578,6 +578,21 @@ func (r *Runner) ReadRelayOutput(ctx context.Context, container string, agentNam
 	return r.backend(agentName).ReadRelayOutput(ctx, container)
 }
 
+// DiffContent returns the unified diff for the given branch, optionally
+// filtered to a single file path. Holds branchMu during the fetch+diff.
+func (r *Runner) DiffContent(ctx context.Context, branch, path string) (string, error) {
+	r.initDefaults()
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer cancel()
+	r.branchMu.Lock()
+	defer r.branchMu.Unlock()
+	args := []string{}
+	if path != "" {
+		args = append(args, "--", path)
+	}
+	return r.Container.Diff(ctx, r.Dir, branch, args...)
+}
+
 // KillContainer kills the md container for the given branch.
 func (r *Runner) KillContainer(ctx context.Context, branch string) error {
 	r.initDefaults()

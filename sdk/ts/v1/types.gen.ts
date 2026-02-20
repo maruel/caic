@@ -638,6 +638,12 @@ export interface VoiceTokenResp {
   ephemeral: boolean;
 }
 /**
+ * DiffResp is the response for GET /api/v1/tasks/{id}/diff.
+ */
+export interface DiffResp {
+  diff: string;
+}
+/**
  * EmptyReq is used for endpoints that take no request body.
  */
 export type EmptyReq = any /* dto.EmptyReq */;
