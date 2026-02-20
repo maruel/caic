@@ -586,28 +586,79 @@ func (r *Runner) KillContainer(ctx context.Context, branch string) error {
 	return r.Container.Kill(ctx, r.Dir, branch)
 }
 
+// mutatingTools lists tool names whose execution may change files in the
+// container, warranting a diff stat refresh after their result arrives.
+var mutatingTools = map[string]struct{}{
+	"Bash":         {},
+	"Edit":         {},
+	"Write":        {},
+	"NotebookEdit": {},
+}
+
 // startMessageDispatch starts a goroutine that reads from msgCh and dispatches
 // to t.addMessage. For ResultMessages, it fetches from the container first and
-// attaches the diff stat. Returns the channel for the caller to pass to the
-// agent backend.
+// attaches the diff stat. For tool results following a mutating tool (Edit,
+// Bash, Write, NotebookEdit), it also fetches and emits a DiffStatMessage.
+// Returns the channel for the caller to pass to the agent backend.
 func (r *Runner) startMessageDispatch(ctx context.Context, t *Task) chan agent.Message {
 	msgCh := make(chan agent.Message, 256)
 	go func() {
+		// Track tool_use IDs from AssistantMessage blocks that may mutate files.
+		pendingMutating := make(map[string]struct{})
 		for m := range msgCh {
-			if rm, ok := m.(*agent.ResultMessage); ok && r.Container != nil {
-				fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
-				r.branchMu.Lock()
-				if err := r.Container.Fetch(fetchCtx, r.Dir, t.Branch); err != nil {
-					slog.Warn("fetch on result failed", "branch", t.Branch, "err", err)
+			switch msg := m.(type) {
+			case *agent.AssistantMessage:
+				for _, b := range msg.Message.Content {
+					if _, ok := mutatingTools[b.Name]; b.Type == "tool_use" && ok {
+						pendingMutating[b.ID] = struct{}{}
+					}
 				}
-				rm.DiffStat = r.diffStat(fetchCtx, t.Branch)
-				r.branchMu.Unlock()
-				fetchCancel()
+			case *agent.UserMessage:
+				if msg.ParentToolUseID != nil && r.Container != nil {
+					id := *msg.ParentToolUseID
+					if _, ok := pendingMutating[id]; ok {
+						delete(pendingMutating, id)
+						r.fetchDiffStat(ctx, t)
+					}
+				}
+			case *agent.ResultMessage:
+				if r.Container != nil {
+					fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+					r.branchMu.Lock()
+					if err := r.Container.Fetch(fetchCtx, r.Dir, t.Branch); err != nil {
+						slog.Warn("fetch on result failed", "branch", t.Branch, "err", err)
+					}
+					msg.DiffStat = r.diffStat(fetchCtx, t.Branch)
+					r.branchMu.Unlock()
+					fetchCancel()
+				}
 			}
 			t.addMessage(m)
 		}
 	}()
 	return msgCh
+}
+
+// fetchDiffStat fetches from the container and emits a DiffStatMessage into
+// the task's message stream. Used after mutating tool results to keep the
+// live diff stat up to date.
+func (r *Runner) fetchDiffStat(ctx context.Context, t *Task) {
+	fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer fetchCancel()
+	r.branchMu.Lock()
+	defer r.branchMu.Unlock()
+	if err := r.Container.Fetch(fetchCtx, r.Dir, t.Branch); err != nil {
+		slog.Warn("fetch on tool result failed", "branch", t.Branch, "err", err)
+		return
+	}
+	ds := r.diffStat(fetchCtx, t.Branch)
+	if len(ds) == 0 {
+		return
+	}
+	t.addMessage(&agent.DiffStatMessage{
+		MessageType: "caic_diff_stat",
+		DiffStat:    ds,
+	})
 }
 
 // diffStat runs Diff("--numstat") and parses the output.

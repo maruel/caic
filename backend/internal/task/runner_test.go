@@ -249,38 +249,133 @@ func TestRunner(t *testing.T) {
 	})
 
 	t.Run("StartMessageDispatch", func(t *testing.T) {
-		stub := &stubContainer{}
-		r := &Runner{Container: stub}
-		r.initDefaults()
+		t.Run("ResultMessage", func(t *testing.T) {
+			stub := &stubContainer{}
+			r := &Runner{Container: stub}
+			r.initDefaults()
 
-		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic/w0"}
-		tk.SetState(StateRunning)
-		_, ch, unsub := tk.Subscribe(t.Context())
-		defer unsub()
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic/w0"}
+			tk.SetState(StateRunning)
+			_, ch, unsub := tk.Subscribe(t.Context())
+			defer unsub()
 
-		msgCh := r.startMessageDispatch(t.Context(), tk)
+			msgCh := r.startMessageDispatch(t.Context(), tk)
 
-		rm := &agent.ResultMessage{MessageType: "result"}
-		msgCh <- rm
-		close(msgCh)
+			rm := &agent.ResultMessage{MessageType: "result"}
+			msgCh <- rm
+			close(msgCh)
 
-		// Wait for the dispatched message.
-		timeout := time.After(time.Second)
-		select {
-		case got := <-ch:
-			rr, ok := got.(*agent.ResultMessage)
-			if !ok {
-				t.Fatalf("expected *agent.ResultMessage, got %T", got)
+			// Wait for the dispatched message.
+			timeout := time.After(time.Second)
+			select {
+			case got := <-ch:
+				rr, ok := got.(*agent.ResultMessage)
+				if !ok {
+					t.Fatalf("expected *agent.ResultMessage, got %T", got)
+				}
+				if len(rr.DiffStat) != 1 || rr.DiffStat[0].Path != "main.go" {
+					t.Errorf("DiffStat = %+v, want [{main.go 5 1}]", rr.DiffStat)
+				}
+			case <-timeout:
+				t.Fatal("timed out waiting for message")
 			}
-			if len(rr.DiffStat) != 1 || rr.DiffStat[0].Path != "main.go" {
-				t.Errorf("DiffStat = %+v, want [{main.go 5 1}]", rr.DiffStat)
+			if !stub.fetched {
+				t.Error("Fetch was not called on result message")
 			}
-		case <-timeout:
-			t.Fatal("timed out waiting for message")
-		}
-		if !stub.fetched {
-			t.Error("Fetch was not called on result message")
-		}
+		})
+
+		t.Run("MutatingToolEmitsDiffStat", func(t *testing.T) {
+			for _, tool := range []string{"Edit", "Bash", "Write", "NotebookEdit"} {
+				t.Run(tool, func(t *testing.T) {
+					stub := &stubContainer{}
+					r := &Runner{Container: stub}
+					r.initDefaults()
+
+					tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic/w0"}
+					tk.SetState(StateRunning)
+					_, ch, unsub := tk.Subscribe(t.Context())
+					defer unsub()
+
+					msgCh := r.startMessageDispatch(t.Context(), tk)
+
+					// Send an AssistantMessage with a mutating tool_use block.
+					toolID := "tool_edit_1"
+					msgCh <- &agent.AssistantMessage{
+						MessageType: "assistant",
+						Message: agent.APIMessage{
+							Content: []agent.ContentBlock{
+								{Type: "tool_use", ID: toolID, Name: tool, Input: json.RawMessage(`{}`)},
+							},
+						},
+					}
+					// Drain the assistant message from the subscriber.
+					recvMsg(t, ch)
+
+					// Send the tool result (UserMessage with ParentToolUseID).
+					msgCh <- &agent.UserMessage{
+						MessageType:     "user",
+						ParentToolUseID: &toolID,
+					}
+
+					// Expect two messages: the UserMessage and a DiffStatMessage.
+					var gotDiffStat bool
+					for range 2 {
+						msg := recvMsg(t, ch)
+						if ds, ok := msg.(*agent.DiffStatMessage); ok {
+							gotDiffStat = true
+							if len(ds.DiffStat) != 1 || ds.DiffStat[0].Path != "main.go" {
+								t.Errorf("DiffStat = %+v, want [{main.go 5 1}]", ds.DiffStat)
+							}
+						}
+					}
+					if !gotDiffStat {
+						t.Error("no DiffStatMessage emitted after mutating tool result")
+					}
+					if !stub.fetched {
+						t.Error("Fetch was not called on mutating tool result")
+					}
+					close(msgCh)
+				})
+			}
+		})
+
+		t.Run("NonMutatingToolNoDiffStat", func(t *testing.T) {
+			stub := &stubContainer{}
+			r := &Runner{Container: stub}
+			r.initDefaults()
+
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic/w0"}
+			tk.SetState(StateRunning)
+			_, ch, unsub := tk.Subscribe(t.Context())
+			defer unsub()
+
+			msgCh := r.startMessageDispatch(t.Context(), tk)
+
+			toolID := "tool_read_1"
+			msgCh <- &agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "tool_use", ID: toolID, Name: "Read", Input: json.RawMessage(`{}`)},
+					},
+				},
+			}
+			recvMsg(t, ch) // drain assistant
+
+			msgCh <- &agent.UserMessage{
+				MessageType:     "user",
+				ParentToolUseID: &toolID,
+			}
+			// Only expect the UserMessage, no DiffStatMessage.
+			msg := recvMsg(t, ch)
+			if _, ok := msg.(*agent.DiffStatMessage); ok {
+				t.Error("unexpected DiffStatMessage emitted for non-mutating tool")
+			}
+			if stub.fetched {
+				t.Error("Fetch was called for non-mutating tool")
+			}
+			close(msgCh)
+		})
 	})
 
 	t.Run("RestartSession", func(t *testing.T) {
@@ -358,6 +453,21 @@ func (s *stubContainer) Fetch(context.Context, string, string) error {
 }
 
 func (s *stubContainer) Kill(context.Context, string, string) error { return nil }
+
+// recvMsg reads a single message from ch, respecting the test context and a
+// 1-second safety timeout.
+func recvMsg(t *testing.T, ch <-chan agent.Message) agent.Message {
+	select {
+	case m := <-ch:
+		return m
+	case <-t.Context().Done():
+		t.Fatal("test context canceled waiting for message")
+		return nil
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for message")
+		return nil
+	}
+}
 
 // initTestRepo creates a bare "remote" and a local clone with one commit on
 // baseBranch. Returns the clone directory. origin points to the bare repo so
