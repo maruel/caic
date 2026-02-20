@@ -1,4 +1,4 @@
-// Structured API error types and constructors.
+// Structured API error types and constructors shared across all API versions.
 package dto
 
 import (

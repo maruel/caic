@@ -12,17 +12,25 @@ import (
 	"unicode"
 
 	"github.com/maruel/caic/backend/internal/server/dto"
+	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 	"github.com/maruel/ksid"
 )
 
-// Output directories relative to go:generate CWD (backend/internal/server/dto/).
+// Output directories relative to go:generate CWD (backend/internal/server/dto/v1/).
 const (
-	sdkDir    = "../../../../sdk"
-	tsDir     = sdkDir + "/ts"
-	kotlinDir = sdkDir + "/kotlin/src/main/kotlin/com/caic/sdk"
+	sdkDir    = "../../../../../sdk"
+	tsDir     = sdkDir + "/ts/v1"
+	kotlinDir = sdkDir + "/kotlin/src/main/kotlin/com/caic/sdk/v1"
 )
 
 var pathParamRe = regexp.MustCompile(`\{(\w+)\}`)
+
+// isSDKPkg reports whether pkgPath is dto or dto/v1 — the two packages
+// whose struct types are emitted into the generated SDK.
+func isSDKPkg(pkgPath string) bool {
+	return pkgPath == reflect.TypeFor[v1.StatusResp]().PkgPath() ||
+		pkgPath == reflect.TypeFor[dto.ErrorResponse]().PkgPath()
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -45,8 +53,8 @@ func run() error {
 func generateTS(outDir string) error {
 	// Collect all referenced types for the import statement.
 	types := map[string]struct{}{}
-	for i := range dto.Routes {
-		r := &dto.Routes[i]
+	for i := range v1.Routes {
+		r := &v1.Routes[i]
 		if n := r.ReqName(); n != "" {
 			types[n] = struct{}{}
 		}
@@ -90,8 +98,8 @@ func generateTS(outDir string) error {
 `)
 
 	// One function per route.
-	for i := range dto.Routes {
-		r := &dto.Routes[i]
+	for i := range v1.Routes {
+		r := &v1.Routes[i]
 		params := extractPathParams(r.Path)
 		if r.IsSSE {
 			writeTSSSEFunc(&b, r, params)
@@ -103,7 +111,7 @@ func generateTS(outDir string) error {
 	return os.WriteFile(filepath.Join(outDir, "api.gen.ts"), []byte(b.String()), 0o600)
 }
 
-func writeTSJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
+func writeTSJSONFunc(b *strings.Builder, r *v1.Route, params []string) {
 	respType := r.RespName()
 	if r.IsArray {
 		respType += "[]"
@@ -130,7 +138,7 @@ func writeTSJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
 	b.WriteString("}\n\n")
 }
 
-func writeTSSSEFunc(b *strings.Builder, r *dto.Route, params []string) {
+func writeTSSSEFunc(b *strings.Builder, r *v1.Route, params []string) {
 	args := make([]string, 0, len(params)+1)
 	for _, p := range params {
 		args = append(args, p+": string")
@@ -193,25 +201,25 @@ var kotlinAliases = []kotlinTypeAlias{
 	{
 		name: "Harness",
 		constants: []kotlinConstant{
-			{"Claude", string(dto.HarnessClaude)},
-			{"Gemini", string(dto.HarnessGemini)},
+			{"Claude", string(v1.HarnessClaude)},
+			{"Gemini", string(v1.HarnessGemini)},
 		},
 	},
 	{
 		name: "EventKind",
 		constants: []kotlinConstant{
-			{"Init", string(dto.EventKindInit)},
-			{"Text", string(dto.EventKindText)},
-			{"TextDelta", string(dto.EventKindTextDelta)},
-			{"ToolUse", string(dto.EventKindToolUse)},
-			{"ToolResult", string(dto.EventKindToolResult)},
-			{"Ask", string(dto.EventKindAsk)},
-			{"Usage", string(dto.EventKindUsage)},
-			{"Result", string(dto.EventKindResult)},
-			{"System", string(dto.EventKindSystem)},
-			{"UserInput", string(dto.EventKindUserInput)},
-			{"Todo", string(dto.EventKindTodo)},
-			{"DiffStat", string(dto.EventKindDiffStat)},
+			{"Init", string(v1.EventKindInit)},
+			{"Text", string(v1.EventKindText)},
+			{"TextDelta", string(v1.EventKindTextDelta)},
+			{"ToolUse", string(v1.EventKindToolUse)},
+			{"ToolResult", string(v1.EventKindToolResult)},
+			{"Ask", string(v1.EventKindAsk)},
+			{"Usage", string(v1.EventKindUsage)},
+			{"Result", string(v1.EventKindResult)},
+			{"System", string(v1.EventKindSystem)},
+			{"UserInput", string(v1.EventKindUserInput)},
+			{"Todo", string(v1.EventKindTodo)},
+			{"DiffStat", string(v1.EventKindDiffStat)},
 		},
 	},
 }
@@ -242,11 +250,10 @@ var kotlinSectionComments = map[string]string{
 // discoverKotlinStructs walks the dto struct types reachable from route
 // ReqRT/RespRT fields and returns them in dependency order (leaves first).
 func discoverKotlinStructs() []kotlinStruct {
-	dtoPkgPath := reflect.TypeFor[dto.StatusResp]().PkgPath()
 	seen := map[reflect.Type]bool{}
 	var order []reflect.Type
 
-	// walk recursively collects dto struct types in post-order so that
+	// walk recursively collects dto/v1 struct types in post-order so that
 	// referenced types appear before the types that reference them.
 	var walk func(t reflect.Type)
 	walk = func(t reflect.Type) {
@@ -257,7 +264,7 @@ func discoverKotlinStructs() []kotlinStruct {
 			walk(t.Elem())
 			return
 		}
-		if t.Kind() != reflect.Struct || t.PkgPath() != dtoPkgPath {
+		if t.Kind() != reflect.Struct || !isSDKPkg(t.PkgPath()) {
 			return
 		}
 		if seen[t] {
@@ -271,8 +278,8 @@ func discoverKotlinStructs() []kotlinStruct {
 	}
 
 	// Seed from route types.
-	for i := range dto.Routes {
-		r := &dto.Routes[i]
+	for i := range v1.Routes {
+		r := &v1.Routes[i]
 		if r.Req != nil {
 			walk(r.Req)
 		}
@@ -292,16 +299,16 @@ func discoverKotlinStructs() []kotlinStruct {
 var (
 	jsonRawMessageType = reflect.TypeFor[json.RawMessage]()
 	ksidIDType         = reflect.TypeFor[ksid.ID]()
-	diffStatType       = reflect.TypeFor[dto.DiffStat]()
+	diffStatType       = reflect.TypeFor[v1.DiffStat]()
 	mapStringAnyType   = reflect.TypeFor[map[string]any]()
 )
 
 // kotlinAliasNames is the set of Go named-string types that map to their
 // Kotlin typealias name rather than "String".
 var kotlinAliasNames = map[reflect.Type]string{
-	reflect.TypeFor[dto.Harness]():         "Harness",
-	reflect.TypeFor[dto.EventKind]():       "EventKind",
-	reflect.TypeFor[dto.ClaudeEventKind](): "ClaudeEventKind",
+	reflect.TypeFor[v1.Harness]():         "Harness",
+	reflect.TypeFor[v1.EventKind]():       "EventKind",
+	reflect.TypeFor[v1.ClaudeEventKind](): "ClaudeEventKind",
 }
 
 // kotlinPlural returns the plural object name for a type alias.
@@ -496,7 +503,7 @@ func (o jsonTagOptions) contains(opt string) bool {
 func writeKotlinTypes(outDir string) error {
 	var b strings.Builder
 	b.WriteString("// Code generated by gen-api-sdk. DO NOT EDIT.\n")
-	b.WriteString("package com.caic.sdk\n\n")
+	b.WriteString("package com.caic.sdk.v1\n\n")
 	b.WriteString("import kotlinx.serialization.SerialName\n")
 	b.WriteString("import kotlinx.serialization.Serializable\n")
 	b.WriteString("import kotlinx.serialization.json.JsonElement\n\n")
@@ -540,7 +547,7 @@ func writeKotlinClient(outDir string) error {
 
 	// Static header and imports.
 	b.WriteString(`// Code generated by gen-api-sdk. DO NOT EDIT.
-package com.caic.sdk
+package com.caic.sdk.v1
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -624,8 +631,8 @@ class ApiClient(baseURL: String) {
 
 	// Generate JSON endpoint methods from routes.
 	b.WriteString("    // JSON endpoints\n")
-	for i := range dto.Routes {
-		r := &dto.Routes[i]
+	for i := range v1.Routes {
+		r := &v1.Routes[i]
 		if r.IsSSE {
 			continue
 		}
@@ -636,8 +643,8 @@ class ApiClient(baseURL: String) {
 
 	// Generate SSE endpoint methods from routes.
 	b.WriteString("    // SSE endpoints\n")
-	for i := range dto.Routes {
-		r := &dto.Routes[i]
+	for i := range v1.Routes {
+		r := &v1.Routes[i]
 		if !r.IsSSE {
 			continue
 		}
@@ -676,8 +683,8 @@ class ApiClient(baseURL: String) {
 `)
 
 	// Generate reconnecting wrappers for SSE routes.
-	for i := range dto.Routes {
-		r := &dto.Routes[i]
+	for i := range v1.Routes {
+		r := &v1.Routes[i]
 		if !r.IsSSE {
 			continue
 		}
@@ -705,7 +712,7 @@ class ApiClient(baseURL: String) {
 	return os.WriteFile(filepath.Join(outDir, "ApiClient.kt"), []byte(b.String()), 0o600)
 }
 
-func writeKotlinJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
+func writeKotlinJSONFunc(b *strings.Builder, r *v1.Route, params []string) {
 	respType := r.RespName()
 	if r.IsArray {
 		respType = "List<" + respType + ">"
@@ -731,7 +738,7 @@ func writeKotlinJSONFunc(b *strings.Builder, r *dto.Route, params []string) {
 	}
 }
 
-func writeKotlinSSEFunc(b *strings.Builder, r *dto.Route, params []string) {
+func writeKotlinSSEFunc(b *strings.Builder, r *v1.Route, params []string) {
 	args := make([]string, 0, len(params))
 	for _, p := range params {
 		args = append(args, p+": String")
@@ -741,7 +748,7 @@ func writeKotlinSSEFunc(b *strings.Builder, r *dto.Route, params []string) {
 	fmt.Fprintf(b, "    fun %s(%s): Flow<%s> = sseFlow<%s>(%s)\n", r.Name, strings.Join(args, ", "), respName, respName, ktPath)
 }
 
-func writeKotlinReconnectingFunc(b *strings.Builder, r *dto.Route, params []string) {
+func writeKotlinReconnectingFunc(b *strings.Builder, r *v1.Route, params []string) {
 	// Build the function name: e.g. "taskEvents" -> "taskEventsReconnecting"
 	reconnectName := r.Name + "Reconnecting"
 
@@ -798,7 +805,7 @@ func generateDoc(outDir string) error {
 	b.WriteString("<!-- Code generated by gen-api-sdk; DO NOT EDIT. -->\n\n")
 	b.WriteString("RESTful JSON API served at `/api/v1/`. SSE endpoints stream newline-delimited JSON events.\n\n")
 
-	groups := docGroupRoutes(dto.Routes)
+	groups := docGroupRoutes(v1.Routes)
 
 	// Route tables.
 	for _, g := range groups {
@@ -849,11 +856,11 @@ func generateDoc(outDir string) error {
 
 type docRouteGroup struct {
 	name   string
-	routes []dto.Route
+	routes []v1.Route
 }
 
 // docGroupRoutes groups routes by CategoryName(), preserving first-seen order.
-func docGroupRoutes(routes []dto.Route) []docRouteGroup {
+func docGroupRoutes(routes []v1.Route) []docRouteGroup {
 	seen := map[string]int{} // category name → index in result
 	var result []docRouteGroup
 	for i := range routes {
@@ -863,7 +870,7 @@ func docGroupRoutes(routes []dto.Route) []docRouteGroup {
 			result[idx].routes = append(result[idx].routes, *r)
 		} else {
 			seen[cat] = len(result)
-			result = append(result, docRouteGroup{name: cat, routes: []dto.Route{*r}})
+			result = append(result, docRouteGroup{name: cat, routes: []v1.Route{*r}})
 		}
 	}
 	return result
@@ -872,7 +879,6 @@ func docGroupRoutes(routes []dto.Route) []docRouteGroup {
 // discoverDocTypes returns all dto struct types reachable from Routes in
 // dependency order (leaves first).
 func discoverDocTypes() []reflect.Type {
-	dtoPkgPath := reflect.TypeFor[dto.StatusResp]().PkgPath()
 	seen := map[reflect.Type]bool{}
 	var order []reflect.Type
 
@@ -885,7 +891,7 @@ func discoverDocTypes() []reflect.Type {
 			walk(t.Elem())
 			return
 		}
-		if t.Kind() != reflect.Struct || t.PkgPath() != dtoPkgPath {
+		if t.Kind() != reflect.Struct || !isSDKPkg(t.PkgPath()) {
 			return
 		}
 		if seen[t] {
@@ -898,8 +904,8 @@ func discoverDocTypes() []reflect.Type {
 		order = append(order, t)
 	}
 
-	for i := range dto.Routes {
-		r := &dto.Routes[i]
+	for i := range v1.Routes {
+		r := &v1.Routes[i]
 		if r.Req != nil {
 			walk(r.Req)
 		}

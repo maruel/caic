@@ -1,12 +1,12 @@
 // Dispatches Gemini function calls to the caic API.
 package com.fghbuild.caic.voice
 
-import com.caic.sdk.ApiClient
-import com.caic.sdk.CreateTaskReq
-import com.caic.sdk.InputReq
-import com.caic.sdk.Prompt
-import com.caic.sdk.SyncReq
-import com.caic.sdk.Task
+import com.caic.sdk.v1.ApiClient
+import com.caic.sdk.v1.CreateTaskReq
+import com.caic.sdk.v1.InputReq
+import com.caic.sdk.v1.Prompt
+import com.caic.sdk.v1.SyncReq
+import com.caic.sdk.v1.Task
 import com.fghbuild.caic.util.formatCost
 import com.fghbuild.caic.util.formatElapsed
 import kotlinx.serialization.json.JsonElement

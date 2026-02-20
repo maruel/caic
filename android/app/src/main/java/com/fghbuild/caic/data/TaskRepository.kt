@@ -1,9 +1,9 @@
 // Singleton repository managing the global SSE connection, task list, and per-task event streams.
 package com.fghbuild.caic.data
 
-import com.caic.sdk.ClaudeEventMessage
-import com.caic.sdk.Task
-import com.caic.sdk.UsageResp
+import com.caic.sdk.v1.ClaudeEventMessage
+import com.caic.sdk.v1.Task
+import com.caic.sdk.v1.UsageResp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.awaitClose

@@ -12,7 +12,7 @@
     "types": ["vite/client", "@testing-library/jest-dom"],
     "baseUrl": ".",
     "paths": {
-      "@sdk/*": ["sdk/*"]
+      "@sdk/*": ["sdk/ts/v1/*"]
     }
   },
   "include": ["frontend/src", "sdk"]

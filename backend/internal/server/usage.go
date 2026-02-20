@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	"github.com/maruel/caic/backend/internal/server/dto"
+	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 )
 
 const (
@@ -35,7 +35,7 @@ type usageFetcher struct {
 
 	mu       sync.Mutex
 	token    string
-	cached   *dto.UsageResp
+	cached   *v1.UsageResp
 	fetchAt  time.Time     // when cached was last successfully fetched
 	backoff  time.Duration // current backoff; 0 means no backoff
 	errorAt  time.Time     // when the last error occurred
@@ -143,7 +143,7 @@ func (f *usageFetcher) hasToken() bool {
 
 // get returns the cached usage data, refreshing if stale. Respects
 // exponential backoff on prior errors.
-func (f *usageFetcher) get() *dto.UsageResp {
+func (f *usageFetcher) get() *v1.UsageResp {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.token == "" {
@@ -177,7 +177,7 @@ func (f *usageFetcher) get() *dto.UsageResp {
 	return resp
 }
 
-func (f *usageFetcher) fetch() (*dto.UsageResp, error) {
+func (f *usageFetcher) fetch() (*v1.UsageResp, error) {
 	req, err := http.NewRequest(http.MethodGet, usageAPIURL, http.NoBody)
 	if err != nil {
 		return nil, err
@@ -217,21 +217,21 @@ func (f *usageFetcher) fetch() (*dto.UsageResp, error) {
 		return nil, fmt.Errorf("decode usage: %w", err)
 	}
 
-	out := &dto.UsageResp{}
+	out := &v1.UsageResp{}
 	if raw.FiveHour != nil {
-		out.FiveHour = dto.UsageWindow{
+		out.FiveHour = v1.UsageWindow{
 			Utilization: raw.FiveHour.Utilization,
 			ResetsAt:    raw.FiveHour.ResetsAt,
 		}
 	}
 	if raw.SevenDay != nil {
-		out.SevenDay = dto.UsageWindow{
+		out.SevenDay = v1.UsageWindow{
 			Utilization: raw.SevenDay.Utilization,
 			ResetsAt:    raw.SevenDay.ResetsAt,
 		}
 	}
 	if raw.ExtraUsage != nil {
-		out.ExtraUsage = dto.ExtraUsage{
+		out.ExtraUsage = v1.ExtraUsage{
 			IsEnabled:    raw.ExtraUsage.IsEnabled,
 			MonthlyLimit: raw.ExtraUsage.MonthlyLimit,
 			UsedCredits:  raw.ExtraUsage.UsedCredits,

@@ -1,9 +1,11 @@
-package dto
+package v1
 
 import (
 	"errors"
 	"net/http"
 	"testing"
+
+	"github.com/maruel/caic/backend/internal/server/dto"
 )
 
 func TestValidate(t *testing.T) {
@@ -104,21 +106,21 @@ func TestValidate(t *testing.T) {
 	})
 }
 
-// assertBadRequest checks that err is an *APIError with 400 status and the expected message.
+// assertBadRequest checks that err is an *dto.APIError with 400 status and the expected message.
 func assertBadRequest(t *testing.T, err error, wantMsg string) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	var apiErr *APIError
+	var apiErr *dto.APIError
 	if !errors.As(err, &apiErr) {
-		t.Fatalf("expected *APIError, got %T", err)
+		t.Fatalf("expected *dto.APIError, got %T", err)
 	}
 	if apiErr.StatusCode() != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", apiErr.StatusCode(), http.StatusBadRequest)
 	}
-	if apiErr.Code() != CodeBadRequest {
-		t.Errorf("code = %q, want %q", apiErr.Code(), CodeBadRequest)
+	if apiErr.Code() != dto.CodeBadRequest {
+		t.Errorf("code = %q, want %q", apiErr.Code(), dto.CodeBadRequest)
 	}
 	if apiErr.Error() != wantMsg {
 		t.Errorf("message = %q, want %q", apiErr.Error(), wantMsg)

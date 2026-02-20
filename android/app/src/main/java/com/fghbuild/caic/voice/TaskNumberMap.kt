@@ -1,7 +1,7 @@
 // Bidirectional map between task IDs and stable 1-based human-friendly numbers.
 package com.fghbuild.caic.voice
 
-import com.caic.sdk.Task
+import com.caic.sdk.v1.Task
 
 class TaskNumberMap {
     private val idToNumber = mutableMapOf<String, Int>()

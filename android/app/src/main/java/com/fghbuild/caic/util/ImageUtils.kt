@@ -9,7 +9,7 @@ import android.net.Uri
 import android.util.Base64
 import androidx.core.content.FileProvider
 import androidx.core.graphics.scale
-import com.caic.sdk.ImageData
+import com.caic.sdk.v1.ImageData
 import java.io.ByteArrayOutputStream
 import java.io.File
 

@@ -49,7 +49,7 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import com.caic.sdk.ImageData
+import com.caic.sdk.v1.ImageData
 import com.fghbuild.caic.util.imageDataToBitmap
 
 @OptIn(ExperimentalMaterial3Api::class)

@@ -31,7 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.caic.sdk.ClaudeTodoItem
+import com.caic.sdk.v1.ClaudeTodoItem
 
 @Composable
 fun TodoPanel(todos: List<ClaudeTodoItem>, modifier: Modifier = Modifier) {

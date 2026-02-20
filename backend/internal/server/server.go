@@ -26,6 +26,7 @@ import (
 	"github.com/maruel/caic/backend/internal/container"
 	"github.com/maruel/caic/backend/internal/gitutil"
 	"github.com/maruel/caic/backend/internal/server/dto"
+	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 	"github.com/maruel/caic/backend/internal/task"
 	"github.com/maruel/ksid"
 	"github.com/maruel/md"
@@ -355,15 +356,15 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	return err
 }
 
-func (s *Server) getConfig(_ context.Context, _ *dto.EmptyReq) (*dto.Config, error) {
-	return &dto.Config{
+func (s *Server) getConfig(_ context.Context, _ *dto.EmptyReq) (*v1.Config, error) {
+	return &v1.Config{
 		TailscaleAvailable: s.mdClient.TailscaleAPIKey != "",
 		USBAvailable:       runtime.GOOS == "linux",
 		DisplayAvailable:   true,
 	}, nil
 }
 
-func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.HarnessInfo, error) {
+func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]v1.HarnessInfo, error) {
 	// Collect unique harness backends from all runners.
 	seen := make(map[agent.Harness]agent.Backend)
 	for _, r := range s.runners {
@@ -371,27 +372,27 @@ func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]dto.Harne
 			seen[h] = b
 		}
 	}
-	out := make([]dto.HarnessInfo, 0, len(seen))
+	out := make([]v1.HarnessInfo, 0, len(seen))
 	for h, b := range seen {
-		out = append(out, dto.HarnessInfo{Name: string(h), Models: b.Models(), SupportsImages: b.SupportsImages()})
+		out = append(out, v1.HarnessInfo{Name: string(h), Models: b.Models(), SupportsImages: b.SupportsImages()})
 	}
-	slices.SortFunc(out, func(a, b dto.HarnessInfo) int {
+	slices.SortFunc(out, func(a, b v1.HarnessInfo) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 	return &out, nil
 }
 
-func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]dto.Repo, error) {
-	out := make([]dto.Repo, len(s.repos))
+func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]v1.Repo, error) {
+	out := make([]v1.Repo, len(s.repos))
 	for i, r := range s.repos {
-		out[i] = dto.Repo{Path: r.RelPath, BaseBranch: r.BaseBranch, RepoURL: r.RepoURL}
+		out[i] = v1.Repo{Path: r.RelPath, BaseBranch: r.BaseBranch, RepoURL: r.RepoURL}
 	}
 	return &out, nil
 }
 
-func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]dto.Task, error) {
+func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]v1.Task, error) {
 	s.mu.Lock()
-	out := make([]dto.Task, 0, len(s.tasks))
+	out := make([]v1.Task, 0, len(s.tasks))
 	for _, e := range s.tasks {
 		out = append(out, s.toJSON(e))
 	}
@@ -400,7 +401,7 @@ func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]dto.Task, err
 	return &out, nil
 }
 
-func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.CreateTaskResp, error) {
+func (s *Server) createTask(_ context.Context, req *v1.CreateTaskReq) (*v1.CreateTaskResp, error) {
 	runner, ok := s.runners[req.Repo]
 	if !ok {
 		return nil, dto.BadRequest("unknown repo: " + req.Repo)
@@ -420,7 +421,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
 	}
 
-	t := &task.Task{ID: ksid.NewID(), InitialPrompt: dtoPromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC()}
+	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, Harness: harness, Model: req.Model, Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC()}
 	t.SetTitle(req.InitialPrompt.Text)
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
@@ -445,7 +446,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 	}()
 
 	s.watchTitleGen(entry)
-	return &dto.CreateTaskResp{Status: "accepted", ID: t.ID}, nil
+	return &v1.CreateTaskResp{Status: "accepted", ID: t.ID}, nil
 }
 
 // handleTaskRawEvents streams agent messages as SSE using typed EventMessage DTOs.
@@ -473,7 +474,7 @@ func (s *Server) handleTaskRawEvents(w http.ResponseWriter, r *http.Request) {
 	tracker := newToolTimingTracker()
 	idx := 0
 
-	writeEvents := func(events []dto.ClaudeEventMessage) {
+	writeEvents := func(events []v1.ClaudeEventMessage) {
 		for _, ev := range events {
 			data, err := json.Marshal(ev)
 			if err != nil {
@@ -536,7 +537,7 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 	tracker := newGenericToolTimingTracker(entry.task.Harness)
 	idx := 0
 
-	writeEvents := func(events []dto.EventMessage) {
+	writeEvents := func(events []v1.EventMessage) {
 		for i := range events {
 			data, err := marshalEvent(&events[i])
 			if err != nil {
@@ -587,7 +588,7 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 	var prev []byte
 	for {
 		s.mu.Lock()
-		out := make([]dto.Task, 0, len(s.tasks))
+		out := make([]v1.Task, 0, len(s.tasks))
 		for _, e := range s.tasks {
 			out = append(out, s.toJSON(e))
 		}
@@ -693,14 +694,14 @@ const (
 // The relay probe uses the server context (not the request context) because the
 // SSH round-trip may outlive a cancelled HTTP request, and we want the log line
 // regardless.
-func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *dto.InputReq) (*dto.StatusResp, error) {
+func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *v1.InputReq) (*v1.StatusResp, error) {
 	if len(req.Prompt.Images) > 0 {
 		runner := s.runners[entry.task.Repo]
 		if b := runner.Backends[entry.task.Harness]; b != nil && !b.SupportsImages() {
 			return nil, dto.BadRequest(string(entry.task.Harness) + " does not support images")
 		}
 	}
-	if err := entry.task.SendInput(dtoPromptToAgent(req.Prompt)); err != nil {
+	if err := entry.task.SendInput(v1PromptToAgent(req.Prompt)); err != nil {
 		t := entry.task
 		rs := relayNoContainer
 		if t.Container != "" {
@@ -728,15 +729,15 @@ func (s *Server) sendInput(_ context.Context, entry *taskEntry, req *dto.InputRe
 			WithDetail("state", taskState.String()).
 			WithDetail("relay", string(rs))
 	}
-	return &dto.StatusResp{Status: "sent"}, nil
+	return &v1.StatusResp{Status: "sent"}, nil
 }
 
-func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *dto.RestartReq) (*dto.StatusResp, error) {
+func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *v1.RestartReq) (*v1.StatusResp, error) {
 	t := entry.task
 	if state := t.GetState(); state != task.StateWaiting && state != task.StateAsking {
 		return nil, dto.Conflict("task is not waiting or asking")
 	}
-	prompt := dtoPromptToAgent(req.Prompt)
+	prompt := v1PromptToAgent(req.Prompt)
 	if prompt.Text == "" {
 		// Read the plan file from the container.
 		plan, err := agent.ReadPlan(s.ctx, t.Container, t.GetPlanFile()) //nolint:contextcheck // intentionally using server context
@@ -756,10 +757,10 @@ func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *dto.Resta
 	s.mu.Lock()
 	s.taskChanged()
 	s.mu.Unlock()
-	return &dto.StatusResp{Status: "restarted"}, nil
+	return &v1.StatusResp{Status: "restarted"}, nil
 }
 
-func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (*dto.StatusResp, error) {
+func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (*v1.StatusResp, error) {
 	state := entry.task.GetState()
 	if state != task.StateWaiting && state != task.StateAsking && state != task.StateRunning {
 		return nil, dto.Conflict("task is not running or waiting")
@@ -770,10 +771,10 @@ func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.Empty
 	s.mu.Unlock()
 	runner := s.runners[entry.task.Repo]
 	go s.cleanupTask(entry, runner, task.StateTerminated)
-	return &dto.StatusResp{Status: "terminating"}, nil
+	return &v1.StatusResp{Status: "terminating"}, nil
 }
 
-func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *dto.SyncReq) (*dto.SyncResp, error) {
+func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq) (*v1.SyncResp, error) {
 	t := entry.task
 	switch t.GetState() {
 	case task.StatePending:
@@ -784,7 +785,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *dto.SyncRe
 	}
 	runner := s.runners[t.Repo]
 
-	if req.Target == dto.SyncTargetDefault {
+	if req.Target == v1.SyncTargetDefault {
 		if req.Force {
 			return nil, dto.BadRequest("force is not supported for default-branch sync")
 		}
@@ -805,7 +806,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *dto.SyncRe
 		} else if len(issues) > 0 {
 			status = "blocked"
 		}
-		return &dto.SyncResp{Status: status, Branch: baseBranch, DiffStat: toDTODiffStat(ds), SafetyIssues: toDTOSafetyIssues(issues)}, nil
+		return &v1.SyncResp{Status: status, Branch: baseBranch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
 	}
 
 	// Default: push to the task's own branch.
@@ -819,7 +820,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *dto.SyncRe
 	} else if len(issues) > 0 && !req.Force {
 		status = "blocked"
 	}
-	return &dto.SyncResp{Status: status, Branch: t.Branch, DiffStat: toDTODiffStat(ds), SafetyIssues: toDTOSafetyIssues(issues)}, nil
+	return &v1.SyncResp{Status: status, Branch: t.Branch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
 }
 
 func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
@@ -844,14 +845,14 @@ func (s *Server) handleGetUsage(w http.ResponseWriter, _ *http.Request) {
 //
 // TODO(security): Switch back to ephemeral tokens once v1beta supports
 // auth_tokens or v1alpha quality improves. See getVoiceTokenEphemeral.
-func (s *Server) getVoiceToken(_ context.Context, _ *dto.EmptyReq) (*dto.VoiceTokenResp, error) {
+func (s *Server) getVoiceToken(_ context.Context, _ *dto.EmptyReq) (*v1.VoiceTokenResp, error) {
 	apiKey := s.geminiAPIKey
 	if apiKey == "" {
 		return nil, dto.InternalError("GEMINI_API_KEY not configured")
 	}
 	slog.Info("voice token", "api_key_len", len(apiKey), "mode", "raw_key")
 	expireTime := time.Now().UTC().Add(30 * time.Minute).Format(time.RFC3339)
-	return &dto.VoiceTokenResp{
+	return &v1.VoiceTokenResp{
 		Token:     apiKey,
 		ExpiresAt: expireTime,
 	}, nil
@@ -867,7 +868,7 @@ func (s *Server) getVoiceToken(_ context.Context, _ *dto.EmptyReq) (*dto.VoiceTo
 // stabilises v1beta ephemeral tokens.
 //
 // See https://ai.google.dev/gemini-api/docs/ephemeral-tokens
-func (s *Server) getVoiceTokenEphemeral(ctx context.Context, _ *dto.EmptyReq) (*dto.VoiceTokenResp, error) { //nolint:unused // kept for future use
+func (s *Server) getVoiceTokenEphemeral(ctx context.Context, _ *dto.EmptyReq) (*v1.VoiceTokenResp, error) { //nolint:unused // kept for future use
 	apiKey := s.geminiAPIKey
 	if apiKey == "" {
 		return nil, dto.InternalError("GEMINI_API_KEY not configured")
@@ -918,7 +919,7 @@ func (s *Server) getVoiceTokenEphemeral(ctx context.Context, _ *dto.EmptyReq) (*
 	}
 	slog.Info("voice token", "token_prefix", tokenPrefix, "token_len", len(tokenResp.Name))
 
-	return &dto.VoiceTokenResp{
+	return &v1.VoiceTokenResp{
 		Token:     tokenResp.Name,
 		ExpiresAt: expireTime,
 		Ephemeral: true,
@@ -1421,11 +1422,11 @@ func tailscaleURL(t *task.Task) string {
 	return ""
 }
 
-func (s *Server) toJSON(e *taskEntry) dto.Task {
+func (s *Server) toJSON(e *taskEntry) v1.Task {
 	// Read all volatile fields in a single locked snapshot to avoid
 	// data races with addMessage/RestoreMessages.
 	snap := e.task.Snapshot()
-	j := dto.Task{
+	j := v1.Task{
 		ID:             e.task.ID,
 		InitialPrompt:  e.task.InitialPrompt.Text,
 		Title:          snap.Title,
@@ -1435,7 +1436,7 @@ func (s *Server) toJSON(e *taskEntry) dto.Task {
 		Container:      e.task.Container,
 		State:          snap.State.String(),
 		StateUpdatedAt: float64(snap.StateUpdatedAt.UnixMilli()) / 1e3,
-		Harness:        toDTOHarness(e.task.Harness),
+		Harness:        toV1Harness(e.task.Harness),
 		Model:          snap.Model,
 		AgentVersion:   snap.AgentVersion,
 		SessionID:      snap.SessionID,
@@ -1458,13 +1459,13 @@ func (s *Server) toJSON(e *taskEntry) dto.Task {
 	j.ActiveInputTokens = snap.LastUsage.InputTokens + snap.LastUsage.CacheCreationInputTokens
 	j.ActiveCacheReadTokens = snap.LastUsage.CacheReadInputTokens
 	if e.result != nil {
-		j.DiffStat = toDTODiffStat(e.result.DiffStat)
+		j.DiffStat = toV1DiffStat(e.result.DiffStat)
 		j.Result = e.result.AgentResult
 		if e.result.Err != nil {
 			j.Error = e.result.Err.Error()
 		}
 	} else {
-		j.DiffStat = toDTODiffStat(snap.DiffStat)
+		j.DiffStat = toV1DiffStat(snap.DiffStat)
 	}
 	return j
 }

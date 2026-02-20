@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
-	"github.com/maruel/caic/backend/internal/server/dto"
+	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 )
 
 func TestGenericConvertInitHasHarness(t *testing.T) {
@@ -26,8 +26,8 @@ func TestGenericConvertInitHasHarness(t *testing.T) {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
 	ev := events[0]
-	if ev.Kind != dto.EventKindInit {
-		t.Errorf("kind = %q, want %q", ev.Kind, dto.EventKindInit)
+	if ev.Kind != v1.EventKindInit {
+		t.Errorf("kind = %q, want %q", ev.Kind, v1.EventKindInit)
 	}
 	if ev.Init == nil {
 		t.Fatal("init payload is nil")
@@ -59,8 +59,8 @@ func TestGenericAskUserQuestionIsAsk(t *testing.T) {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
 	ev := events[0]
-	if ev.Kind != dto.EventKindAsk {
-		t.Errorf("kind = %q, want %q", ev.Kind, dto.EventKindAsk)
+	if ev.Kind != v1.EventKindAsk {
+		t.Errorf("kind = %q, want %q", ev.Kind, v1.EventKindAsk)
 	}
 	if ev.Ask == nil {
 		t.Fatal("ask payload is nil")
@@ -92,8 +92,8 @@ func TestGenericTodoWriteIsTodo(t *testing.T) {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
 	ev := events[0]
-	if ev.Kind != dto.EventKindTodo {
-		t.Errorf("kind = %q, want %q", ev.Kind, dto.EventKindTodo)
+	if ev.Kind != v1.EventKindTodo {
+		t.Errorf("kind = %q, want %q", ev.Kind, v1.EventKindTodo)
 	}
 	if ev.Todo == nil {
 		t.Fatal("todo payload is nil")
@@ -155,11 +155,11 @@ func TestGenericConvertTextAndUsage(t *testing.T) {
 	if len(events) != 2 {
 		t.Fatalf("got %d events, want 2", len(events))
 	}
-	if events[0].Kind != dto.EventKindText {
-		t.Errorf("event[0].kind = %q, want %q", events[0].Kind, dto.EventKindText)
+	if events[0].Kind != v1.EventKindText {
+		t.Errorf("event[0].kind = %q, want %q", events[0].Kind, v1.EventKindText)
 	}
-	if events[1].Kind != dto.EventKindUsage {
-		t.Errorf("event[1].kind = %q, want %q", events[1].Kind, dto.EventKindUsage)
+	if events[1].Kind != v1.EventKindUsage {
+		t.Errorf("event[1].kind = %q, want %q", events[1].Kind, v1.EventKindUsage)
 	}
 	if events[1].Usage.Model != "gemini-2.5-pro" {
 		t.Errorf("model = %q, want %q", events[1].Usage.Model, "gemini-2.5-pro")
@@ -181,8 +181,8 @@ func TestGenericConvertResult(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].Kind != dto.EventKindResult {
-		t.Errorf("kind = %q, want %q", events[0].Kind, dto.EventKindResult)
+	if events[0].Kind != v1.EventKindResult {
+		t.Errorf("kind = %q, want %q", events[0].Kind, v1.EventKindResult)
 	}
 	if events[0].Result.NumTurns != 3 {
 		t.Errorf("numTurns = %d, want 3", events[0].Result.NumTurns)
@@ -203,8 +203,8 @@ func TestGenericConvertStreamEvent(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].Kind != dto.EventKindTextDelta {
-		t.Errorf("kind = %q, want %q", events[0].Kind, dto.EventKindTextDelta)
+	if events[0].Kind != v1.EventKindTextDelta {
+		t.Errorf("kind = %q, want %q", events[0].Kind, v1.EventKindTextDelta)
 	}
 	if events[0].TextDelta.Text != "Hi" {
 		t.Errorf("text = %q, want %q", events[0].TextDelta.Text, "Hi")
@@ -221,8 +221,8 @@ func TestGenericConvertUserInput(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].Kind != dto.EventKindUserInput {
-		t.Errorf("kind = %q, want %q", events[0].Kind, dto.EventKindUserInput)
+	if events[0].Kind != v1.EventKindUserInput {
+		t.Errorf("kind = %q, want %q", events[0].Kind, v1.EventKindUserInput)
 	}
 	if events[0].UserInput.Text != "hello agent" {
 		t.Errorf("text = %q, want %q", events[0].UserInput.Text, "hello agent")
@@ -239,8 +239,8 @@ func TestGenericConvertSystemMessage(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("got %d events, want 1", len(events))
 	}
-	if events[0].Kind != dto.EventKindSystem {
-		t.Errorf("kind = %q, want %q", events[0].Kind, dto.EventKindSystem)
+	if events[0].Kind != v1.EventKindSystem {
+		t.Errorf("kind = %q, want %q", events[0].Kind, v1.EventKindSystem)
 	}
 }
 

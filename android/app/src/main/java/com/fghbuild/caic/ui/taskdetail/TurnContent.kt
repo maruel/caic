@@ -18,8 +18,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import com.caic.sdk.EventKinds
-import com.caic.sdk.ImageData
+import com.caic.sdk.v1.EventKinds
+import com.caic.sdk.v1.ImageData
 import com.fghbuild.caic.util.GroupKind
 import com.fghbuild.caic.util.Turn
 import com.fghbuild.caic.util.imageDataToBitmap

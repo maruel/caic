@@ -1,17 +1,17 @@
 // Unit tests for message grouping and turn splitting logic.
 package com.fghbuild.caic.util
 
-import com.caic.sdk.ClaudeEventMessage
-import com.caic.sdk.ClaudeEventText
-import com.caic.sdk.ClaudeEventTextDelta
-import com.caic.sdk.ClaudeEventToolResult
-import com.caic.sdk.ClaudeEventToolUse
-import com.caic.sdk.ClaudeEventAsk
-import com.caic.sdk.ClaudeAskQuestion
-import com.caic.sdk.ClaudeEventResult
-import com.caic.sdk.ClaudeEventUsage
-import com.caic.sdk.ClaudeEventUserInput
-import com.caic.sdk.EventKinds
+import com.caic.sdk.v1.ClaudeEventMessage
+import com.caic.sdk.v1.ClaudeEventText
+import com.caic.sdk.v1.ClaudeEventTextDelta
+import com.caic.sdk.v1.ClaudeEventToolResult
+import com.caic.sdk.v1.ClaudeEventToolUse
+import com.caic.sdk.v1.ClaudeEventAsk
+import com.caic.sdk.v1.ClaudeAskQuestion
+import com.caic.sdk.v1.ClaudeEventResult
+import com.caic.sdk.v1.ClaudeEventUsage
+import com.caic.sdk.v1.ClaudeEventUserInput
+import com.caic.sdk.v1.EventKinds
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals

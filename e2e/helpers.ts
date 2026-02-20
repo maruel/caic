@@ -9,7 +9,7 @@ import type {
   RestartReq,
   StatusResp,
   Task,
-} from "../sdk/types.gen";
+} from "../sdk/ts/v1/types.gen";
 
 // ---------------------------------------------------------------------------
 // Typed API client wrapping Playwright's APIRequestContext.

@@ -17,6 +17,7 @@ import (
 
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/server/dto"
+	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 	"github.com/maruel/caic/backend/internal/task"
 )
 
@@ -232,7 +233,7 @@ func TestHandleTerminate(t *testing.T) {
 		// Verify the response reports terminating. Don't check tk.State
 		// directly: cleanupTask runs in a goroutine and may have already
 		// transitioned the state to StateTerminated by now.
-		var resp dto.StatusResp
+		var resp v1.StatusResp
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatalf("failed to decode response: %v", err)
 		}
@@ -331,7 +332,7 @@ func TestHandleCreateTask(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 		}
-		var resp dto.CreateTaskResp
+		var resp v1.CreateTaskResp
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatal(err)
 		}
@@ -459,7 +460,7 @@ func TestHandleCreateTask(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 		}
-		var resp dto.CreateTaskResp
+		var resp v1.CreateTaskResp
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatal(err)
 		}
@@ -491,7 +492,7 @@ func TestHandleCreateTask(t *testing.T) {
 		if w.Code != http.StatusOK {
 			t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 		}
-		var resp dto.CreateTaskResp
+		var resp v1.CreateTaskResp
 		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
 			t.Fatal(err)
 		}
@@ -548,7 +549,7 @@ func TestHandleListRepos(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
 	}
-	var repos []dto.Repo
+	var repos []v1.Repo
 	if err := json.NewDecoder(w.Body).Decode(&repos); err != nil {
 		t.Fatal(err)
 	}
@@ -766,8 +767,8 @@ func TestLoadTerminatedTasks(t *testing.T) {
 }
 
 // parseSSEEvents extracts message-type SSE events from a response body.
-func parseSSEEvents(t *testing.T, body string) []dto.ClaudeEventMessage {
-	var events []dto.ClaudeEventMessage
+func parseSSEEvents(t *testing.T, body string) []v1.ClaudeEventMessage {
+	var events []v1.ClaudeEventMessage
 	eventType := "message"
 	for _, line := range strings.Split(body, "\n") {
 		if after, ok := strings.CutPrefix(line, "event: "); ok {
@@ -784,7 +785,7 @@ func parseSSEEvents(t *testing.T, body string) []dto.ClaudeEventMessage {
 		if eventType != "message" {
 			continue
 		}
-		var ev dto.ClaudeEventMessage
+		var ev v1.ClaudeEventMessage
 		if err := json.Unmarshal([]byte(after), &ev); err != nil {
 			t.Fatalf("unmarshal event: %v", err)
 		}
@@ -863,11 +864,11 @@ func TestHandleTaskRawEvents(t *testing.T) {
 			t.Fatal("no SSE events received for terminated task with messages")
 		}
 
-		kinds := make([]dto.ClaudeEventKind, len(events))
+		kinds := make([]v1.ClaudeEventKind, len(events))
 		for i, ev := range events {
 			kinds[i] = ev.Kind
 		}
-		wantKinds := []dto.ClaudeEventKind{dto.ClaudeEventKindInit, dto.ClaudeEventKindText, dto.ClaudeEventKindUsage, dto.ClaudeEventKindResult}
+		wantKinds := []v1.ClaudeEventKind{v1.ClaudeEventKindInit, v1.ClaudeEventKindText, v1.ClaudeEventKindUsage, v1.ClaudeEventKindResult}
 		if len(kinds) != len(wantKinds) {
 			t.Fatalf("event kinds = %v, want %v", kinds, wantKinds)
 		}
@@ -959,12 +960,12 @@ func TestHandleTaskRawEvents(t *testing.T) {
 		}
 
 		events := parseSSEEvents(t, w.Body.String())
-		kinds := make([]dto.ClaudeEventKind, len(events))
+		kinds := make([]v1.ClaudeEventKind, len(events))
 		for i, ev := range events {
 			kinds[i] = ev.Kind
 		}
 		// Expect: init + 2 textDelta (message_start filtered) + text + usage + result
-		wantKinds := []dto.ClaudeEventKind{dto.ClaudeEventKindInit, dto.ClaudeEventKindTextDelta, dto.ClaudeEventKindTextDelta, dto.ClaudeEventKindText, dto.ClaudeEventKindUsage, dto.ClaudeEventKindResult}
+		wantKinds := []v1.ClaudeEventKind{v1.ClaudeEventKindInit, v1.ClaudeEventKindTextDelta, v1.ClaudeEventKindTextDelta, v1.ClaudeEventKindText, v1.ClaudeEventKindUsage, v1.ClaudeEventKindResult}
 		if len(kinds) != len(wantKinds) {
 			t.Fatalf("event kinds = %v, want %v", kinds, wantKinds)
 		}

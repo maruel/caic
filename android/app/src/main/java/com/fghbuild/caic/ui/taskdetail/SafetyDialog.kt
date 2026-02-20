@@ -6,7 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import com.caic.sdk.SafetyIssue
+import com.caic.sdk.v1.SafetyIssue
 
 @Composable
 fun SafetyDialog(

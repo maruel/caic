@@ -1,4 +1,4 @@
-// Conversion from internal agent.Message types to dto.ClaudeEventMessage for
+// Conversion from internal agent.Message types to v1.ClaudeEventMessage for
 // the Claude Code raw SSE stream (/api/v1/tasks/{id}/raw_events). Each backend
 // has its own raw converter; this is the Claude Code one. See genericconv.go
 // for the backend-neutral converter that all backends share.
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
-	"github.com/maruel/caic/backend/internal/server/dto"
+	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 	"github.com/maruel/caic/backend/internal/task"
 )
 
@@ -28,15 +28,15 @@ func newToolTimingTracker() *toolTimingTracker {
 // A single AssistantMessage can produce multiple events (one per content
 // block + one usage event). Returns nil for messages that should be filtered
 // (RawMessage, etc.).
-func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []dto.ClaudeEventMessage {
+func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []v1.ClaudeEventMessage {
 	ts := now.UnixMilli()
 	switch m := msg.(type) {
 	case *agent.SystemInitMessage:
 		if m.Subtype == "init" {
-			return []dto.ClaudeEventMessage{{
-				Kind: dto.ClaudeEventKindInit,
+			return []v1.ClaudeEventMessage{{
+				Kind: v1.ClaudeEventKindInit,
 				Ts:   ts,
-				Init: &dto.ClaudeEventInit{
+				Init: &v1.ClaudeEventInit{
 					Model:        m.Model,
 					AgentVersion: m.Version,
 					SessionID:    m.SessionID,
@@ -45,35 +45,35 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 				},
 			}}
 		}
-		return []dto.ClaudeEventMessage{{
-			Kind:   dto.ClaudeEventKindSystem,
+		return []v1.ClaudeEventMessage{{
+			Kind:   v1.ClaudeEventKindSystem,
 			Ts:     ts,
-			System: &dto.ClaudeEventSystem{Subtype: m.Subtype},
+			System: &v1.ClaudeEventSystem{Subtype: m.Subtype},
 		}}
 	case *agent.SystemMessage:
-		return []dto.ClaudeEventMessage{{
-			Kind:   dto.ClaudeEventKindSystem,
+		return []v1.ClaudeEventMessage{{
+			Kind:   v1.ClaudeEventKindSystem,
 			Ts:     ts,
-			System: &dto.ClaudeEventSystem{Subtype: m.Subtype},
+			System: &v1.ClaudeEventSystem{Subtype: m.Subtype},
 		}}
 	case *agent.AssistantMessage:
 		return tt.convertAssistant(m, ts, now)
 	case *agent.UserMessage:
 		return tt.convertUser(m, ts, now)
 	case *agent.ResultMessage:
-		return []dto.ClaudeEventMessage{{
-			Kind: dto.ClaudeEventKindResult,
+		return []v1.ClaudeEventMessage{{
+			Kind: v1.ClaudeEventKindResult,
 			Ts:   ts,
-			Result: &dto.ClaudeEventResult{
+			Result: &v1.ClaudeEventResult{
 				Subtype:      m.Subtype,
 				IsError:      m.IsError,
 				Result:       m.Result,
-				DiffStat:     toDTODiffStat(m.DiffStat),
+				DiffStat:     toV1DiffStat(m.DiffStat),
 				TotalCostUSD: m.TotalCostUSD,
 				Duration:     float64(m.DurationMs) / 1e3,
 				DurationAPI:  float64(m.DurationAPIMs) / 1e3,
 				NumTurns:     m.NumTurns,
-				Usage: dto.ClaudeEventUsage{
+				Usage: v1.ClaudeEventUsage{
 					InputTokens:              m.Usage.InputTokens,
 					OutputTokens:             m.Usage.OutputTokens,
 					CacheCreationInputTokens: m.Usage.CacheCreationInputTokens,
@@ -84,18 +84,18 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 		}}
 	case *agent.StreamEvent:
 		if m.Event.Type == "content_block_delta" && m.Event.Delta != nil && m.Event.Delta.Type == "text_delta" && m.Event.Delta.Text != "" {
-			return []dto.ClaudeEventMessage{{
-				Kind:      dto.ClaudeEventKindTextDelta,
+			return []v1.ClaudeEventMessage{{
+				Kind:      v1.ClaudeEventKindTextDelta,
 				Ts:        ts,
-				TextDelta: &dto.ClaudeEventTextDelta{Text: m.Event.Delta.Text},
+				TextDelta: &v1.ClaudeEventTextDelta{Text: m.Event.Delta.Text},
 			}}
 		}
 		return nil
 	case *agent.DiffStatMessage:
-		return []dto.ClaudeEventMessage{{
-			Kind:     dto.ClaudeEventKindDiffStat,
+		return []v1.ClaudeEventMessage{{
+			Kind:     v1.ClaudeEventKindDiffStat,
 			Ts:       ts,
-			DiffStat: &dto.ClaudeEventDiffStat{DiffStat: toDTODiffStat(m.DiffStat)},
+			DiffStat: &v1.ClaudeEventDiffStat{DiffStat: toV1DiffStat(m.DiffStat)},
 		}}
 	default:
 		// RawMessage (tool_progress), MetaMessage, etc. — filtered.
@@ -103,43 +103,43 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 	}
 }
 
-func (tt *toolTimingTracker) convertAssistant(m *agent.AssistantMessage, ts int64, now time.Time) []dto.ClaudeEventMessage {
-	var events []dto.ClaudeEventMessage
+func (tt *toolTimingTracker) convertAssistant(m *agent.AssistantMessage, ts int64, now time.Time) []v1.ClaudeEventMessage {
+	var events []v1.ClaudeEventMessage
 	for _, block := range m.Message.Content {
 		switch block.Type {
 		case "text":
 			if block.Text != "" {
-				events = append(events, dto.ClaudeEventMessage{
-					Kind: dto.ClaudeEventKindText,
+				events = append(events, v1.ClaudeEventMessage{
+					Kind: v1.ClaudeEventKindText,
 					Ts:   ts,
-					Text: &dto.ClaudeEventText{Text: block.Text},
+					Text: &v1.ClaudeEventText{Text: block.Text},
 				})
 			}
 		case "tool_use":
 			tt.pending[block.ID] = now
 			switch block.Name {
 			case "AskUserQuestion":
-				events = append(events, dto.ClaudeEventMessage{
-					Kind: dto.ClaudeEventKindAsk,
+				events = append(events, v1.ClaudeEventMessage{
+					Kind: v1.ClaudeEventKindAsk,
 					Ts:   ts,
-					Ask: &dto.ClaudeEventAsk{
+					Ask: &v1.ClaudeEventAsk{
 						ToolUseID: block.ID,
 						Questions: parseClaudeAskInput(block.Input),
 					},
 				})
 			case "TodoWrite":
 				if todo := parseClaudeTodoInput(block.ID, block.Input); todo != nil {
-					events = append(events, dto.ClaudeEventMessage{
-						Kind: dto.ClaudeEventKindTodo,
+					events = append(events, v1.ClaudeEventMessage{
+						Kind: v1.ClaudeEventKindTodo,
 						Ts:   ts,
 						Todo: todo,
 					})
 				}
 			default:
-				events = append(events, dto.ClaudeEventMessage{
-					Kind: dto.ClaudeEventKindToolUse,
+				events = append(events, v1.ClaudeEventMessage{
+					Kind: v1.ClaudeEventKindToolUse,
 					Ts:   ts,
-					ToolUse: &dto.ClaudeEventToolUse{
+					ToolUse: &v1.ClaudeEventToolUse{
 						ToolUseID: block.ID,
 						Name:      block.Name,
 						Input:     block.Input,
@@ -151,10 +151,10 @@ func (tt *toolTimingTracker) convertAssistant(m *agent.AssistantMessage, ts int6
 	// Emit per-turn usage.
 	u := m.Message.Usage
 	if u.InputTokens > 0 || u.OutputTokens > 0 {
-		events = append(events, dto.ClaudeEventMessage{
-			Kind: dto.ClaudeEventKindUsage,
+		events = append(events, v1.ClaudeEventMessage{
+			Kind: v1.ClaudeEventKindUsage,
 			Ts:   ts,
-			Usage: &dto.ClaudeEventUsage{
+			Usage: &v1.ClaudeEventUsage{
 				InputTokens:              u.InputTokens,
 				OutputTokens:             u.OutputTokens,
 				CacheCreationInputTokens: u.CacheCreationInputTokens,
@@ -167,7 +167,7 @@ func (tt *toolTimingTracker) convertAssistant(m *agent.AssistantMessage, ts int6
 	return events
 }
 
-func (tt *toolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now time.Time) []dto.ClaudeEventMessage {
+func (tt *toolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now time.Time) []v1.ClaudeEventMessage {
 	// User text input (no parent tool) vs tool result.
 	//
 	// NOTE: Claude Code only emits UserMessage with ParentToolUseID for
@@ -181,10 +181,10 @@ func (tt *toolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now tim
 		if ui.Text == "" && len(ui.Images) == 0 {
 			return nil
 		}
-		return []dto.ClaudeEventMessage{{
-			Kind:      dto.ClaudeEventKindUserInput,
+		return []v1.ClaudeEventMessage{{
+			Kind:      v1.ClaudeEventKindUserInput,
 			Ts:        ts,
-			UserInput: &dto.ClaudeEventUserInput{Text: ui.Text, Images: ui.Images},
+			UserInput: &v1.ClaudeEventUserInput{Text: ui.Text, Images: ui.Images},
 		}}
 	}
 	toolUseID := *m.ParentToolUseID
@@ -194,10 +194,10 @@ func (tt *toolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now tim
 		delete(tt.pending, toolUseID)
 	}
 	errText := extractToolError(m.Message)
-	return []dto.ClaudeEventMessage{{
-		Kind: dto.ClaudeEventKindToolResult,
+	return []v1.ClaudeEventMessage{{
+		Kind: v1.ClaudeEventKindToolResult,
 		Ts:   ts,
-		ToolResult: &dto.ClaudeEventToolResult{
+		ToolResult: &v1.ClaudeEventToolResult{
 			ToolUseID: toolUseID,
 			Duration:  duration,
 			Error:     errText,
@@ -207,33 +207,33 @@ func (tt *toolTimingTracker) convertUser(m *agent.UserMessage, ts int64, now tim
 
 // parseTodoInput extracts typed TodoItem data from a TodoWrite tool input
 // for the generic event stream.
-func parseTodoInput(toolUseID string, raw json.RawMessage) *dto.EventTodo {
+func parseTodoInput(toolUseID string, raw json.RawMessage) *v1.EventTodo {
 	var input struct {
-		Todos []dto.TodoItem `json:"todos"`
+		Todos []v1.TodoItem `json:"todos"`
 	}
 	if json.Unmarshal(raw, &input) != nil || len(input.Todos) == 0 {
 		return nil
 	}
-	return &dto.EventTodo{ToolUseID: toolUseID, Todos: input.Todos}
+	return &v1.EventTodo{ToolUseID: toolUseID, Todos: input.Todos}
 }
 
 // parseClaudeTodoInput extracts typed ClaudeTodoItem data from a TodoWrite
 // tool input for the Claude raw stream.
-func parseClaudeTodoInput(toolUseID string, raw json.RawMessage) *dto.ClaudeEventTodo {
+func parseClaudeTodoInput(toolUseID string, raw json.RawMessage) *v1.ClaudeEventTodo {
 	var input struct {
-		Todos []dto.ClaudeTodoItem `json:"todos"`
+		Todos []v1.ClaudeTodoItem `json:"todos"`
 	}
 	if json.Unmarshal(raw, &input) != nil || len(input.Todos) == 0 {
 		return nil
 	}
-	return &dto.ClaudeEventTodo{ToolUseID: toolUseID, Todos: input.Todos}
+	return &v1.ClaudeEventTodo{ToolUseID: toolUseID, Todos: input.Todos}
 }
 
 // parseAskInput extracts typed AskQuestion data from the opaque tool input
 // for the generic event stream.
-func parseAskInput(raw json.RawMessage) []dto.AskQuestion {
+func parseAskInput(raw json.RawMessage) []v1.AskQuestion {
 	var input struct {
-		Questions []dto.AskQuestion `json:"questions"`
+		Questions []v1.AskQuestion `json:"questions"`
 	}
 	if json.Unmarshal(raw, &input) == nil {
 		return input.Questions
@@ -243,9 +243,9 @@ func parseAskInput(raw json.RawMessage) []dto.AskQuestion {
 
 // parseClaudeAskInput extracts typed ClaudeAskQuestion data from the opaque
 // tool input for the Claude raw stream.
-func parseClaudeAskInput(raw json.RawMessage) []dto.ClaudeAskQuestion {
+func parseClaudeAskInput(raw json.RawMessage) []v1.ClaudeAskQuestion {
 	var input struct {
-		Questions []dto.ClaudeAskQuestion `json:"questions"`
+		Questions []v1.ClaudeAskQuestion `json:"questions"`
 	}
 	if json.Unmarshal(raw, &input) == nil {
 		return input.Questions
@@ -259,7 +259,7 @@ func parseClaudeAskInput(raw json.RawMessage) []dto.ClaudeAskQuestion {
 //   - {"role":"user","content":[...blocks...]}   (images + optional text)
 type userInput struct {
 	Text   string
-	Images []dto.ImageData
+	Images []v1.ImageData
 }
 
 // extractUserInput extracts text and images from a user input message.
@@ -295,7 +295,7 @@ func extractUserInput(raw json.RawMessage) userInput {
 				ui.Text = b.Text
 			case "image":
 				if b.Source != nil {
-					ui.Images = append(ui.Images, dto.ImageData{
+					ui.Images = append(ui.Images, v1.ImageData{
 						MediaType: b.Source.MediaType,
 						Data:      b.Source.Data,
 					})
@@ -307,8 +307,8 @@ func extractUserInput(raw json.RawMessage) userInput {
 	return userInput{}
 }
 
-// dtoPromptToAgent converts dto.Prompt to agent.Prompt at the server boundary.
-func dtoPromptToAgent(p dto.Prompt) agent.Prompt {
+// v1PromptToAgent converts v1.Prompt to agent.Prompt at the server boundary.
+func v1PromptToAgent(p v1.Prompt) agent.Prompt {
 	var images []agent.ImageData
 	if len(p.Images) > 0 {
 		images = make([]agent.ImageData, len(p.Images))
@@ -319,37 +319,37 @@ func dtoPromptToAgent(p dto.Prompt) agent.Prompt {
 	return agent.Prompt{Text: p.Text, Images: images}
 }
 
-// toDTOHarness converts agent.Harness to dto.Harness at the server boundary.
-func toDTOHarness(h agent.Harness) dto.Harness {
-	return dto.Harness(h)
+// toV1Harness converts agent.Harness to v1.Harness at the server boundary.
+func toV1Harness(h agent.Harness) v1.Harness {
+	return v1.Harness(h)
 }
 
-// toAgentHarness converts dto.Harness to agent.Harness at the server boundary.
-func toAgentHarness(h dto.Harness) agent.Harness {
+// toAgentHarness converts v1.Harness to agent.Harness at the server boundary.
+func toAgentHarness(h v1.Harness) agent.Harness {
 	return agent.Harness(h)
 }
 
-// toDTOSafetyIssues converts []task.SafetyIssue to []dto.SafetyIssue at the
+// toV1SafetyIssues converts []task.SafetyIssue to []v1.SafetyIssue at the
 // server boundary.
-func toDTOSafetyIssues(issues []task.SafetyIssue) []dto.SafetyIssue {
+func toV1SafetyIssues(issues []task.SafetyIssue) []v1.SafetyIssue {
 	if len(issues) == 0 {
 		return nil
 	}
-	out := make([]dto.SafetyIssue, len(issues))
+	out := make([]v1.SafetyIssue, len(issues))
 	for i, si := range issues {
-		out[i] = dto.SafetyIssue{File: si.File, Kind: si.Kind, Detail: si.Detail}
+		out[i] = v1.SafetyIssue{File: si.File, Kind: si.Kind, Detail: si.Detail}
 	}
 	return out
 }
 
-// toDTODiffStat converts agent.DiffStat to dto.DiffStat at the server boundary.
-func toDTODiffStat(ds agent.DiffStat) dto.DiffStat {
+// toV1DiffStat converts agent.DiffStat to v1.DiffStat at the server boundary.
+func toV1DiffStat(ds agent.DiffStat) v1.DiffStat {
 	if len(ds) == 0 {
 		return nil
 	}
-	out := make(dto.DiffStat, len(ds))
+	out := make(v1.DiffStat, len(ds))
 	for i, f := range ds {
-		out[i] = dto.DiffFileStat{Path: f.Path, Added: f.Added, Deleted: f.Deleted, Binary: f.Binary}
+		out[i] = v1.DiffFileStat{Path: f.Path, Added: f.Added, Deleted: f.Deleted, Binary: f.Binary}
 	}
 	return out
 }

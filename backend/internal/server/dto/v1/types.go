@@ -1,9 +1,12 @@
 // Exported request and response types for the caic API.
-package dto
+package v1
 
-import "github.com/maruel/ksid"
+import (
+	"github.com/maruel/caic/backend/internal/server/dto"
+	"github.com/maruel/ksid"
+)
 
-//go:generate go tool tygo generate --config ../../../../backend/tygo.yaml
+//go:generate go tool tygo generate --config ../../../../../backend/tygo.yaml
 //go:generate go run github.com/maruel/caic/backend/internal/cmd/gen-api-sdk
 
 // Harness identifies the coding agent harness.
@@ -188,4 +191,4 @@ type VoiceTokenResp struct {
 }
 
 // EmptyReq is used for endpoints that take no request body.
-type EmptyReq struct{}
+type EmptyReq = dto.EmptyReq

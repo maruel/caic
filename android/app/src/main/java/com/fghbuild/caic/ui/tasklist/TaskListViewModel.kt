@@ -3,15 +3,15 @@ package com.fghbuild.caic.ui.tasklist
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.caic.sdk.ApiClient
-import com.caic.sdk.Config
-import com.caic.sdk.CreateTaskReq
-import com.caic.sdk.HarnessInfo
-import com.caic.sdk.ImageData
-import com.caic.sdk.Prompt
-import com.caic.sdk.Repo
-import com.caic.sdk.Task
-import com.caic.sdk.UsageResp
+import com.caic.sdk.v1.ApiClient
+import com.caic.sdk.v1.Config
+import com.caic.sdk.v1.CreateTaskReq
+import com.caic.sdk.v1.HarnessInfo
+import com.caic.sdk.v1.ImageData
+import com.caic.sdk.v1.Prompt
+import com.caic.sdk.v1.Repo
+import com.caic.sdk.v1.Task
+import com.caic.sdk.v1.UsageResp
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.ui.theme.activeStates

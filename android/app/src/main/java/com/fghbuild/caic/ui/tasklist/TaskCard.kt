@@ -35,8 +35,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.caic.sdk.Harnesses
-import com.caic.sdk.Task
+import com.caic.sdk.v1.Harnesses
+import com.caic.sdk.v1.Task
 import com.fghbuild.caic.ui.theme.stateColor
 import com.fghbuild.caic.util.formatCost
 import com.fghbuild.caic.util.formatElapsed

@@ -1,14 +1,14 @@
 # Kotlin SDK Design
 
 Pure Kotlin module (no Android dependencies) providing a type-safe client for the
-caic API. Mirrors the generated TypeScript SDK (`sdk/ts/api.gen.ts`, `sdk/ts/types.gen.ts`).
+caic API. Mirrors the generated TypeScript SDK (`sdk/ts/v1/api.gen.ts`, `sdk/ts/v1/types.gen.ts`).
 
 ## Code Generation
 
 `backend/internal/cmd/gen-api-sdk/main.go` emits Kotlin from the same
-`dto.Routes` and Go structs used for TypeScript.
+`v1.Routes` and Go structs used for TypeScript.
 
-Output directory: `sdk/kotlin/src/main/kotlin/com/caic/sdk/`
+Output directory: `sdk/kotlin/src/main/kotlin/com/caic/sdk/v1/`
 
 Two generated files:
 - `Types.kt` — data classes, type aliases, constants

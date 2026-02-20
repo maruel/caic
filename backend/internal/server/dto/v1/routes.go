@@ -1,5 +1,5 @@
 // API route declarations used by the code generator to produce typed TS and Kotlin clients.
-package dto
+package v1
 
 import (
 	"reflect"

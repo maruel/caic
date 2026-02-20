@@ -1,11 +1,11 @@
 // Message grouping and turn splitting, ported from frontend/src/TaskView.tsx.
 package com.fghbuild.caic.util
 
-import com.caic.sdk.ClaudeEventAsk
-import com.caic.sdk.ClaudeEventMessage
-import com.caic.sdk.ClaudeEventToolResult
-import com.caic.sdk.ClaudeEventToolUse
-import com.caic.sdk.EventKinds
+import com.caic.sdk.v1.ClaudeEventAsk
+import com.caic.sdk.v1.ClaudeEventMessage
+import com.caic.sdk.v1.ClaudeEventToolResult
+import com.caic.sdk.v1.ClaudeEventToolUse
+import com.caic.sdk.v1.EventKinds
 
 enum class GroupKind { TEXT, TOOL, ASK, USER_INPUT, OTHER }
 

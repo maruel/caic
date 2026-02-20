@@ -3,7 +3,7 @@ package com.fghbuild.caic.ui.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.caic.sdk.ApiClient
+import com.caic.sdk.v1.ApiClient
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.SettingsState
 import dagger.hilt.android.lifecycle.HiltViewModel

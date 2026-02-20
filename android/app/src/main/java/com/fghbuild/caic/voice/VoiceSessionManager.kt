@@ -21,7 +21,7 @@ import android.os.Handler
 import android.os.Looper
 import android.net.Uri
 import android.util.Base64
-import com.caic.sdk.ApiClient
+import com.caic.sdk.v1.ApiClient
 import com.fghbuild.caic.data.SettingsRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException

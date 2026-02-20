@@ -3,7 +3,7 @@ package com.fghbuild.caic.voice
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.caic.sdk.Task
+import com.caic.sdk.v1.Task
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.util.formatCost

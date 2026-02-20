@@ -8,8 +8,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.caic.sdk.ClaudeEventMessage
-import com.caic.sdk.EventKinds
+import com.caic.sdk.v1.ClaudeEventMessage
+import com.caic.sdk.v1.EventKinds
 import com.mikepenz.markdown.m3.Markdown
 
 @Composable

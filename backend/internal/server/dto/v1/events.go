@@ -18,7 +18,7 @@
 // Each hierarchy has its own complete set of sub-event types (e.g. EventText
 // vs ClaudeEventText). They are structurally identical today but kept separate
 // so they can diverge as backends evolve independently.
-package dto
+package v1
 
 import "encoding/json"
 

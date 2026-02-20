@@ -5,7 +5,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
-import com.caic.sdk.ApiClient
+import com.caic.sdk.v1.ApiClient
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn

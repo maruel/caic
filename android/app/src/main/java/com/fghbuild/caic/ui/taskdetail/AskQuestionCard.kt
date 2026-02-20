@@ -15,7 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.caic.sdk.ClaudeEventAsk
+import com.caic.sdk.v1.ClaudeEventAsk
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
