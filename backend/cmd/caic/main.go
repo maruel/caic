@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -45,6 +46,20 @@ func envInt(name string, def int) int {
 		return def
 	}
 	return n
+}
+
+// localizeAddr defaults to localhost when the address specifies a port but no
+// host (e.g. ":8080" → "localhost:8080"). This avoids accidentally listening
+// on all interfaces.
+func localizeAddr(addr string) string {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return addr
+	}
+	if host == "" {
+		return net.JoinHostPort("localhost", port)
+	}
+	return addr
 }
 
 func mainImpl() error {
@@ -122,6 +137,7 @@ See contrib/caic.env for a template with all variables and documentation.
 	if *addr == "" {
 		return errors.New("HTTP address is required: set -http flag or CAIC_HTTP env var")
 	}
+	*addr = localizeAddr(*addr)
 	if *root == "" {
 		return errors.New("root directory is required: set -root flag or CAIC_ROOT env var")
 	}
@@ -211,7 +227,9 @@ func main() {
 // git repo. Used for e2e testing without md CLI or SSH.
 func serveFake(ctx context.Context, addr, rootDir string, cfg *server.Config) error {
 	if addr == "" {
-		addr = ":8090"
+		addr = "localhost:8090"
+	} else {
+		addr = localizeAddr(addr)
 	}
 
 	// When -root is not provided, create a temp git repo.

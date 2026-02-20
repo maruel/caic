@@ -15,6 +15,10 @@ phone with Tailscale. All private.
 go install github.com/maruel/caic/backend/cmd/caic@latest
 ```
 
+When only a port is specified (e.g. `-http :8080` or `CAIC_HTTP=:8080`), the
+server listens on **localhost** only. To listen on all interfaces, specify the
+host explicitly: `-http 0.0.0.0:8080`.
+
 ### systemd user service
 
 Install the unit file and env file, then enable the service:
