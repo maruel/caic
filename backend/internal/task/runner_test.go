@@ -132,11 +132,11 @@ func TestRunner(t *testing.T) {
 			}
 
 			tk := &Task{
-				ID:     ksid.NewID(),
-				Prompt: "test",
-				Repo:   "org/repo",
-				Branch: "main",
-				State:  StateRunning,
+				ID:            ksid.NewID(),
+				InitialPrompt: "test",
+				Repo:          "org/repo",
+				Branch:        "main",
+				State:         StateRunning,
 			}
 
 			// Restore messages with cost info (simulates RestoreMessages from logs).
@@ -170,7 +170,7 @@ func TestRunner(t *testing.T) {
 			dir := t.TempDir()
 			logDir := filepath.Join(dir, "logs")
 			r := &Runner{LogDir: logDir}
-			tk := &Task{ID: ksid.NewID(), Prompt: "test", Repo: "org/repo", Branch: "caic/w0"}
+			tk := &Task{ID: ksid.NewID(), InitialPrompt: "test", Repo: "org/repo", Branch: "caic/w0"}
 			w, err := r.openLog(tk)
 			if err != nil {
 				t.Fatal(err)
@@ -218,7 +218,7 @@ func TestRunner(t *testing.T) {
 		r := &Runner{Container: stub}
 		r.initDefaults()
 
-		tk := &Task{Prompt: "test", State: StateRunning, Branch: "caic/w0"}
+		tk := &Task{InitialPrompt: "test", State: StateRunning, Branch: "caic/w0"}
 		_, ch, unsub := tk.Subscribe(t.Context())
 		defer unsub()
 
@@ -257,13 +257,13 @@ func TestRunner(t *testing.T) {
 		}
 
 		tk := &Task{
-			ID:        ksid.NewID(),
-			Prompt:    "old prompt",
-			Repo:      "org/repo",
-			Harness:   "test",
-			Branch:    "caic/w0",
-			Container: "fake-container",
-			State:     StateWaiting,
+			ID:            ksid.NewID(),
+			InitialPrompt: "old prompt",
+			Repo:          "org/repo",
+			Harness:       "test",
+			Branch:        "caic/w0",
+			Container:     "fake-container",
+			State:         StateWaiting,
 		}
 
 		h, err := r.RestartSession(t.Context(), tk, "new plan")
@@ -276,8 +276,8 @@ func TestRunner(t *testing.T) {
 		if tk.State != StateRunning {
 			t.Errorf("state = %v, want %v", tk.State, StateRunning)
 		}
-		if tk.Prompt != "new plan" {
-			t.Errorf("prompt = %q, want %q", tk.Prompt, "new plan")
+		if tk.InitialPrompt != "old prompt" {
+			t.Errorf("InitialPrompt = %q, want %q (must not be mutated by RestartSession)", tk.InitialPrompt, "old prompt")
 		}
 
 		// The context passed to AgentBackend.Start must still be valid after

@@ -420,7 +420,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
 	}
 
-	t := &task.Task{ID: ksid.NewID(), Prompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model, Images: toAgentImages(req.Images), Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display}
+	t := &task.Task{ID: ksid.NewID(), InitialPrompt: req.Prompt, Repo: req.Repo, Harness: harness, Model: req.Model, Images: toAgentImages(req.Images), Image: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display}
 	t.SetTitle(req.Prompt)
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
@@ -433,7 +433,7 @@ func (s *Server) createTask(_ context.Context, req *dto.CreateTaskReq) (*dto.Cre
 	go func() {
 		h, err := runner.Start(s.ctx, t)
 		if err != nil {
-			result := task.Result{Task: t.Prompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
+			result := task.Result{Task: t.InitialPrompt, Repo: t.Repo, Branch: t.Branch, Container: t.Container, State: task.StateFailed, Err: err}
 			s.mu.Lock()
 			entry.result = &result
 			s.taskChanged()
@@ -943,13 +943,13 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 	defer s.mu.Unlock()
 	for _, lt := range terminated {
 		t := &task.Task{
-			ID:        ksid.NewID(),
-			Prompt:    lt.Prompt,
-			Repo:      lt.Repo,
-			Harness:   lt.Harness,
-			Branch:    lt.Branch,
-			State:     lt.State,
-			StartedAt: lt.StartedAt,
+			ID:            ksid.NewID(),
+			InitialPrompt: lt.Prompt,
+			Repo:          lt.Repo,
+			Harness:       lt.Harness,
+			Branch:        lt.Branch,
+			State:         lt.State,
+			StartedAt:     lt.StartedAt,
 		}
 		if lt.Title != "" {
 			t.SetTitle(lt.Title)
@@ -1099,7 +1099,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	}
 	t := &task.Task{
 		ID:             taskID,
-		Prompt:         prompt,
+		InitialPrompt:  prompt,
 		Repo:           ri.RelPath,
 		Harness:        harnessName,
 		Branch:         branch,
@@ -1401,7 +1401,7 @@ func (s *Server) toJSON(e *taskEntry) dto.Task {
 	snap := e.task.Snapshot()
 	j := dto.Task{
 		ID:             e.task.ID,
-		Task:           e.task.Prompt,
+		Task:           e.task.InitialPrompt,
 		Title:          snap.Title,
 		Repo:           e.task.Repo,
 		RepoURL:        s.repoURL(e.task.Repo),

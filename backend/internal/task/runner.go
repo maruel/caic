@@ -270,7 +270,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 		Dir:       r.containerDir(),
 		MaxTurns:  maxTurns,
 		Model:     t.Model,
-		Prompt:    t.Prompt,
+		Prompt:    t.InitialPrompt,
 		Images:    t.Images,
 	}, msgCh, logW)
 	if err != nil {
@@ -285,7 +285,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	h := &SessionHandle{Session: session, MsgCh: msgCh, LogW: logW}
 	t.AttachSession(h)
 
-	t.addMessage(syntheticUserInput(t.Prompt, t.Images))
+	t.addMessage(syntheticUserInput(t.InitialPrompt, t.Images))
 	t.setState(StateRunning)
 	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", name)
 	return h, nil
@@ -345,7 +345,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	}
 
 	res := Result{
-		Task:      t.Prompt,
+		Task:      t.InitialPrompt,
 		Title:     t.Title(),
 		Repo:      t.Repo,
 		Branch:    t.Branch,
@@ -493,8 +493,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt string) (*S
 	// 2. Clear in-memory messages (sends context_cleared to subscribers).
 	t.ClearMessages()
 
-	// 3. Update prompt and open new log segment.
-	t.Prompt = prompt
+	// 3. Open new log segment.
 	logW, err := r.openLog(t)
 	if err != nil {
 		t.mu.Lock()
@@ -610,7 +609,7 @@ func (r *Runner) openLog(t *Task) (io.WriteCloser, error) {
 	meta := agent.MetaMessage{
 		MessageType: "caic_meta",
 		Version:     1,
-		Prompt:      t.Prompt,
+		Prompt:      t.InitialPrompt,
 		Title:       t.Title(),
 		Repo:        t.Repo,
 		Branch:      t.Branch,

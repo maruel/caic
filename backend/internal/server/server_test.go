@@ -100,7 +100,7 @@ func TestHandleTaskInput(t *testing.T) {
 	t.Run("NotRunning", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{Prompt: "test"},
+			task: &task.Task{InitialPrompt: "test"},
 			done: make(chan struct{}),
 		}
 
@@ -121,7 +121,7 @@ func TestHandleTaskInput(t *testing.T) {
 	t.Run("EmptyPrompt", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{Prompt: "test"},
+			task: &task.Task{InitialPrompt: "test"},
 			done: make(chan struct{}),
 		}
 
@@ -144,7 +144,7 @@ func TestHandleRestart(t *testing.T) {
 	t.Run("NotWaiting", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{Prompt: "test", State: task.StateRunning},
+			task: &task.Task{InitialPrompt: "test", State: task.StateRunning},
 			done: make(chan struct{}),
 		}
 
@@ -165,7 +165,7 @@ func TestHandleRestart(t *testing.T) {
 	t.Run("EmptyPrompt", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{Prompt: "test", State: task.StateWaiting},
+			task: &task.Task{InitialPrompt: "test", State: task.StateWaiting},
 			done: make(chan struct{}),
 		}
 
@@ -188,7 +188,7 @@ func TestHandleTerminate(t *testing.T) {
 	t.Run("NotWaiting", func(t *testing.T) {
 		s := newTestServer(t)
 		s.tasks["t1"] = &taskEntry{
-			task: &task.Task{Prompt: "test", State: task.StatePending},
+			task: &task.Task{InitialPrompt: "test", State: task.StatePending},
 			done: make(chan struct{}),
 		}
 
@@ -206,7 +206,7 @@ func TestHandleTerminate(t *testing.T) {
 	})
 
 	t.Run("Waiting", func(t *testing.T) {
-		tk := &task.Task{Prompt: "test", State: task.StateWaiting, Repo: "r"}
+		tk := &task.Task{InitialPrompt: "test", State: task.StateWaiting, Repo: "r"}
 		s := newTestServer(t)
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
 		s.tasks["t1"] = &taskEntry{
@@ -235,7 +235,7 @@ func TestHandleTerminate(t *testing.T) {
 	})
 
 	t.Run("CancelledContext", func(t *testing.T) {
-		tk := &task.Task{Prompt: "test", State: task.StateRunning, Repo: "r"}
+		tk := &task.Task{InitialPrompt: "test", State: task.StateRunning, Repo: "r"}
 		s := newTestServer(t)
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
 		s.tasks["t1"] = &taskEntry{
@@ -262,10 +262,10 @@ func TestHandleContainerDeath(t *testing.T) {
 	t.Run("TriggersCleanup", func(t *testing.T) {
 		s := newTestServer(t)
 		tk := &task.Task{
-			Prompt:    "test",
-			State:     task.StateRunning,
-			Repo:      "r",
-			Container: "md-repo-caic-w0",
+			InitialPrompt: "test",
+			State:         task.StateRunning,
+			Repo:          "r",
+			Container:     "md-repo-caic-w0",
 		}
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
 		entry := &taskEntry{task: tk, done: make(chan struct{})}
@@ -610,7 +610,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		prompts := make([]string, 0, len(s.tasks))
 		var anyEntry *taskEntry
 		for _, e := range s.tasks {
-			prompts = append(prompts, e.task.Prompt)
+			prompts = append(prompts, e.task.InitialPrompt)
 			if anyEntry == nil {
 				anyEntry = e
 			}

@@ -64,7 +64,7 @@ func (tg *titleGenerator) generate(ctx context.Context, t *task.Task) string {
 		}
 	}
 	// Prepend the original prompt.
-	input := "Prompt: " + t.Prompt
+	input := "Prompt: " + t.InitialPrompt
 	if b.Len() > 0 {
 		input += "\n" + b.String()
 	}
