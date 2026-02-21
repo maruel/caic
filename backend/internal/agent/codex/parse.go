@@ -3,6 +3,7 @@ package codex
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/maruel/caic/backend/internal/agent"
 )
@@ -60,6 +61,7 @@ func ParseMessage(line []byte) (agent.Message, error) {
 			MessageType: "system",
 			Subtype:     "init",
 			SessionID:   p.Thread.ID,
+			Cwd:         p.Thread.CWD,
 		}, nil
 
 	case MethodTurnStarted:
@@ -73,23 +75,24 @@ func ParseMessage(line []byte) (agent.Message, error) {
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
 			return nil, fmt.Errorf("turn/completed params: %w", err)
 		}
-		if p.Turn.Status == "failed" {
+		switch p.Turn.Status {
+		case "failed", "interrupted":
+			errMsg := ""
+			if p.Turn.Error != nil {
+				errMsg = p.Turn.Error.Message
+			}
 			return &agent.ResultMessage{
 				MessageType: "result",
 				Subtype:     "result",
 				IsError:     true,
-				Result:      p.Turn.Error,
+				Result:      errMsg,
+			}, nil
+		default: // "completed", "inProgress"
+			return &agent.ResultMessage{
+				MessageType: "result",
+				Subtype:     "result",
 			}, nil
 		}
-		return &agent.ResultMessage{
-			MessageType: "result",
-			Subtype:     "result",
-			Usage: agent.Usage{
-				InputTokens:          p.Turn.Usage.InputTokens,
-				OutputTokens:         p.Turn.Usage.OutputTokens,
-				CacheReadInputTokens: p.Turn.Usage.CachedInputTokens,
-			},
-		}, nil
 
 	case MethodItemStarted:
 		return parseItemStarted(&msg)
@@ -182,6 +185,19 @@ func parseItemCompleted(msg *JSONRPCMessage) (agent.Message, error) {
 		}, nil
 
 	case ItemTypeReasoning:
+		text := strings.Join(p.Item.Summary, "\n")
+		return &agent.AssistantMessage{
+			MessageType: "assistant",
+			Message: agent.APIMessage{
+				Role: "assistant",
+				Content: []agent.ContentBlock{{
+					Type: "text",
+					Text: text,
+				}},
+			},
+		}, nil
+
+	case ItemTypePlan:
 		return &agent.AssistantMessage{
 			MessageType: "assistant",
 			Message: agent.APIMessage{
@@ -194,7 +210,11 @@ func parseItemCompleted(msg *JSONRPCMessage) (agent.Message, error) {
 		}, nil
 
 	case ItemTypeCommandExecution:
-		raw, _ := json.Marshal(p.Item.AggregatedOutput)
+		output := ""
+		if p.Item.AggregatedOutput != nil {
+			output = *p.Item.AggregatedOutput
+		}
+		raw, _ := json.Marshal(output)
 		return &agent.UserMessage{
 			MessageType:     "user",
 			Message:         raw,
@@ -204,7 +224,7 @@ func parseItemCompleted(msg *JSONRPCMessage) (agent.Message, error) {
 	case ItemTypeFileChange:
 		toolName := "Edit"
 		for _, c := range p.Item.Changes {
-			if c.Kind == "add" {
+			if c.Kind.Type == "add" {
 				toolName = "Write"
 				break
 			}
@@ -224,9 +244,13 @@ func parseItemCompleted(msg *JSONRPCMessage) (agent.Message, error) {
 		}, nil
 
 	case ItemTypeMCPToolCall:
-		content := p.Item.Result
-		if p.Item.Error != "" {
-			content = p.Item.Error
+		var content string
+		if p.Item.Result != nil {
+			b, _ := json.Marshal(p.Item.Result.Content)
+			content = string(b)
+		}
+		if p.Item.Error != nil {
+			content = p.Item.Error.Message
 		}
 		raw, _ := json.Marshal(content)
 		return &agent.UserMessage{
@@ -249,24 +273,6 @@ func parseItemCompleted(msg *JSONRPCMessage) (agent.Message, error) {
 				}},
 			},
 		}, nil
-
-	case ItemTypeTodoList:
-		input, _ := json.Marshal(p.Item.Items)
-		return &agent.AssistantMessage{
-			MessageType: "assistant",
-			Message: agent.APIMessage{
-				Role: "assistant",
-				Content: []agent.ContentBlock{{
-					Type:  "tool_use",
-					ID:    p.Item.ID,
-					Name:  "TodoWrite",
-					Input: input,
-				}},
-			},
-		}, nil
-
-	case ItemTypeError:
-		return &agent.RawMessage{MessageType: "error", Raw: append(msg.Params[:0:0], msg.Params...)}, nil
 
 	default:
 		return &agent.RawMessage{MessageType: msg.Method, Raw: append(msg.Params[:0:0], msg.Params...)}, nil

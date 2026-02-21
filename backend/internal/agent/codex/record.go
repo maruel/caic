@@ -7,25 +7,28 @@ import (
 
 // JSON-RPC notification method constants for codex app-server.
 const (
-	MethodThreadStarted = "thread/started"
-	MethodTurnStarted   = "turn/started"
-	MethodTurnCompleted = "turn/completed"
-	MethodItemStarted   = "item/started"
-	MethodItemCompleted = "item/completed"
-	MethodItemUpdated   = "item/updated"
-	MethodItemDelta     = "item/agentMessage/delta"
+	MethodThreadStarted     = "thread/started"
+	MethodTurnStarted       = "turn/started"
+	MethodTurnCompleted     = "turn/completed"
+	MethodItemStarted       = "item/started"
+	MethodItemCompleted     = "item/completed"
+	MethodItemUpdated       = "item/updated"
+	MethodItemDelta         = "item/agentMessage/delta"
+	MethodTokenUsageUpdated = "thread/tokenUsage/updated"
 )
 
-// Item type constants for the inner item object.
+// Item type constants for ThreadItem.Type (camelCase as emitted by Codex v2).
 const (
-	ItemTypeAgentMessage     = "agent_message"
-	ItemTypeReasoning        = "reasoning"
-	ItemTypeCommandExecution = "command_execution"
-	ItemTypeFileChange       = "file_change"
-	ItemTypeMCPToolCall      = "mcp_tool_call"
-	ItemTypeWebSearch        = "web_search"
-	ItemTypeTodoList         = "todo_list"
-	ItemTypeError            = "error"
+	ItemTypeUserMessage       = "userMessage"
+	ItemTypeAgentMessage      = "agentMessage"
+	ItemTypePlan              = "plan"
+	ItemTypeReasoning         = "reasoning"
+	ItemTypeCommandExecution  = "commandExecution"
+	ItemTypeFileChange        = "fileChange"
+	ItemTypeMCPToolCall       = "mcpToolCall"
+	ItemTypeWebSearch         = "webSearch"
+	ItemTypeImageView         = "imageView"
+	ItemTypeContextCompaction = "contextCompaction"
 )
 
 // JSONRPCMessage is the JSON-RPC 2.0 envelope for codex app-server messages.
@@ -83,13 +86,17 @@ type ThreadInfo struct {
 	Path          string          `json:"path,omitempty"`
 	Preview       string          `json:"preview,omitempty"`
 	Source        string          `json:"source,omitempty"`
-	Turns         json.RawMessage `json:"turns,omitempty"`
 	UpdatedAt     int64           `json:"updatedAt,omitempty"` // Unix timestamp seconds.
 
 	Overflow
 }
 
-var threadInfoKnown = makeSet("id", "cliVersion", "createdAt", "cwd", "gitInfo", "modelProvider", "path", "preview", "source", "turns", "updatedAt")
+var threadInfoKnown = makeSet(
+	"id", "cliVersion", "createdAt", "cwd", "gitInfo", "modelProvider",
+	"path", "preview", "source", "updatedAt",
+	// v2 additional fields not captured above.
+	"status", "name", "agentNickname", "agentRole", "turns",
+)
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (t *ThreadInfo) UnmarshalJSON(data []byte) error {
@@ -106,14 +113,40 @@ func (t *ThreadInfo) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// TurnCompletedParams holds the params for turn/completed notifications.
-type TurnCompletedParams struct {
-	Turn TurnCompletedInfo `json:"turn"`
+// TurnStartedParams holds the params for turn/started notifications.
+type TurnStartedParams struct {
+	ThreadID string   `json:"threadId"`
+	Turn     TurnInfo `json:"turn"`
 
 	Overflow
 }
 
-var turnCompletedParamsKnown = makeSet("turn")
+var turnStartedParamsKnown = makeSet("threadId", "turn")
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (p *TurnStartedParams) UnmarshalJSON(data []byte) error {
+	type Alias TurnStartedParams
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("TurnStartedParams: %w", err)
+	}
+	if err := json.Unmarshal(data, (*Alias)(p)); err != nil {
+		return fmt.Errorf("TurnStartedParams: %w", err)
+	}
+	p.Extra = collectUnknown(raw, turnStartedParamsKnown)
+	warnUnknown("TurnStartedParams", p.Extra)
+	return nil
+}
+
+// TurnCompletedParams holds the params for turn/completed notifications.
+type TurnCompletedParams struct {
+	ThreadID string   `json:"threadId"`
+	Turn     TurnInfo `json:"turn"`
+
+	Overflow
+}
+
+var turnCompletedParamsKnown = makeSet("threadId", "turn")
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (p *TurnCompletedParams) UnmarshalJSON(data []byte) error {
@@ -130,66 +163,67 @@ func (p *TurnCompletedParams) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// TurnCompletedInfo describes a completed turn.
-type TurnCompletedInfo struct {
-	Status string    `json:"status"` // "completed" or "failed"
-	Usage  TurnUsage `json:"usage"`
-	Error  string    `json:"error,omitempty"`
+// TurnInfo describes a turn in turn/started and turn/completed params.
+type TurnInfo struct {
+	ID     string     `json:"id"`
+	Status string     `json:"status"` // "completed", "failed", "interrupted", "inProgress"
+	Error  *TurnError `json:"error,omitempty"`
 
 	Overflow
 }
 
-var turnCompletedInfoKnown = makeSet("status", "usage", "error")
+var turnInfoKnown = makeSet("id", "status", "error", "items")
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (t *TurnCompletedInfo) UnmarshalJSON(data []byte) error {
-	type Alias TurnCompletedInfo
+func (t *TurnInfo) UnmarshalJSON(data []byte) error {
+	type Alias TurnInfo
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("TurnCompletedInfo: %w", err)
+		return fmt.Errorf("TurnInfo: %w", err)
 	}
 	if err := json.Unmarshal(data, (*Alias)(t)); err != nil {
-		return fmt.Errorf("TurnCompletedInfo: %w", err)
+		return fmt.Errorf("TurnInfo: %w", err)
 	}
-	t.Extra = collectUnknown(raw, turnCompletedInfoKnown)
-	warnUnknown("TurnCompletedInfo", t.Extra)
+	t.Extra = collectUnknown(raw, turnInfoKnown)
+	warnUnknown("TurnInfo", t.Extra)
 	return nil
 }
 
-// TurnUsage contains token counts for a single turn.
-type TurnUsage struct {
-	InputTokens       int `json:"input_tokens"`
-	CachedInputTokens int `json:"cached_input_tokens"`
-	OutputTokens      int `json:"output_tokens"`
+// TurnError describes a turn failure.
+type TurnError struct {
+	Message           string `json:"message"`
+	AdditionalDetails string `json:"additionalDetails,omitempty"`
 
 	Overflow
 }
 
-var turnUsageKnown = makeSet("input_tokens", "cached_input_tokens", "output_tokens")
+var turnErrorKnown = makeSet("message", "codexErrorInfo", "additionalDetails")
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (u *TurnUsage) UnmarshalJSON(data []byte) error {
-	type Alias TurnUsage
+func (e *TurnError) UnmarshalJSON(data []byte) error {
+	type Alias TurnError
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("TurnUsage: %w", err)
+		return fmt.Errorf("TurnError: %w", err)
 	}
-	if err := json.Unmarshal(data, (*Alias)(u)); err != nil {
-		return fmt.Errorf("TurnUsage: %w", err)
+	if err := json.Unmarshal(data, (*Alias)(e)); err != nil {
+		return fmt.Errorf("TurnError: %w", err)
 	}
-	u.Extra = collectUnknown(raw, turnUsageKnown)
-	warnUnknown("TurnUsage", u.Extra)
+	e.Extra = collectUnknown(raw, turnErrorKnown)
+	warnUnknown("TurnError", e.Extra)
 	return nil
 }
 
-// ItemParams holds the params for item/* notifications.
+// ItemParams holds the params for item/started and item/completed notifications.
 type ItemParams struct {
-	Item ItemData `json:"item"`
+	Item     ThreadItem `json:"item"`
+	ThreadID string     `json:"threadId"`
+	TurnID   string     `json:"turnId"`
 
 	Overflow
 }
 
-var itemParamsKnown = makeSet("item")
+var itemParamsKnown = makeSet("item", "threadId", "turnId")
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (p *ItemParams) UnmarshalJSON(data []byte) error {
@@ -208,13 +242,15 @@ func (p *ItemParams) UnmarshalJSON(data []byte) error {
 
 // ItemDeltaParams holds the params for item/agentMessage/delta notifications.
 type ItemDeltaParams struct {
-	ItemID string `json:"item_id"`
-	Delta  string `json:"delta"`
+	ThreadID string `json:"threadId"`
+	TurnID   string `json:"turnId"`
+	ItemID   string `json:"itemId"`
+	Delta    string `json:"delta"`
 
 	Overflow
 }
 
-var itemDeltaParamsKnown = makeSet("item_id", "delta")
+var itemDeltaParamsKnown = makeSet("threadId", "turnId", "itemId", "delta")
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (p *ItemDeltaParams) UnmarshalJSON(data []byte) error {
@@ -231,75 +267,131 @@ func (p *ItemDeltaParams) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// ItemData is the inner item object within item event params.
-type ItemData struct {
-	ID     string `json:"id"`
-	Type   string `json:"type"`   // agent_message, reasoning, command_execution, file_change, mcp_tool_call, web_search, todo_list, error
-	Status string `json:"status"` // in_progress, completed, failed
+// ThreadItem is the discriminated-union item type used in item/* notifications.
+// The Type field is the discriminant (camelCase, e.g. "agentMessage").
+type ThreadItem struct {
+	ID   string `json:"id"`
+	Type string `json:"type"`
 
-	// agent_message / reasoning fields.
+	// agentMessage / plan fields.
 	Text string `json:"text,omitempty"`
 
-	// command_execution fields.
-	Command          string `json:"command,omitempty"`
-	AggregatedOutput string `json:"aggregated_output,omitempty"`
-	ExitCode         *int   `json:"exit_code,omitempty"`
+	// reasoning fields.
+	Summary []string        `json:"summary,omitempty"`
+	Content json.RawMessage `json:"content,omitempty"`
 
-	// file_change fields.
-	Changes []FileChange `json:"changes,omitempty"`
+	// commandExecution fields.
+	Command          string  `json:"command,omitempty"`
+	AggregatedOutput *string `json:"aggregatedOutput,omitempty"` // nullable
+	ExitCode         *int    `json:"exitCode,omitempty"`
 
-	// mcp_tool_call fields.
-	Server    string          `json:"server,omitempty"`
-	Tool      string          `json:"tool,omitempty"`
-	Arguments json.RawMessage `json:"arguments,omitempty"`
-	Result    string          `json:"result,omitempty"`
-	Error     string          `json:"error,omitempty"`
+	// fileChange fields.
+	Changes []FileUpdateChange `json:"changes,omitempty"`
 
-	// web_search fields.
+	// mcpToolCall fields.
+	Server    string             `json:"server,omitempty"`
+	Tool      string             `json:"tool,omitempty"`
+	Arguments json.RawMessage    `json:"arguments,omitempty"`
+	Result    *McpToolCallResult `json:"result,omitempty"`
+	Error     *McpToolCallError  `json:"error,omitempty"`
+
+	// webSearch fields.
 	Query string `json:"query,omitempty"`
-
-	// todo_list fields.
-	Items []TodoItem `json:"items,omitempty"`
-
-	// error fields (when type=error).
-	Message string `json:"message,omitempty"`
 
 	Overflow
 }
 
-var itemDataKnown = makeSet(
-	"id", "type", "status", "text",
-	"command", "aggregated_output", "exit_code",
-	"changes",
-	"server", "tool", "arguments", "result", "error",
-	"query",
-	"items",
-	"message",
+var threadItemKnown = makeSet(
+	"id", "type",
+	"text", "phase", // agentMessage / plan
+	"summary", "content", // reasoning
+	"command", "cwd", "processId", "status", "commandActions", // commandExecution
+	"aggregatedOutput", "exitCode", "durationMs",
+	"changes",                                        // fileChange
+	"server", "tool", "arguments", "result", "error", // mcpToolCall
+	"query", "action", // webSearch
+	"path",                                                          // imageView
+	"review",                                                        // enteredReviewMode / exitedReviewMode
+	"senderThreadId", "receiverThreadIds", "prompt", "agentsStates", // collabAgentToolCall
 )
 
 // UnmarshalJSON implements json.Unmarshaler.
-func (d *ItemData) UnmarshalJSON(data []byte) error {
-	type Alias ItemData
+func (d *ThreadItem) UnmarshalJSON(data []byte) error {
+	type Alias ThreadItem
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
-		return fmt.Errorf("ItemData: %w", err)
+		return fmt.Errorf("ThreadItem: %w", err)
 	}
 	if err := json.Unmarshal(data, (*Alias)(d)); err != nil {
-		return fmt.Errorf("ItemData: %w", err)
+		return fmt.Errorf("ThreadItem: %w", err)
 	}
-	d.Extra = collectUnknown(raw, itemDataKnown)
-	warnUnknown("ItemData("+d.Type+")", d.Extra)
+	d.Extra = collectUnknown(raw, threadItemKnown)
+	warnUnknown("ThreadItem("+d.Type+")", d.Extra)
 	return nil
 }
 
-// FileChange describes a single file change within a file_change item.
-type FileChange struct {
-	Path string `json:"path"`
-	Kind string `json:"kind"` // add, update, delete
+// FileUpdateChange describes a single file change within a fileChange item.
+type FileUpdateChange struct {
+	Path string          `json:"path"`
+	Kind PatchChangeKind `json:"kind"`
+	Diff string          `json:"diff,omitempty"`
 }
 
-// TodoItem is a single entry in a todo_list item.
-type TodoItem struct {
-	Text      string `json:"text"`
-	Completed bool   `json:"completed"`
+// PatchChangeKind is the discriminated kind for FileUpdateChange.
+type PatchChangeKind struct {
+	Type     string  `json:"type"`               // "add", "delete", "update"
+	MovePath *string `json:"movePath,omitempty"` // only for "update" with rename
+}
+
+// McpToolCallResult holds the result of a successful MCP tool call.
+type McpToolCallResult struct {
+	Content           []json.RawMessage `json:"content"`
+	StructuredContent json.RawMessage   `json:"structuredContent,omitempty"`
+}
+
+// McpToolCallError holds the error from a failed MCP tool call.
+type McpToolCallError struct {
+	Message string `json:"message"`
+}
+
+// TokenUsageUpdatedParams holds params for thread/tokenUsage/updated notifications.
+type TokenUsageUpdatedParams struct {
+	ThreadID   string           `json:"threadId"`
+	TurnID     string           `json:"turnId"`
+	TokenUsage ThreadTokenUsage `json:"tokenUsage"`
+
+	Overflow
+}
+
+var tokenUsageUpdatedParamsKnown = makeSet("threadId", "turnId", "tokenUsage")
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (p *TokenUsageUpdatedParams) UnmarshalJSON(data []byte) error {
+	type Alias TokenUsageUpdatedParams
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("TokenUsageUpdatedParams: %w", err)
+	}
+	if err := json.Unmarshal(data, (*Alias)(p)); err != nil {
+		return fmt.Errorf("TokenUsageUpdatedParams: %w", err)
+	}
+	p.Extra = collectUnknown(raw, tokenUsageUpdatedParamsKnown)
+	warnUnknown("TokenUsageUpdatedParams", p.Extra)
+	return nil
+}
+
+// ThreadTokenUsage holds cumulative and per-turn token usage for a thread.
+type ThreadTokenUsage struct {
+	Total              TokenUsageBreakdown `json:"total"`
+	Last               TokenUsageBreakdown `json:"last"`
+	ModelContextWindow *int64              `json:"modelContextWindow,omitempty"`
+}
+
+// TokenUsageBreakdown contains a detailed breakdown of token counts.
+type TokenUsageBreakdown struct {
+	TotalTokens           int64 `json:"totalTokens"`
+	InputTokens           int64 `json:"inputTokens"`
+	CachedInputTokens     int64 `json:"cachedInputTokens"`
+	OutputTokens          int64 `json:"outputTokens"`
+	ReasoningOutputTokens int64 `json:"reasoningOutputTokens"`
 }

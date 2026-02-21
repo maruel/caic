@@ -10,7 +10,7 @@ import (
 
 func TestParseMessage(t *testing.T) {
 	t.Run("ThreadStarted", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}}}`
+		const input = `{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"0199a213-81c0-7800-8aa1-bbab2a035a53","cliVersion":"1.0","createdAt":1771690198,"cwd":"/repo","modelProvider":"openai","path":"/repo","preview":"fix","source":"user","updatedAt":1771690200}}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -22,9 +22,12 @@ func TestParseMessage(t *testing.T) {
 		if init.SessionID != "0199a213-81c0-7800-8aa1-bbab2a035a53" {
 			t.Errorf("SessionID = %q", init.SessionID)
 		}
+		if init.Cwd != "/repo" {
+			t.Errorf("Cwd = %q", init.Cwd)
+		}
 	})
 	t.Run("TurnStarted", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"turn/started","params":{}}`
+		const input = `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn_1","status":"inProgress"}}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -38,7 +41,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("TurnCompleted", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}}}`
+		const input = `{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn_1","status":"completed"}}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -50,18 +53,9 @@ func TestParseMessage(t *testing.T) {
 		if rm.IsError {
 			t.Error("IsError should be false")
 		}
-		if rm.Usage.InputTokens != 24763 {
-			t.Errorf("InputTokens = %d", rm.Usage.InputTokens)
-		}
-		if rm.Usage.OutputTokens != 122 {
-			t.Errorf("OutputTokens = %d", rm.Usage.OutputTokens)
-		}
-		if rm.Usage.CacheReadInputTokens != 24448 {
-			t.Errorf("CacheReadInputTokens = %d", rm.Usage.CacheReadInputTokens)
-		}
 	})
 	t.Run("TurnFailed", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"failed","error":"rate limit exceeded","usage":{}}}}`
+		const input = `{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn_1","status":"failed","error":{"message":"rate limit exceeded"}}}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -78,7 +72,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemStartedCommandExecution", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/started","params":{"item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/started","params":{"item":{"id":"item_1","type":"commandExecution","command":"bash -lc ls","status":"inProgress"},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -102,7 +96,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemCompletedCommandExecution", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"docs\nsrc\n","exit_code":0,"status":"completed"}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_1","type":"commandExecution","command":"bash -lc ls","aggregatedOutput":"docs\nsrc\n","exitCode":0,"status":"completed"},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -116,7 +110,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemCompletedAgentMessage", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_3","type":"agent_message","text":"Done.","status":"completed"}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_3","type":"agentMessage","text":"Done.","status":"completed"},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -133,7 +127,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemCompletedReasoning", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_0","type":"reasoning","text":"**Scanning...**","status":"completed"}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_0","type":"reasoning","summary":["**Scanning...**"],"content":[]},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -150,7 +144,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemCompletedFileChangeAdd", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_4","type":"file_change","changes":[{"path":"docs/foo.md","kind":"add"}],"status":"completed"}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_4","type":"fileChange","changes":[{"path":"docs/foo.md","kind":{"type":"add"},"diff":""}],"status":"completed"},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -165,7 +159,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemCompletedFileChangeUpdate", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_5","type":"file_change","changes":[{"path":"src/main.go","kind":"update"}],"status":"completed"}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_5","type":"fileChange","changes":[{"path":"src/main.go","kind":{"type":"update"},"diff":""}],"status":"completed"},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -180,7 +174,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemCompletedWebSearch", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_6","type":"web_search","query":"golang generics","status":"completed"}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_6","type":"webSearch","query":"golang generics","status":"completed"},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -195,7 +189,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemUpdated", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/updated","params":{"item":{"id":"item_1","type":"command_execution","aggregated_output":"partial..."}}}`
+		const input = `{"jsonrpc":"2.0","method":"item/updated","params":{"item":{"id":"item_1","type":"commandExecution","aggregatedOutput":"partial..."},"threadId":"t1","turnId":"turn_1"}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -209,7 +203,7 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("ItemDelta", func(t *testing.T) {
-		const input = `{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"item_id":"item_3","delta":"Hello "}}`
+		const input = `{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn_1","itemId":"item_3","delta":"Hello "}}`
 		msg, err := ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -271,27 +265,27 @@ func TestParseMessage(t *testing.T) {
 		}
 	})
 	t.Run("FullStream", func(t *testing.T) {
-		// Parse a full example stream of JSON-RPC notifications.
+		// Parse a full example stream of JSON-RPC notifications in v2 format.
 		lines := []string{
-			`{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"0199a213-81c0-7800-8aa1-bbab2a035a53"}}}`,
-			`{"jsonrpc":"2.0","method":"turn/started","params":{}}`,
-			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_0","type":"reasoning","text":"**Scanning...**","status":"completed"}}}`,
-			`{"jsonrpc":"2.0","method":"item/started","params":{"item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}}`,
-			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"docs\nsrc\n","exit_code":0,"status":"completed"}}}`,
-			`{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"item_id":"item_3","delta":"Done."}}`,
-			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_4","type":"file_change","changes":[{"path":"docs/foo.md","kind":"add"}],"status":"completed"}}}`,
-			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_3","type":"agent_message","text":"Done.","status":"completed"}}}`,
-			`{"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}}}`,
+			`{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"0199a213-81c0-7800-8aa1-bbab2a035a53","cliVersion":"1.0","createdAt":1771690198,"cwd":"/repo","modelProvider":"openai","path":"/repo","preview":"fix","source":"user","updatedAt":1771690200}}}`,
+			`{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn_1","status":"inProgress"}}}`,
+			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_0","type":"reasoning","summary":["**Scanning...**"],"content":[]},"threadId":"t1","turnId":"turn_1"}}`,
+			`{"jsonrpc":"2.0","method":"item/started","params":{"item":{"id":"item_1","type":"commandExecution","command":"bash -lc ls","status":"inProgress"},"threadId":"t1","turnId":"turn_1"}}`,
+			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_1","type":"commandExecution","command":"bash -lc ls","aggregatedOutput":"docs\nsrc\n","exitCode":0,"status":"completed"},"threadId":"t1","turnId":"turn_1"}}`,
+			`{"jsonrpc":"2.0","method":"item/agentMessage/delta","params":{"threadId":"t1","turnId":"turn_1","itemId":"item_3","delta":"Done."}}`,
+			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_4","type":"fileChange","changes":[{"path":"docs/foo.md","kind":{"type":"add"},"diff":""}],"status":"completed"},"threadId":"t1","turnId":"turn_1"}}`,
+			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_3","type":"agentMessage","text":"Done.","status":"completed"},"threadId":"t1","turnId":"turn_1"}}`,
+			`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn_1","status":"completed"}}}`,
 		}
 		wantTypes := []string{
 			"system",       // thread/started → SystemInitMessage
 			"system",       // turn/started → SystemMessage
 			"assistant",    // reasoning → AssistantMessage
-			"assistant",    // item/started command_execution → AssistantMessage (tool_use)
-			"user",         // item/completed command_execution → UserMessage (tool result)
+			"assistant",    // item/started commandExecution → AssistantMessage (tool_use)
+			"user",         // item/completed commandExecution → UserMessage (tool result)
 			"stream_event", // item/agentMessage/delta → StreamEvent
-			"assistant",    // file_change → AssistantMessage (tool_use)
-			"assistant",    // agent_message → AssistantMessage
+			"assistant",    // fileChange → AssistantMessage (tool_use)
+			"assistant",    // agentMessage → AssistantMessage
 			"result",       // turn/completed → ResultMessage
 		}
 		for i, line := range lines {
@@ -336,8 +330,19 @@ func TestWireFormat(t *testing.T) {
 		if params["threadId"] != "t1" {
 			t.Errorf("threadId = %v", params["threadId"])
 		}
-		if params["input"] != "fix the bug" {
-			t.Errorf("input = %v", params["input"])
+		input, ok := params["input"].([]any)
+		if !ok || len(input) != 1 {
+			t.Fatalf("input = %v, want a 1-element array", params["input"])
+		}
+		elem, ok := input[0].(map[string]any)
+		if !ok {
+			t.Fatalf("input[0] = %T, want map", input[0])
+		}
+		if elem["type"] != "text" {
+			t.Errorf("input[0].type = %v, want text", elem["type"])
+		}
+		if elem["text"] != "fix the bug" {
+			t.Errorf("input[0].text = %v", elem["text"])
 		}
 	})
 	t.Run("WritePromptNoThreadID", func(t *testing.T) {
@@ -350,7 +355,7 @@ func TestWireFormat(t *testing.T) {
 	})
 	t.Run("ParseMessageCapturesThreadID", func(t *testing.T) {
 		w := &wireFormat{}
-		const input = `{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"captured-id"}}}`
+		const input = `{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"captured-id","cliVersion":"1.0","createdAt":1,"cwd":"/repo","modelProvider":"openai","path":"/repo","preview":"","source":"user","updatedAt":2}}}`
 		msg, err := w.ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -360,6 +365,51 @@ func TestWireFormat(t *testing.T) {
 		}
 		if w.threadID != "captured-id" {
 			t.Errorf("threadID = %q, want captured-id", w.threadID)
+		}
+	})
+	t.Run("TokenUsageUpdatedStoresUsage", func(t *testing.T) {
+		w := &wireFormat{}
+		const input = `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"t1","turnId":"turn_1","tokenUsage":{"total":{"totalTokens":1000,"inputTokens":800,"cachedInputTokens":500,"outputTokens":200,"reasoningOutputTokens":0},"last":{"totalTokens":100,"inputTokens":80,"cachedInputTokens":50,"outputTokens":20,"reasoningOutputTokens":0}}}}`
+		msg, err := w.ParseMessage([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, ok := msg.(*agent.RawMessage)
+		if !ok {
+			t.Fatalf("type = %T, want *agent.RawMessage", msg)
+		}
+		if raw.Type() != MethodTokenUsageUpdated {
+			t.Errorf("Type() = %q", raw.Type())
+		}
+		w.mu.Lock()
+		usage := w.lastUsage
+		w.mu.Unlock()
+		if usage.InputTokens != 80 {
+			t.Errorf("InputTokens = %d, want 80", usage.InputTokens)
+		}
+		if usage.OutputTokens != 20 {
+			t.Errorf("OutputTokens = %d, want 20", usage.OutputTokens)
+		}
+		if usage.CacheReadInputTokens != 50 {
+			t.Errorf("CacheReadInputTokens = %d, want 50", usage.CacheReadInputTokens)
+		}
+	})
+	t.Run("TurnCompletedInjectsUsage", func(t *testing.T) {
+		w := &wireFormat{lastUsage: agent.Usage{InputTokens: 42, OutputTokens: 7}}
+		const input = `{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn_1","status":"completed"}}}`
+		msg, err := w.ParseMessage([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		rm, ok := msg.(*agent.ResultMessage)
+		if !ok {
+			t.Fatalf("type = %T", msg)
+		}
+		if rm.Usage.InputTokens != 42 {
+			t.Errorf("Usage.InputTokens = %d, want 42", rm.Usage.InputTokens)
+		}
+		if rm.Usage.OutputTokens != 7 {
+			t.Errorf("Usage.OutputTokens = %d, want 7", rm.Usage.OutputTokens)
 		}
 	})
 }

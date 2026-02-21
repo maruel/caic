@@ -94,26 +94,26 @@ func TestThreadStartedParams(t *testing.T) {
 
 func TestTurnCompletedParams(t *testing.T) {
 	t.Run("Completed", func(t *testing.T) {
-		const input = `{"turn":{"status":"completed","usage":{"input_tokens":24763,"cached_input_tokens":24448,"output_tokens":122}}}`
+		const input = `{"threadId":"t1","turn":{"id":"turn_1","status":"completed"}}`
 		var p TurnCompletedParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)
 		}
+		if p.ThreadID != "t1" {
+			t.Errorf("ThreadID = %q", p.ThreadID)
+		}
+		if p.Turn.ID != "turn_1" {
+			t.Errorf("Turn.ID = %q", p.Turn.ID)
+		}
 		if p.Turn.Status != "completed" {
 			t.Errorf("Status = %q", p.Turn.Status)
 		}
-		if p.Turn.Usage.InputTokens != 24763 {
-			t.Errorf("InputTokens = %d", p.Turn.Usage.InputTokens)
-		}
-		if p.Turn.Usage.CachedInputTokens != 24448 {
-			t.Errorf("CachedInputTokens = %d", p.Turn.Usage.CachedInputTokens)
-		}
-		if p.Turn.Usage.OutputTokens != 122 {
-			t.Errorf("OutputTokens = %d", p.Turn.Usage.OutputTokens)
+		if p.Turn.Error != nil {
+			t.Errorf("Error = %v, want nil", p.Turn.Error)
 		}
 	})
 	t.Run("Failed", func(t *testing.T) {
-		const input = `{"turn":{"status":"failed","error":"something went wrong","usage":{}}}`
+		const input = `{"threadId":"t1","turn":{"id":"turn_1","status":"failed","error":{"message":"something went wrong"}}}`
 		var p TurnCompletedParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)
@@ -121,15 +121,18 @@ func TestTurnCompletedParams(t *testing.T) {
 		if p.Turn.Status != "failed" {
 			t.Errorf("Status = %q", p.Turn.Status)
 		}
-		if p.Turn.Error != "something went wrong" {
-			t.Errorf("Error = %q", p.Turn.Error)
+		if p.Turn.Error == nil {
+			t.Fatal("Error = nil, want non-nil")
+		}
+		if p.Turn.Error.Message != "something went wrong" {
+			t.Errorf("Error.Message = %q", p.Turn.Error.Message)
 		}
 	})
 }
 
 func TestItemParams(t *testing.T) {
 	t.Run("CommandExecution", func(t *testing.T) {
-		const input = `{"item":{"id":"item_1","type":"command_execution","command":"bash -lc ls","aggregated_output":"docs\nsrc\n","exit_code":0,"status":"completed"}}`
+		const input = `{"item":{"id":"item_1","type":"commandExecution","command":"bash -lc ls","aggregatedOutput":"docs\nsrc\n","exitCode":0,"status":"completed"},"threadId":"t1","turnId":"turn_1"}`
 		var p ItemParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)
@@ -143,15 +146,21 @@ func TestItemParams(t *testing.T) {
 		if p.Item.Command != "bash -lc ls" {
 			t.Errorf("Command = %q", p.Item.Command)
 		}
-		if p.Item.AggregatedOutput != "docs\nsrc\n" {
-			t.Errorf("AggregatedOutput = %q", p.Item.AggregatedOutput)
+		if p.Item.AggregatedOutput == nil || *p.Item.AggregatedOutput != "docs\nsrc\n" {
+			t.Errorf("AggregatedOutput = %v", p.Item.AggregatedOutput)
 		}
 		if p.Item.ExitCode == nil || *p.Item.ExitCode != 0 {
 			t.Errorf("ExitCode = %v", p.Item.ExitCode)
 		}
+		if p.ThreadID != "t1" {
+			t.Errorf("ThreadID = %q", p.ThreadID)
+		}
+		if p.TurnID != "turn_1" {
+			t.Errorf("TurnID = %q", p.TurnID)
+		}
 	})
 	t.Run("FileChange", func(t *testing.T) {
-		const input = `{"item":{"id":"item_4","type":"file_change","changes":[{"path":"docs/foo.md","kind":"add"}],"status":"completed"}}`
+		const input = `{"item":{"id":"item_4","type":"fileChange","changes":[{"path":"docs/foo.md","kind":{"type":"add"},"diff":""}],"status":"completed"},"threadId":"t1","turnId":"turn_1"}`
 		var p ItemParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)
@@ -165,12 +174,12 @@ func TestItemParams(t *testing.T) {
 		if p.Item.Changes[0].Path != "docs/foo.md" {
 			t.Errorf("Path = %q", p.Item.Changes[0].Path)
 		}
-		if p.Item.Changes[0].Kind != "add" {
-			t.Errorf("Kind = %q", p.Item.Changes[0].Kind)
+		if p.Item.Changes[0].Kind.Type != "add" {
+			t.Errorf("Kind.Type = %q", p.Item.Changes[0].Kind.Type)
 		}
 	})
 	t.Run("AgentMessage", func(t *testing.T) {
-		const input = `{"item":{"id":"item_3","type":"agent_message","text":"Done.","status":"completed"}}`
+		const input = `{"item":{"id":"item_3","type":"agentMessage","text":"Done.","status":"completed"},"threadId":"t1","turnId":"turn_1"}`
 		var p ItemParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)
@@ -183,7 +192,7 @@ func TestItemParams(t *testing.T) {
 		}
 	})
 	t.Run("Reasoning", func(t *testing.T) {
-		const input = `{"item":{"id":"item_0","type":"reasoning","text":"**Scanning...**","status":"completed"}}`
+		const input = `{"item":{"id":"item_0","type":"reasoning","summary":["**Scanning...**"],"content":[]},"threadId":"t1","turnId":"turn_1"}`
 		var p ItemParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)
@@ -191,15 +200,15 @@ func TestItemParams(t *testing.T) {
 		if p.Item.Type != ItemTypeReasoning {
 			t.Errorf("Type = %q", p.Item.Type)
 		}
-		if p.Item.Text != "**Scanning...**" {
-			t.Errorf("Text = %q", p.Item.Text)
+		if len(p.Item.Summary) != 1 || p.Item.Summary[0] != "**Scanning...**" {
+			t.Errorf("Summary = %v", p.Item.Summary)
 		}
 	})
 }
 
 func TestItemDeltaParams(t *testing.T) {
 	t.Run("Basic", func(t *testing.T) {
-		const input = `{"item_id":"item_3","delta":"Hello "}`
+		const input = `{"threadId":"t1","turnId":"turn_1","itemId":"item_3","delta":"Hello "}`
 		var p ItemDeltaParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)
@@ -210,9 +219,15 @@ func TestItemDeltaParams(t *testing.T) {
 		if p.Delta != "Hello " {
 			t.Errorf("Delta = %q", p.Delta)
 		}
+		if p.ThreadID != "t1" {
+			t.Errorf("ThreadID = %q", p.ThreadID)
+		}
+		if p.TurnID != "turn_1" {
+			t.Errorf("TurnID = %q", p.TurnID)
+		}
 	})
 	t.Run("UnknownFields", func(t *testing.T) {
-		const input = `{"item_id":"x","delta":"y","new_field":42}`
+		const input = `{"threadId":"t1","turnId":"turn_1","itemId":"x","delta":"y","new_field":42}`
 		var p ItemDeltaParams
 		if err := json.Unmarshal([]byte(input), &p); err != nil {
 			t.Fatal(err)

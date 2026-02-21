@@ -156,11 +156,13 @@ func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
 }
 
 // wireFormat implements agent.WireFormat for the codex app-server JSON-RPC
-// protocol. It holds per-session state: the thread ID and a request ID counter.
+// protocol. It holds per-session state: the thread ID, a request ID counter,
+// and the most recent token usage from thread/tokenUsage/updated.
 type wireFormat struct {
-	threadID string
-	nextID   atomic.Int64
-	mu       sync.Mutex
+	threadID  string
+	nextID    atomic.Int64
+	mu        sync.Mutex
+	lastUsage agent.Usage // accumulated from thread/tokenUsage/updated
 }
 
 // WritePrompt sends a turn/start JSON-RPC request to begin a new turn with
@@ -178,7 +180,7 @@ func (w *wireFormat) WritePrompt(wr io.Writer, p agent.Prompt, logW io.Writer) e
 		"method":  "turn/start",
 		"params": map[string]any{
 			"threadId": w.threadID,
-			"input":    p.Text,
+			"input":    []map[string]any{{"type": "text", "text": p.Text}},
 		},
 	}
 	data, err := json.Marshal(req)
@@ -193,9 +195,33 @@ func (w *wireFormat) WritePrompt(wr io.Writer, p agent.Prompt, logW io.Writer) e
 	return nil
 }
 
-// ParseMessage wraps the package-level ParseMessage and captures the thread ID
-// from thread/started notifications during replay.
+// ParseMessage wraps the package-level ParseMessage, intercepting
+// thread/tokenUsage/updated to accumulate usage and injecting it into
+// ResultMessage. It also captures the thread ID from thread/started.
 func (w *wireFormat) ParseMessage(line []byte) (agent.Message, error) {
+	// Intercept thread/tokenUsage/updated before general parsing so we can
+	// accumulate usage without adding a new agent.Message type.
+	var probe struct {
+		Method string `json:"method,omitempty"`
+	}
+	_ = json.Unmarshal(line, &probe)
+	if probe.Method == MethodTokenUsageUpdated {
+		var msg JSONRPCMessage
+		if err := json.Unmarshal(line, &msg); err == nil {
+			var p TokenUsageUpdatedParams
+			if err := json.Unmarshal(msg.Params, &p); err == nil {
+				w.mu.Lock()
+				w.lastUsage = agent.Usage{
+					InputTokens:          int(p.TokenUsage.Last.InputTokens),
+					CacheReadInputTokens: int(p.TokenUsage.Last.CachedInputTokens),
+					OutputTokens:         int(p.TokenUsage.Last.OutputTokens),
+				}
+				w.mu.Unlock()
+			}
+		}
+		return &agent.RawMessage{MessageType: MethodTokenUsageUpdated, Raw: append([]byte(nil), line...)}, nil
+	}
+
 	msg, err := ParseMessage(line)
 	if err != nil {
 		return nil, err
@@ -204,6 +230,12 @@ func (w *wireFormat) ParseMessage(line []byte) (agent.Message, error) {
 	if init, ok := msg.(*agent.SystemInitMessage); ok && init.SessionID != "" {
 		w.mu.Lock()
 		w.threadID = init.SessionID
+		w.mu.Unlock()
+	}
+	// Inject accumulated usage into ResultMessage (turn/completed has no usage in v2).
+	if rm, ok := msg.(*agent.ResultMessage); ok {
+		w.mu.Lock()
+		rm.Usage = w.lastUsage
 		w.mu.Unlock()
 	}
 	return msg, nil
