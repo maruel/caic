@@ -202,7 +202,7 @@ fun TaskDetailScreen(
             }
         },
     ) { padding ->
-        if (!state.isReady && state.messages.isEmpty()) {
+        if (!state.isReady && !state.hasMessages) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -236,7 +236,7 @@ private fun MessageList(
     var userScrolledUp by remember { mutableStateOf(false) }
 
     // Auto-scroll to bottom when new messages arrive, unless user scrolled up.
-    LaunchedEffect(state.turns.size, state.messages.size) {
+    LaunchedEffect(state.turns.size, state.messageCount) {
         if (!userScrolledUp && state.turns.isNotEmpty()) {
             val lastIndex = state.turns.size - 1
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1

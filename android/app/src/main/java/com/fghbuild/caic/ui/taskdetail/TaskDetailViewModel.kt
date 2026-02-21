@@ -7,7 +7,6 @@ import androidx.lifecycle.viewModelScope
 import com.caic.sdk.v1.ApiClient
 import com.caic.sdk.v1.ClaudeEventMessage
 import com.caic.sdk.v1.ClaudeTodoItem
-import com.caic.sdk.v1.EventKinds
 import com.caic.sdk.v1.HarnessInfo
 import com.caic.sdk.v1.ImageData
 import com.caic.sdk.v1.InputReq
@@ -19,10 +18,9 @@ import com.caic.sdk.v1.Task
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.data.TaskSSEEvent
 import com.fghbuild.caic.navigation.Screen
-import com.fghbuild.caic.util.MessageGroup
+import com.fghbuild.caic.util.IncrementalGrouped
 import com.fghbuild.caic.util.Turn
-import com.fghbuild.caic.util.groupMessages
-import com.fghbuild.caic.util.groupTurns
+import com.fghbuild.caic.util.nextGrouped
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -31,15 +29,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.scan
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 data class TaskDetailState(
     val task: Task? = null,
-    val messages: List<ClaudeEventMessage> = emptyList(),
-    val groups: List<MessageGroup> = emptyList(),
+    val hasMessages: Boolean = false,
+    val messageCount: Int = 0,
     val turns: List<Turn> = emptyList(),
     val todos: List<ClaudeTodoItem> = emptyList(),
     val isReady: Boolean = false,
@@ -74,21 +72,13 @@ class TaskDetailViewModel @Inject constructor(
 
     private var sseJob: Job? = null
 
-    /** Pre-computed grouping derived only from [_messages], avoiding redundant work in combine. */
-    private data class Grouped(
-        val groups: List<MessageGroup> = emptyList(),
-        val turns: List<Turn> = emptyList(),
-        val todos: List<ClaudeTodoItem> = emptyList(),
-    )
-
-    private val _grouped: StateFlow<Grouped> = _messages.map { msgs ->
-        val groups = groupMessages(msgs)
-        Grouped(
-            groups = groups,
-            turns = groupTurns(groups),
-            todos = msgs.lastOrNull { it.kind == EventKinds.Todo }?.todo?.todos.orEmpty(),
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), Grouped())
+    /**
+     * Incrementally grouped state derived from [_messages]. On append-only updates only the
+     * current (incomplete) turn is regrouped; completed turns are cached unchanged.
+     */
+    private val _grouped: StateFlow<IncrementalGrouped> = _messages
+        .scan(IncrementalGrouped()) { prev, msgs -> nextGrouped(prev, msgs) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), IncrementalGrouped())
 
     @Suppress("UNCHECKED_CAST")
     val state: StateFlow<TaskDetailState> = combine(
@@ -99,7 +89,7 @@ class TaskDetailViewModel @Inject constructor(
         )
     ) { values ->
         val tasks = values[0] as List<Task>
-        val grouped = values[1] as Grouped
+        val grouped = values[1] as IncrementalGrouped
         val ready = values[2] as Boolean
         val sending = values[3] as Boolean
         val action = values[4] as String?
@@ -111,10 +101,11 @@ class TaskDetailViewModel @Inject constructor(
         val task = tasks.firstOrNull { it.id == taskId }
         val imgSupport = task != null &&
             harnesses.any { it.name == task.harness && it.supportsImages }
+        val msgCount = _messages.value.size
         TaskDetailState(
             task = task,
-            messages = _messages.value,
-            groups = grouped.groups,
+            hasMessages = msgCount > 0,
+            messageCount = msgCount,
             turns = grouped.turns,
             todos = grouped.todos,
             isReady = ready,

@@ -6,6 +6,7 @@ import com.caic.sdk.v1.ClaudeEventAsk
 import com.caic.sdk.v1.ClaudeEventMessage
 import com.caic.sdk.v1.ClaudeEventToolResult
 import com.caic.sdk.v1.ClaudeEventToolUse
+import com.caic.sdk.v1.ClaudeTodoItem
 import com.caic.sdk.v1.EventKinds
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -278,4 +279,72 @@ fun turnPlanContent(turn: Turn): String? {
         if (".claude/plans/" in fp) return obj["content"]?.jsonPrimitive?.content
     }
     return null
+}
+
+/**
+ * Incremental grouping state that caches completed turns to avoid reprocessing all messages
+ * on every SSE flush. Completed turns are those terminated by a Result event and never change.
+ */
+@Immutable
+data class IncrementalGrouped(
+    val completedTurns: List<Turn> = emptyList(),
+    val currentTurn: Turn? = null,
+    val completedUpToIdx: Int = 0,
+    val todos: List<ClaudeTodoItem> = emptyList(),
+) {
+    val turns: List<Turn> get() = if (currentTurn != null) completedTurns + currentTurn!! else completedTurns
+}
+
+/**
+ * Computes the next [IncrementalGrouped] from [prev] state and an updated [msgs] snapshot.
+ *
+ * On append-only growth, only messages from [IncrementalGrouped.completedUpToIdx] onwards are
+ * regrouped, keeping completed turns cached. Falls back to a full recompute when the list shrinks
+ * (reconnect).
+ */
+fun nextGrouped(prev: IncrementalGrouped, msgs: List<ClaudeEventMessage>): IncrementalGrouped {
+    val upTo = if (msgs.size >= prev.completedUpToIdx) prev.completedUpToIdx else 0
+    val isReset = upTo < prev.completedUpToIdx
+    val priorCompleted = if (isReset) emptyList() else prev.completedTurns
+
+    val currentMsgs = msgs.subList(upTo, msgs.size)
+    val newTodo = currentMsgs.lastOrNull { it.kind == EventKinds.Todo }?.todo?.todos
+    val todos = newTodo ?: if (isReset) emptyList() else prev.todos
+
+    if (currentMsgs.isEmpty()) {
+        return IncrementalGrouped(priorCompleted, null, upTo, todos)
+    }
+
+    val groups = groupMessages(currentMsgs)
+    val currentTurns = groupTurns(groups)
+    // The last turn is complete if it contains a Result event. groupTurns flushes on Result,
+    // but also flushes the final partial turn — we must check the content, not position.
+    val lastTurnComplete = currentTurns.lastOrNull()?.groups?.any { g ->
+        g.kind == GroupKind.OTHER && g.events.any { it.kind == EventKinds.Result }
+    } ?: false
+    val newlyCompleted = if (lastTurnComplete) currentTurns
+        else if (currentTurns.size > 1) currentTurns.dropLast(1)
+        else emptyList()
+    val currentTurn = if (lastTurnComplete) null else currentTurns.lastOrNull()
+    val allCompleted = priorCompleted + newlyCompleted
+
+    val newBoundary = if (newlyCompleted.isEmpty()) {
+        upTo
+    } else {
+        // Advance the boundary past all newly completed turns by counting Result events.
+        var count = 0
+        var boundary = msgs.size
+        for (i in upTo until msgs.size) {
+            if (msgs[i].kind == EventKinds.Result) {
+                count++
+                if (count == newlyCompleted.size) {
+                    boundary = i + 1
+                    break
+                }
+            }
+        }
+        boundary
+    }
+
+    return IncrementalGrouped(allCompleted, currentTurn, newBoundary, todos)
 }
