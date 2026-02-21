@@ -78,6 +78,10 @@ export const EventKindTodo: EventKind = "todo";
  */
 export const EventKindDiffStat: EventKind = "diffStat";
 /**
+ * Event kind constants.
+ */
+export const EventKindError: EventKind = "error";
+/**
  * EventMessage is a single SSE event in the backend-neutral stream
  * (/api/v1/tasks/{id}/events). All backends produce these events.
  */
@@ -96,6 +100,7 @@ export interface EventMessage {
   userInput?: EventUserInput;
   todo?: EventTodo;
   diffStat?: EventDiffStat;
+  error?: EventError;
 }
 /**
  * EventInit is emitted once at the start of a session. It includes a Harness
@@ -220,6 +225,13 @@ export interface EventDiffStat {
   diffStat?: DiffStat;
 }
 /**
+ * EventError is emitted when the backend fails to parse an agent output line.
+ */
+export interface EventError {
+  err: string;
+  line: string;
+}
+/**
  * ClaudeEventKind identifies the type of SSE event in the Claude-specific raw
  * stream. Values are identical to EventKind; a separate type alias is used so
  * that future backends can diverge if needed.
@@ -274,6 +286,10 @@ export const ClaudeEventKindTodo: ClaudeEventKind = "todo";
  */
 export const ClaudeEventKindDiffStat: ClaudeEventKind = "diffStat";
 /**
+ * Claude-specific event kind constants.
+ */
+export const ClaudeEventKindError: ClaudeEventKind = "error";
+/**
  * ClaudeEventMessage is a single SSE event in the Claude Code raw stream
  * (/api/v1/tasks/{id}/raw_events). When additional backends are added, each
  * will define its own *EventMessage (e.g. GeminiEventMessage) for its raw
@@ -296,6 +312,7 @@ export interface ClaudeEventMessage {
   userInput?: ClaudeEventUserInput; // Kind "userInput".
   todo?: ClaudeEventTodo; // Kind "todo".
   diffStat?: ClaudeEventDiffStat; // Kind "diffStat".
+  error?: ClaudeEventError; // Kind "error".
 }
 /**
  * ClaudeEventInit is emitted once at the start of a Claude session. Unlike the
@@ -417,6 +434,13 @@ export interface ClaudeEventTodo {
  */
 export interface ClaudeEventDiffStat {
   diffStat?: DiffStat;
+}
+/**
+ * ClaudeEventError is emitted when the backend fails to parse an agent output line.
+ */
+export interface ClaudeEventError {
+  err: string;
+  line: string;
 }
 
 //////////

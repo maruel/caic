@@ -461,6 +461,13 @@ function MessageItem(props: { ev: ClaudeEventMessage; taskId?: string }) {
           </div>
         )}
       </Match>
+      <Match when={props.ev.error} keyed>
+        {(err) => (
+          <div class={styles.parseError}>
+            Parse error: {err.err}
+          </div>
+        )}
+      </Match>
     </Switch>
   );
 }

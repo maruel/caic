@@ -39,6 +39,7 @@ const (
 	EventKindUserInput  EventKind = "userInput"
 	EventKindTodo       EventKind = "todo"
 	EventKindDiffStat   EventKind = "diffStat"
+	EventKindError      EventKind = "error"
 )
 
 // EventMessage is a single SSE event in the backend-neutral stream
@@ -58,6 +59,7 @@ type EventMessage struct {
 	UserInput  *EventUserInput  `json:"userInput,omitempty"`
 	Todo       *EventTodo       `json:"todo,omitempty"`
 	DiffStat   *EventDiffStat   `json:"diffStat,omitempty"`
+	Error      *EventError      `json:"error,omitempty"`
 }
 
 // EventInit is emitted once at the start of a session. It includes a Harness
@@ -167,6 +169,12 @@ type EventDiffStat struct {
 	DiffStat DiffStat `json:"diffStat,omitzero"`
 }
 
+// EventError is emitted when the backend fails to parse an agent output line.
+type EventError struct {
+	Err  string `json:"err"`
+	Line string `json:"line"`
+}
+
 // ClaudeEventKind identifies the type of SSE event in the Claude-specific raw
 // stream. Values are identical to EventKind; a separate type alias is used so
 // that future backends can diverge if needed.
@@ -186,6 +194,7 @@ const (
 	ClaudeEventKindUserInput  ClaudeEventKind = "userInput"
 	ClaudeEventKindTodo       ClaudeEventKind = "todo"
 	ClaudeEventKindDiffStat   ClaudeEventKind = "diffStat"
+	ClaudeEventKindError      ClaudeEventKind = "error"
 )
 
 // ClaudeEventMessage is a single SSE event in the Claude Code raw stream
@@ -210,6 +219,7 @@ type ClaudeEventMessage struct {
 	UserInput  *ClaudeEventUserInput  `json:"userInput,omitempty"`  // Kind "userInput".
 	Todo       *ClaudeEventTodo       `json:"todo,omitempty"`       // Kind "todo".
 	DiffStat   *ClaudeEventDiffStat   `json:"diffStat,omitempty"`   // Kind "diffStat".
+	Error      *ClaudeEventError      `json:"error,omitempty"`      // Kind "error".
 }
 
 // ClaudeEventInit is emitted once at the start of a Claude session. Unlike the
@@ -316,4 +326,10 @@ type ClaudeEventTodo struct {
 // ClaudeEventDiffStat is emitted when the relay reports updated diff statistics.
 type ClaudeEventDiffStat struct {
 	DiffStat DiffStat `json:"diffStat,omitzero"`
+}
+
+// ClaudeEventError is emitted when the backend fails to parse an agent output line.
+type ClaudeEventError struct {
+	Err  string `json:"err"`
+	Line string `json:"line"`
 }

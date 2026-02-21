@@ -208,7 +208,10 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 		}
 		msg, err := parseFn(line)
 		if err != nil {
-			slog.Warn("skipping unparseable message", "err", err, "line", string(line)) //nolint:gosec // structured logging, no injection
+			slog.Warn("unparseable message", "err", err, "line", string(line)) //nolint:gosec // structured logging, no injection
+			if msgCh != nil {
+				msgCh <- &ParseErrorMessage{Err: err.Error(), Line: string(line)}
+			}
 			continue
 		}
 		if n <= 3 {

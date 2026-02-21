@@ -177,6 +177,16 @@ type RawMessage struct {
 // Type implements Message.
 func (m *RawMessage) Type() string { return m.MessageType }
 
+// ParseErrorMessage is emitted when a backend output line cannot be decoded.
+// It carries the error and the raw line for diagnostic display.
+type ParseErrorMessage struct {
+	Err  string
+	Line string
+}
+
+// Type implements Message.
+func (m *ParseErrorMessage) Type() string { return "parse_error" }
+
 // DiffStatMessage is emitted periodically by the relay's diff watcher thread
 // with the current in-container git diff stats.
 type DiffStatMessage struct {

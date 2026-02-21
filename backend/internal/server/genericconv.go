@@ -94,6 +94,12 @@ func (gt *genericToolTimingTracker) convertMessage(msg agent.Message, now time.T
 			Ts:       ts,
 			DiffStat: &v1.EventDiffStat{DiffStat: toV1DiffStat(m.DiffStat)},
 		}}
+	case *agent.ParseErrorMessage:
+		return []v1.EventMessage{{
+			Kind:  v1.EventKindError,
+			Ts:    ts,
+			Error: &v1.EventError{Err: m.Err, Line: m.Line},
+		}}
 	default:
 		return nil
 	}

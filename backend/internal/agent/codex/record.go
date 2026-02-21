@@ -74,12 +74,22 @@ func (p *ThreadStartedParams) UnmarshalJSON(data []byte) error {
 
 // ThreadInfo describes a thread in thread/started params.
 type ThreadInfo struct {
-	ID string `json:"id"`
+	ID            string          `json:"id"`
+	CLIVersion    string          `json:"cliVersion,omitempty"`
+	CreatedAt     int64           `json:"createdAt,omitempty"` // Unix timestamp seconds.
+	CWD           string          `json:"cwd,omitempty"`
+	GitInfo       json.RawMessage `json:"gitInfo,omitempty"`
+	ModelProvider string          `json:"modelProvider,omitempty"`
+	Path          string          `json:"path,omitempty"`
+	Preview       string          `json:"preview,omitempty"`
+	Source        string          `json:"source,omitempty"`
+	Turns         json.RawMessage `json:"turns,omitempty"`
+	UpdatedAt     int64           `json:"updatedAt,omitempty"` // Unix timestamp seconds.
 
 	Overflow
 }
 
-var threadInfoKnown = makeSet("id")
+var threadInfoKnown = makeSet("id", "cliVersion", "createdAt", "cwd", "gitInfo", "modelProvider", "path", "preview", "source", "turns", "updatedAt")
 
 // UnmarshalJSON implements json.Unmarshaler.
 func (t *ThreadInfo) UnmarshalJSON(data []byte) error {

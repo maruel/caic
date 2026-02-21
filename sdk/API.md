@@ -282,6 +282,13 @@ All errors return:
 |-------|------|----------|
 | `diffStat` | `DiffFileStat[]` |  |
 
+### ClaudeEventError
+
+| Field | Type | Required |
+|-------|------|----------|
+| `err` | `string` | yes |
+| `line` | `string` | yes |
+
 ### ClaudeEventMessage
 
 | Field | Type | Required |
@@ -300,6 +307,7 @@ All errors return:
 | `userInput` | `ClaudeEventUserInput` |  |
 | `todo` | `ClaudeEventTodo` |  |
 | `diffStat` | `ClaudeEventDiffStat` |  |
+| `error` | `ClaudeEventError` |  |
 
 ### EventInit
 
@@ -422,6 +430,13 @@ All errors return:
 |-------|------|----------|
 | `diffStat` | `DiffFileStat[]` |  |
 
+### EventError
+
+| Field | Type | Required |
+|-------|------|----------|
+| `err` | `string` | yes |
+| `line` | `string` | yes |
+
 ### EventMessage
 
 | Field | Type | Required |
@@ -440,6 +455,7 @@ All errors return:
 | `userInput` | `EventUserInput` |  |
 | `todo` | `EventTodo` |  |
 | `diffStat` | `EventDiffStat` |  |
+| `error` | `EventError` |  |
 
 ### InputReq
 

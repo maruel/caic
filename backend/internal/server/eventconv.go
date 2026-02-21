@@ -97,6 +97,12 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 			Ts:       ts,
 			DiffStat: &v1.ClaudeEventDiffStat{DiffStat: toV1DiffStat(m.DiffStat)},
 		}}
+	case *agent.ParseErrorMessage:
+		return []v1.ClaudeEventMessage{{
+			Kind:  v1.ClaudeEventKindError,
+			Ts:    ts,
+			Error: &v1.ClaudeEventError{Err: m.Err, Line: m.Line},
+		}}
 	default:
 		// RawMessage (tool_progress), MetaMessage, etc. — filtered.
 		return nil

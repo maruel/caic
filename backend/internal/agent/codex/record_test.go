@@ -64,6 +64,19 @@ func TestThreadStartedParams(t *testing.T) {
 			t.Errorf("unexpected extra fields: %v", p.Extra)
 		}
 	})
+	t.Run("KnownThreadInfoFields", func(t *testing.T) {
+		const input = `{"thread":{"id":"t1","cliVersion":"0.1.0","createdAt":1771690198,"cwd":"/repo","gitInfo":{"branch":"main"},"modelProvider":"openai","path":"/repo","preview":"fix the bug","source":"user","turns":[],"updatedAt":1771690200}}`
+		var p ThreadStartedParams
+		if err := json.Unmarshal([]byte(input), &p); err != nil {
+			t.Fatal(err)
+		}
+		if p.Thread.ID != "t1" {
+			t.Errorf("Thread.ID = %q", p.Thread.ID)
+		}
+		if len(p.Thread.Extra) != 0 {
+			t.Errorf("unexpected extra fields in ThreadInfo: %v", p.Thread.Extra)
+		}
+	})
 	t.Run("UnknownFields", func(t *testing.T) {
 		const input = `{"thread":{"id":"t1"},"new_field":"surprise"}`
 		var p ThreadStartedParams

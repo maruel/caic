@@ -122,6 +122,17 @@ a.headerRepo:hover {
   padding-top: 0.5rem;
 }
 
+.parseError {
+  color: #721c24;
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 4px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  margin-bottom: 0.25rem;
+  word-break: break-all;
+}
+
 .userInputMsg {
   margin-bottom: 0.5rem;
   padding: 0.4rem 0.6rem;

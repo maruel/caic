@@ -214,6 +214,9 @@ data class ClaudeEventTodo(
 @Serializable
 data class ClaudeEventDiffStat(val diffStat: List<DiffFileStat>? = null)
 
+@Serializable
+data class ClaudeEventError(val err: String, val line: String)
+
 // Claude-specific event types
 
 @Serializable
@@ -232,6 +235,7 @@ data class ClaudeEventMessage(
     val userInput: ClaudeEventUserInput? = null,
     val todo: ClaudeEventTodo? = null,
     val diffStat: ClaudeEventDiffStat? = null,
+    val error: ClaudeEventError? = null,
 )
 
 @Serializable
@@ -326,6 +330,9 @@ data class EventTodo(
 @Serializable
 data class EventDiffStat(val diffStat: List<DiffFileStat>? = null)
 
+@Serializable
+data class EventError(val err: String, val line: String)
+
 // Backend-neutral event types
 
 @Serializable
@@ -344,6 +351,7 @@ data class EventMessage(
     val userInput: EventUserInput? = null,
     val todo: EventTodo? = null,
     val diffStat: EventDiffStat? = null,
+    val error: EventError? = null,
 )
 
 @Serializable

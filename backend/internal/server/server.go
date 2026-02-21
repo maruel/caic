@@ -495,8 +495,8 @@ func (s *Server) handleTaskRawEvents(w http.ResponseWriter, r *http.Request) {
 	idx := 0
 
 	writeEvents := func(events []v1.ClaudeEventMessage) {
-		for _, ev := range events {
-			data, err := json.Marshal(ev)
+		for i := range events {
+			data, err := json.Marshal(&events[i])
 			if err != nil {
 				slog.Warn("marshal SSE event", "err", err)
 				continue
