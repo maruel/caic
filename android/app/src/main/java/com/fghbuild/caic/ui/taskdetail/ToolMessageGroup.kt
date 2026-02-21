@@ -12,6 +12,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -28,8 +29,10 @@ fun ToolMessageGroup(toolCalls: List<ToolCall>) {
     }
     val groupKey = toolCalls.firstOrNull()?.use?.toolUseID ?: ""
     var expanded by rememberSaveable(groupKey) { mutableStateOf(false) }
-    val doneCount = toolCalls.count { it.done }
-    val summary = "$doneCount/${toolCalls.size} tools: ${toolCountSummary(toolCalls)}"
+    val summary = remember(toolCalls) {
+        val doneCount = toolCalls.count { it.done }
+        "$doneCount/${toolCalls.size} tools: ${toolCountSummary(toolCalls)}"
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(

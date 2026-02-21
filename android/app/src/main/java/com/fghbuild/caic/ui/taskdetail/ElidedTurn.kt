@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -23,9 +24,10 @@ fun ElidedTurn(turn: Turn) {
     val turnKey = turn.groups.firstOrNull()?.events?.firstOrNull()?.ts?.toString() ?: "0"
     var expanded by rememberSaveable(turnKey) { mutableStateOf(false) }
 
+    val summary = remember(turn) { turnSummary(turn) }
     Column(modifier = Modifier.fillMaxWidth()) {
         Text(
-            text = turnSummary(turn),
+            text = summary,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier

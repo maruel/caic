@@ -234,7 +234,11 @@ private fun MessageList(
     // Auto-scroll to bottom when new messages arrive, unless user scrolled up.
     LaunchedEffect(state.turns.size, state.messages.size) {
         if (!userScrolledUp && state.turns.isNotEmpty()) {
-            listState.animateScrollToItem(listState.layoutInfo.totalItemsCount - 1)
+            val total = listState.layoutInfo.totalItemsCount
+            val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            if (total > 0 && lastVisible < total - 1) {
+                listState.animateScrollToItem(total - 1)
+            }
         }
     }
 
@@ -266,7 +270,10 @@ private fun MessageList(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 val turns = state.turns
-                itemsIndexed(turns, key = { index, _ -> index }) { index, turn ->
+                itemsIndexed(
+                    turns,
+                    key = { _, turn -> turn.groups.firstOrNull()?.events?.firstOrNull()?.ts ?: 0L },
+                ) { index, turn ->
                     if (index < turns.size - 1) {
                         ElidedTurn(turn = turn)
                     } else {

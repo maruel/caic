@@ -1,6 +1,7 @@
 // Message grouping and turn splitting, ported from frontend/src/TaskView.tsx.
 package com.fghbuild.caic.util
 
+import androidx.compose.runtime.Immutable
 import com.caic.sdk.v1.ClaudeEventAsk
 import com.caic.sdk.v1.ClaudeEventMessage
 import com.caic.sdk.v1.ClaudeEventToolResult
@@ -11,20 +12,23 @@ import kotlinx.serialization.json.jsonPrimitive
 
 enum class GroupKind { TEXT, TOOL, ASK, USER_INPUT, OTHER }
 
+@Immutable
 data class ToolCall(
     val use: ClaudeEventToolUse,
-    var result: ClaudeEventToolResult? = null,
-    var done: Boolean = false,
+    val result: ClaudeEventToolResult? = null,
+    val done: Boolean = false,
 )
 
+@Immutable
 data class MessageGroup(
     val kind: GroupKind,
-    val events: MutableList<ClaudeEventMessage>,
-    val toolCalls: MutableList<ToolCall> = mutableListOf(),
-    var ask: ClaudeEventAsk? = null,
-    var answerText: String? = null,
+    val events: List<ClaudeEventMessage>,
+    val toolCalls: List<ToolCall> = emptyList(),
+    val ask: ClaudeEventAsk? = null,
+    val answerText: String? = null,
 )
 
+@Immutable
 data class Turn(
     val groups: List<MessageGroup>,
     val toolCount: Int,
@@ -36,12 +40,38 @@ data class Turn(
 // their toolUse event is emitted.
 private val ASYNC_TOOLS = setOf("bash", "task")
 
+/** Mutable builder for ToolCall, used only inside groupMessages(). */
+private class MutableToolCall(
+    val use: ClaudeEventToolUse,
+    var result: ClaudeEventToolResult? = null,
+    var done: Boolean = false,
+) {
+    fun freeze() = ToolCall(use, result, done)
+}
+
+/** Mutable builder for MessageGroup, used only inside groupMessages(). */
+private class MutableGroup(
+    val kind: GroupKind,
+    val events: MutableList<ClaudeEventMessage> = mutableListOf(),
+    val toolCalls: MutableList<MutableToolCall> = mutableListOf(),
+    var ask: ClaudeEventAsk? = null,
+    var answerText: String? = null,
+) {
+    fun freeze() = MessageGroup(
+        kind = kind,
+        events = events.toList(),
+        toolCalls = toolCalls.map { it.freeze() },
+        ask = ask,
+        answerText = answerText,
+    )
+}
+
 /** Groups consecutive events for cohesive rendering. */
 @Suppress("CyclomaticComplexMethod", "LoopWithTooManyJumpStatements")
 fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
-    val groups = mutableListOf<MessageGroup>()
+    val groups = mutableListOf<MutableGroup>()
 
-    fun lastGroup(): MessageGroup? = groups.lastOrNull()
+    fun lastGroup(): MutableGroup? = groups.lastOrNull()
 
     // Tracks whether a usage event appeared since the last tool group,
     // which signals a new AssistantMessage boundary.
@@ -56,7 +86,7 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                 ) {
                     last.events.add(ev)
                 } else {
-                    groups.add(MessageGroup(kind = GroupKind.TEXT, events = mutableListOf(ev)))
+                    groups.add(MutableGroup(kind = GroupKind.TEXT, events = mutableListOf(ev)))
                 }
             }
             EventKinds.TextDelta -> {
@@ -64,12 +94,12 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                 if (last != null && last.kind == GroupKind.TEXT) {
                     last.events.add(ev)
                 } else {
-                    groups.add(MessageGroup(kind = GroupKind.TEXT, events = mutableListOf(ev)))
+                    groups.add(MutableGroup(kind = GroupKind.TEXT, events = mutableListOf(ev)))
                 }
             }
             EventKinds.ToolUse -> {
                 val toolUse = ev.toolUse ?: continue
-                val call = ToolCall(use = toolUse, done = toolUse.name.lowercase() !in ASYNC_TOOLS)
+                val call = MutableToolCall(use = toolUse, done = toolUse.name.lowercase() !in ASYNC_TOOLS)
                 val last = lastGroup()
                 if (last != null && last.kind == GroupKind.TOOL && !usageSinceLastTool) {
                     // Consecutive toolUse in the same AssistantMessage — merge.
@@ -107,12 +137,12 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                     }
                 }
                 if (!matched) {
-                    groups.add(MessageGroup(kind = GroupKind.TOOL, events = mutableListOf(ev)))
+                    groups.add(MutableGroup(kind = GroupKind.TOOL, events = mutableListOf(ev)))
                 }
             }
             EventKinds.Ask -> {
                 val ask = ev.ask ?: continue
-                groups.add(MessageGroup(kind = GroupKind.ASK, events = mutableListOf(ev), ask = ask))
+                groups.add(MutableGroup(kind = GroupKind.ASK, events = mutableListOf(ev), ask = ask))
             }
             EventKinds.UserInput -> {
                 val prev = lastGroup()
@@ -120,7 +150,7 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                     prev.answerText = ev.userInput?.text
                     prev.events.add(ev)
                 } else {
-                    groups.add(MessageGroup(kind = GroupKind.USER_INPUT, events = mutableListOf(ev)))
+                    groups.add(MutableGroup(kind = GroupKind.USER_INPUT, events = mutableListOf(ev)))
                 }
             }
             EventKinds.Usage -> {
@@ -129,13 +159,13 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                 if (last != null && (last.kind == GroupKind.TEXT || last.kind == GroupKind.TOOL)) {
                     last.events.add(ev)
                 } else {
-                    groups.add(MessageGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
+                    groups.add(MutableGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
                 }
             }
             EventKinds.Todo -> { /* Rendered by TodoPanel directly; skip to avoid splitting tool groups. */ }
             EventKinds.DiffStat -> { /* Metadata-only; skip. */ }
             else -> {
-                groups.add(MessageGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
+                groups.add(MutableGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
             }
         }
     }
@@ -144,7 +174,7 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
     // short commentary between tool calls ("Let me read...", "Now let me edit...").
     // Without merging, each appears as a separate 1-tool block. ask, userInput,
     // and other groups act as hard boundaries that prevent merging.
-    val merged = mutableListOf<MessageGroup>()
+    val merged = mutableListOf<MutableGroup>()
     for (g in groups) {
         if (g.kind == GroupKind.TOOL) {
             val anchor = merged.lastOrNull { it.kind != GroupKind.TEXT }
@@ -166,10 +196,11 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
             for (tc in g.toolCalls) tc.done = true
         }
     }
-    return merged
+
+    return merged.map { it.freeze() }
 }
 
-private fun newToolGroup(ev: ClaudeEventMessage, call: ToolCall) = MessageGroup(
+private fun newToolGroup(ev: ClaudeEventMessage, call: MutableToolCall) = MutableGroup(
     kind = GroupKind.TOOL,
     events = mutableListOf(ev),
     toolCalls = mutableListOf(call),

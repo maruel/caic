@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -38,7 +39,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Composable
 fun ToolCallCard(call: ToolCall, modifier: Modifier = Modifier) {
     var expanded by rememberSaveable(call.use.toolUseID) { mutableStateOf(false) }
-    val detail = toolCallDetail(call.use.name, call.use.input)
+    val detail = remember(call.use.toolUseID) { toolCallDetail(call.use.name, call.use.input) }
     val hasError = call.result?.error != null
 
     Surface(
