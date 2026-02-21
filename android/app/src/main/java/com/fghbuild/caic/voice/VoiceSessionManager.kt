@@ -23,6 +23,7 @@ import android.net.Uri
 import android.util.Base64
 import com.caic.sdk.v1.ApiClient
 import com.fghbuild.caic.data.SettingsRepository
+import com.fghbuild.caic.data.TaskRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -71,6 +72,7 @@ private const val PAUSE_POLL_MS = 20L
 class VoiceSessionManager @Inject constructor(
     @param:ApplicationContext private val appContext: Context,
     private val settingsRepository: SettingsRepository,
+    private val taskRepository: TaskRepository,
 ) {
     private val audioManager = appContext.getSystemService(AudioManager::class.java)
     private val json = Json { ignoreUnknownKeys = true }
@@ -142,7 +144,9 @@ class VoiceSessionManager @Inject constructor(
                 }
 
                 val apiClient = ApiClient(settings.serverURL)
-                functionHandlers = FunctionHandlers(apiClient, taskNumberMap) { excludedTaskIds }
+                functionHandlers = FunctionHandlers(
+                    apiClient, taskRepository, settings.serverURL, taskNumberMap,
+                ) { excludedTaskIds }
 
                 val tokenResp = apiClient.getVoiceToken()
                 setStatus("Connecting…")

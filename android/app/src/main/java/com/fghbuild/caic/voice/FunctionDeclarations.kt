@@ -9,6 +9,18 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
+// FunctionDeclaration fields:
+//
+// behavior:
+//   NON_BLOCKING — model keeps generating audio while the function runs in parallel.
+//   BLOCKING     — model waits silently for the function to return before continuing.
+//
+// scheduling:
+//   INTERRUPT    — function may be called mid-response, interrupting the model's audio output.
+//                  Use for all user-initiated requests (queries and actions).
+//   WHEN_IDLE    — function is only called when the model is not generating audio.
+//                  Use for background context the model gathers on its own initiative.
+//   SILENT       — function result is not spoken aloud; used for fire-and-forget side effects.
 @Serializable
 data class FunctionDeclaration(
     val name: String,
@@ -75,7 +87,7 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
         description = "List all current coding tasks with their status, cost, and duration.",
         parameters = emptyObjectSchema,
         behavior = "NON_BLOCKING",
-        scheduling = "WHEN_IDLE",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "task_create",
@@ -98,7 +110,7 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             required = listOf("task_number"),
         ),
         behavior = "NON_BLOCKING",
-        scheduling = "WHEN_IDLE",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "task_send_message",
@@ -153,7 +165,7 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
         description = "Check current API quota utilization and limits.",
         parameters = emptyObjectSchema,
         behavior = "NON_BLOCKING",
-        scheduling = "WHEN_IDLE",
+        scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
         name = "list_repos",
@@ -161,5 +173,15 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
         parameters = emptyObjectSchema,
         behavior = "NON_BLOCKING",
         scheduling = "WHEN_IDLE",
+    ),
+    FunctionDeclaration(
+        name = "task_get_last_message_from_assistant",
+        description = "Get the last text message or question from a task by its number.",
+        parameters = objectSchema(
+            "task_number" to intProp("The task number, e.g. 1 for task #1"),
+            required = listOf("task_number"),
+        ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
     ),
 )

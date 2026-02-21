@@ -3,12 +3,16 @@ package com.fghbuild.caic.voice
 
 import com.caic.sdk.v1.ApiClient
 import com.caic.sdk.v1.CreateTaskReq
+import com.caic.sdk.v1.EventKinds
 import com.caic.sdk.v1.InputReq
 import com.caic.sdk.v1.Prompt
 import com.caic.sdk.v1.SyncReq
 import com.caic.sdk.v1.Task
+import com.fghbuild.caic.data.TaskRepository
+import com.fghbuild.caic.data.TaskSSEEvent
 import com.fghbuild.caic.util.formatCost
 import com.fghbuild.caic.util.formatElapsed
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -18,6 +22,8 @@ import kotlinx.serialization.json.jsonPrimitive
 
 class FunctionHandlers(
     private val apiClient: ApiClient,
+    private val taskRepository: TaskRepository,
+    private val baseURL: String,
     private val taskNumberMap: TaskNumberMap,
     private val excludedTaskIds: () -> Set<String>,
 ) {
@@ -34,6 +40,7 @@ class FunctionHandlers(
                 "task_terminate" -> handleTerminateTask(args)
                 "get_usage" -> handleGetUsage()
                 "list_repos" -> handleListRepos()
+                "task_get_last_message_from_assistant" -> handleGetLastMessage(args)
                 else -> errorResult("Unknown function: $name")
             }
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
@@ -161,6 +168,28 @@ class FunctionHandlers(
             }
         }
         return textResult(summary)
+    }
+
+    private suspend fun handleGetLastMessage(args: JsonObject): JsonElement {
+        val taskId = resolveTaskNumber(args) ?: return errorResult("Unknown task number")
+        val num = args.requireInt("task_number")
+
+        val events = mutableListOf<com.caic.sdk.v1.ClaudeEventMessage>()
+        taskRepository.taskRawEventsWithReady(baseURL, taskId)
+            .takeWhile { it !is TaskSSEEvent.Ready }
+            .collect { event ->
+                if (event is TaskSSEEvent.Event) events.add(event.msg)
+            }
+
+        val message = events.lastOrNull { it.kind == EventKinds.Result }?.result?.result?.let { r ->
+            "Task #$num result: $r"
+        } ?: events.lastOrNull { it.kind == EventKinds.Ask }?.ask?.questions?.firstOrNull()?.let { q ->
+            val opts = q.options.joinToString(", ") { it.label }
+            "Task #$num is asking: ${q.question} Options: $opts"
+        } ?: events.lastOrNull { it.kind == EventKinds.Text }?.text?.text?.let { t ->
+            "Last message from task #$num: $t"
+        } ?: "No messages from task #$num yet."
+        return textResult(message)
     }
 
     private suspend fun handleListRepos(): JsonElement {
