@@ -333,8 +333,8 @@ func TestWireFormat(t *testing.T) {
 		if !ok {
 			t.Fatal("params not a map")
 		}
-		if params["thread_id"] != "t1" {
-			t.Errorf("thread_id = %v", params["thread_id"])
+		if params["threadId"] != "t1" {
+			t.Errorf("threadId = %v", params["threadId"])
 		}
 		if params["input"] != "fix the bug" {
 			t.Errorf("input = %v", params["input"])
