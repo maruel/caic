@@ -24,7 +24,6 @@ import (
 	"github.com/maruel/caic/backend/frontend"
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/container"
-	"github.com/maruel/caic/backend/internal/gitutil"
 	"github.com/maruel/caic/backend/internal/server/dto"
 	v1 "github.com/maruel/caic/backend/internal/server/dto/v1"
 	"github.com/maruel/caic/backend/internal/task"
@@ -32,6 +31,7 @@ import (
 	"github.com/maruel/genai/providers"
 	"github.com/maruel/ksid"
 	"github.com/maruel/md"
+	"github.com/maruel/md/gitutil"
 )
 
 type repoInfo struct {
@@ -246,7 +246,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 			if err != nil {
 				rel = filepath.Base(abs)
 			}
-			branch, err := gitutil.DefaultBranch(ctx, abs)
+			branch, err := gitutil.DefaultBranch(ctx, abs, "origin")
 			if err != nil {
 				slog.Warn("skipping repo, cannot determine default branch", "path", abs, "err", err)
 				return

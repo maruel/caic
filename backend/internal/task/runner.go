@@ -8,14 +8,16 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/agent/claude"
-	"github.com/maruel/caic/backend/internal/gitutil"
+	"github.com/maruel/md/gitutil"
 )
 
 // StartOptions holds optional flags for container startup.
@@ -107,7 +109,7 @@ func (r *Runner) Init(ctx context.Context) error {
 	defer cancel()
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
-	highest, err := gitutil.MaxBranchSeqNum(ctx, r.Dir)
+	highest, err := maxBranchSeqNum(ctx, r.Dir)
 	if err != nil {
 		return err
 	}
@@ -795,4 +797,33 @@ func writeLogTrailer(w io.Writer, res *Result) {
 	if data, err := json.Marshal(mr); err == nil {
 		_, _ = w.Write(append(data, '\n'))
 	}
+}
+
+// maxBranchSeqNum finds the highest sequence number N among remote branches
+// matching "caic-N" across all remotes. Returns -1 if no matching branches
+// exist.
+func maxBranchSeqNum(ctx context.Context, dir string) (int, error) {
+	cmd := exec.CommandContext(ctx, "git", "branch", "-r", "--format=%(refname:short)")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return -1, fmt.Errorf("git branch -r: %w", err)
+	}
+	highest := -1
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		// Match "<remote>/caic-N" for any remote name.
+		_, after, ok := strings.Cut(line, "/caic-")
+		if !ok {
+			continue
+		}
+		n, err := strconv.Atoi(after)
+		if err != nil {
+			continue
+		}
+		if n > highest {
+			highest = n
+		}
+	}
+	return highest, nil
 }
