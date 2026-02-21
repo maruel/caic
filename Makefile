@@ -64,17 +64,24 @@ lint-binaries:
 	@python3 scripts/lint_binaries.py
 
 lint-android:
-	@cd android && ./gradlew detekt lint
+	@cd android && ./gradlew --no-daemon detekt lint
 
 android-build:
-	@cd android && ./gradlew assembleDebug
+	@cd android && ./gradlew --no-daemon assembleDebug
 
 android-push: android-build
-	@adb install -r android/app/build/outputs/apk/debug/app-debug.apk
-	@adb shell am start -n com.fghbuild.caic/.MainActivity
+	@devices=$$(adb devices | awk '/\tdevice$$/{print $$1}'); \
+	[ -n "$$devices" ] || { echo "No devices connected"; exit 1; }; \
+	for d in $$devices; do \
+		(echo "Pushing to $$d..." && \
+		 adb -s $$d install -r android/app/build/outputs/apk/debug/app-debug.apk && \
+		 adb -s $$d shell am start -n com.fghbuild.caic/.MainActivity && \
+		 echo "Done: $$d") & \
+	done; \
+	wait
 
 android-test:
-	@cd android && ./gradlew test
+	@cd android && ./gradlew --no-daemon test
 
 lint-fix: $(FRONTEND_STAMP)
 	@golangci-lint run ./... --fix || true
@@ -99,4 +106,4 @@ e2e: $(FRONTEND_STAMP) types
 upgrade:
 	@go get -u ./... && go mod tidy
 	@pnpm update --latest
-	@cd android && ./gradlew dependencyUpdates -Drevision=release
+	@cd android && ./gradlew --no-daemon dependencyUpdates -Drevision=release
