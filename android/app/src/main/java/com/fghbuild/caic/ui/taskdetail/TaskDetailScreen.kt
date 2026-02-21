@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -52,11 +52,39 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fghbuild.caic.ui.theme.stateColor
 import com.fghbuild.caic.util.createCameraPhotoUri
+import com.fghbuild.caic.util.MessageGroup
+import com.fghbuild.caic.util.Turn
 import com.fghbuild.caic.util.uriToImageData
 
 private val PlanBadgeBg = Color(0xFFEDE9FE)
 private val PlanBadgeFg = Color(0xFF7C3AED)
 private val TerminalStates = setOf("terminated", "failed")
+
+// Unified flat list item: past turns are collapsed to a single Elided item; the live turn's
+// groups are individual items. Keys are position-based (turn index / group-within-live-turn
+// index) since event timestamps are not unique — multiple events can share the same millisecond.
+// Elided keys are Long (turn index) and Group keys are String ("g:j"), so the two sets never
+// collide even when the numeric values happen to be equal.
+private sealed interface MsgItem {
+    val key: Any
+    data class Elided(val turn: Turn, override val key: Long) : MsgItem
+    data class Group(val group: MessageGroup, val turn: Turn, override val key: String) : MsgItem
+}
+
+private fun buildItems(turns: List<Turn>): List<MsgItem> {
+    if (turns.isEmpty()) return emptyList()
+    val result = mutableListOf<MsgItem>()
+    for ((i, turn) in turns.withIndex()) {
+        if (i < turns.size - 1) {
+            result.add(MsgItem.Elided(turn, i.toLong()))
+        } else {
+            turn.groups.forEachIndexed { j, g ->
+                result.add(MsgItem.Group(g, turn, "g:$j"))
+            }
+        }
+    }
+    return result
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -234,10 +262,13 @@ private fun MessageList(
 ) {
     val listState = rememberLazyListState()
     var userScrolledUp by remember { mutableStateOf(false) }
+    val turns = state.turns
+    val isWaiting = state.task?.state == "waiting"
+    val items = remember(turns) { buildItems(turns) }
 
     // Auto-scroll to bottom when new messages arrive, unless user scrolled up.
-    LaunchedEffect(state.turns.size, state.messageCount) {
-        if (!userScrolledUp && state.turns.isNotEmpty()) {
+    LaunchedEffect(turns.size, state.messageCount) {
+        if (!userScrolledUp && turns.isNotEmpty()) {
             val total = listState.layoutInfo.totalItemsCount
             val lastVisible = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             if (total > 0 && lastVisible < total - 1) {
@@ -265,9 +296,10 @@ private fun MessageList(
             )
         }
 
-        // Message turns: past turns are elided; the last turn's groups are flattened into the
-        // LazyColumn so that only visible groups are composed (avoids eagerly rendering 80+
-        // Markdown composables for a turn with many tool-call commentary messages).
+        // Message turns: past turns are elided (one item each); the live turn's groups are
+        // individual items so only visible groups are composed. A single unified items() call
+        // with consistent "g:${ts}" keys ensures the slot for the first group survives the
+        // live→elided transition without a full remove/insert.
         SelectionContainer(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 state = listState,
@@ -275,33 +307,16 @@ private fun MessageList(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                val turns = state.turns
-                val lastTurn = turns.lastOrNull()
-                val isWaiting = state.task?.state == "waiting"
-
-                // Elided past turns.
-                if (turns.size > 1) {
-                    itemsIndexed(
-                        items = turns.subList(0, turns.size - 1),
-                        key = { _, turn ->
-                            turn.groups.firstOrNull()?.events?.firstOrNull()?.ts ?: 0L
-                        },
-                    ) { _, turn ->
-                        ElidedTurn(turn = turn)
-                    }
-                }
-
-                // Last turn: groups are individual lazy items.
-                if (lastTurn != null) {
-                    itemsIndexed(
-                        items = lastTurn.groups,
-                        key = { _, group ->
-                            "g:${group.events.firstOrNull()?.ts ?: 0L}"
-                        },
-                    ) { _, group ->
-                        MessageGroupContent(
-                            group = group,
-                            turn = lastTurn,
+                items(
+                    items = items,
+                    key = { item -> item.key },
+                    contentType = { item -> item::class },
+                ) { item ->
+                    when (item) {
+                        is MsgItem.Elided -> ElidedTurn(turn = item.turn)
+                        is MsgItem.Group -> MessageGroupContent(
+                            group = item.group,
+                            turn = item.turn,
                             onAnswer = onAnswer,
                             isWaiting = isWaiting,
                             onClearAndExecutePlan = onClearAndExecutePlan,
