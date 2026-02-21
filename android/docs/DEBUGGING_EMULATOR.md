@@ -39,7 +39,7 @@ Wait for the device:
 
 ```bash
 adb wait-for-device
-adb devices  # should show emulator-5554
+adb devices  # should show <device-id>
 ```
 
 ### 3. Grant permissions upfront
@@ -47,8 +47,8 @@ adb devices  # should show emulator-5554
 Skip runtime permission dialogs:
 
 ```bash
-adb -s emulator-5554 shell pm grant com.fghbuild.caic android.permission.RECORD_AUDIO
-adb -s emulator-5554 shell pm grant com.fghbuild.caic android.permission.POST_NOTIFICATIONS
+adb -s <device-id> shell pm grant com.fghbuild.caic android.permission.RECORD_AUDIO
+adb -s <device-id> shell pm grant com.fghbuild.caic android.permission.POST_NOTIFICATIONS
 ```
 
 ### 4. Set up port forwarding
@@ -57,7 +57,7 @@ The emulator needs to reach the backend. Use `adb reverse` so `localhost:8080`
 inside the emulator maps to the host:
 
 ```bash
-adb -s emulator-5554 reverse tcp:8080 tcp:8080
+adb -s <device-id> reverse tcp:8080 tcp:8080
 ```
 
 Alternative: the emulator maps `10.0.2.2` to the host, so
@@ -70,10 +70,10 @@ Alternative: the emulator maps `10.0.2.2` to the host, so
 cd android && ./gradlew assembleDebug --no-daemon
 
 # Install
-adb -s emulator-5554 install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s <device-id> install -r app/build/outputs/apk/debug/app-debug.apk
 
 # Launch
-adb -s emulator-5554 shell am start -n com.fghbuild.caic/.MainActivity
+adb -s <device-id> shell am start -n com.fghbuild.caic/.MainActivity
 ```
 
 If a physical device is also connected, always pass `-s emulator-5554` to target
@@ -90,42 +90,48 @@ The server URL must be set in Settings before the app is functional.
 
 ```bash
 # Dump UI to find element bounds
-adb -s emulator-5554 shell uiautomator dump /sdcard/ui.xml
-adb -s emulator-5554 shell cat /sdcard/ui.xml | grep -oP 'text="[^"]*"[^>]*bounds="[^"]*"'
+adb -s <device-id> shell uiautomator dump /sdcard/ui.xml
+adb -s <device-id> shell cat /sdcard/ui.xml | grep -oP 'text="[^"]*"[^>]*bounds="[^"]*"'
 
 # Tap elements by their bounds center coordinates
-adb -s emulator-5554 shell input tap <x> <y>
-adb -s emulator-5554 shell input text "http://localhost:8080"
+adb -s <device-id> shell input tap <x> <y>
+adb -s <device-id> shell input text "http://localhost:8080"
 ```
 
 ## Taking Screenshots
 
 ```bash
-adb -s emulator-5554 exec-out screencap -p > /tmp/screenshot.png
+adb -s <device-id> exec-out screencap -p > /tmp/screenshot.png
 ```
 
 ## Capturing Logs
+
+### Crashes
+
+```bash
+adb -s <device-id> logcat -d | grep -A 30 "FATAL\|AndroidRuntime"
+```
 
 ### Voice session logs
 
 ```bash
 # All VoiceSession tagged logs
-adb -s emulator-5554 logcat -s "VoiceSession:*"
+adb -s <device-id> logcat -s "VoiceSession:*"
 
 # Broader: include OkHttp and errors
-adb -s emulator-5554 logcat | grep -E "VoiceSession|WebSocket|Error"
+adb -s <device-id> logcat | grep -E "VoiceSession|WebSocket|Error"
 
 # App-process only (warnings and errors)
-PID=$(adb -s emulator-5554 shell pidof com.fghbuild.caic)
-adb -s emulator-5554 logcat -d | grep "$PID" | grep -E " W | E "
+PID=$(adb -s <device-id> shell pidof com.fghbuild.caic)
+adb -s <device-id> logcat -d | grep "$PID" | grep -E " W | E "
 ```
 
 ### Clear and capture fresh
 
 ```bash
-adb -s emulator-5554 logcat -c          # clear
+adb -s <device-id> logcat -c          # clear
 # ... reproduce the issue ...
-adb -s emulator-5554 logcat -d          # dump since last clear
+adb -s <device-id> logcat -d          # dump since last clear
 ```
 
 ## Voice Mode on the Emulator
@@ -219,7 +225,7 @@ with the key or network, not the app.
 | "Voice auth failed" error in app | `GEMINI_API_KEY` not set on backend | Set the env var and restart the backend |
 | "Server URL is not configured" | Empty server URL in app settings | Configure in Settings screen |
 | Gradle lock timeout | Stale Gradle daemon holding locks | `pkill -f GradleDaemon; find ~/.gradle/caches -name '*.lock' -delete` |
-| "more than one device/emulator" | Physical device + emulator both connected | Use `-s emulator-5554` with all adb commands |
+| "more than one device/emulator" | Physical device + emulator both connected | Use `-s <device-id>` with all adb commands |
 | App shows "Listening..." but no response | Emulator mic sends silence; VAD never triggers | Expected — use text injection or physical device |
 
 ## Suggested Improvements
