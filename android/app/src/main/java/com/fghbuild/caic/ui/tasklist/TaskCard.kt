@@ -51,7 +51,6 @@ private val TerminalStates = setOf("terminated", "failed")
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
 fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}) {
-    val firstLine = task.initialPrompt.lineSequence().firstOrNull().orEmpty()
     var showMenu by remember { mutableStateOf(false) }
     val clipboard = LocalClipboardManager.current
 
@@ -70,7 +69,7 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = firstLine,
+                    text = task.title,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
