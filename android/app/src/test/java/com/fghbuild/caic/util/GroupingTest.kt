@@ -120,14 +120,55 @@ class GroupingTest {
             assertEquals(GroupKind.USER_INPUT, groups[0].kind)
         }
 
-        t.run("non-last tool groups are implicitly marked done") {
+        t.run("tool calls in same assistant message coalesce across text") {
+            // Without a usage event between them, tool calls in the same
+            // AssistantMessage are coalesced into one tool group.
             val groups = groupMessages(listOf(
                 toolUseEvent("t1", "Read"),
                 textDeltaEvent("text"),
                 toolUseEvent("t2", "Bash"),
             ))
-            assertEquals(3, groups.size)
+            assertEquals(2, groups.size) // [TOOL(t1+t2), TEXT]
+            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(2, groups[0].toolCalls.size)
+        }
+
+        t.run("usage event separates tool groups across assistant messages") {
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                ClaudeEventMessage(
+                    kind = EventKinds.Usage, ts = 0,
+                    usage = ClaudeEventUsage(
+                        inputTokens = 100, outputTokens = 50,
+                        cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                    ),
+                ),
+                toolUseEvent("t2", "Bash"),
+            ))
+            // After merge pass, tool groups separated only by text merge, but
+            // a usage boundary creates a new tool group. The merge pass then
+            // re-merges them because only text/tool groups sit between.
+            assertEquals(1, groups.size)
+            assertEquals(2, groups[0].toolCalls.size)
+        }
+
+        t.run("non-last tool groups are implicitly marked done") {
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                ClaudeEventMessage(
+                    kind = EventKinds.Usage, ts = 0,
+                    usage = ClaudeEventUsage(
+                        inputTokens = 100, outputTokens = 50,
+                        cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                    ),
+                ),
+                textDeltaEvent("text"),
+                toolUseEvent("t2", "Bash"),
+            ))
+            // After merge pass these merge into 1 tool group + 1 text group.
+            assertEquals(2, groups.size)
             assertTrue(groups[0].toolCalls[0].done)
+            assertTrue(groups[0].toolCalls[1].done)
         }
     }
 
@@ -157,6 +198,118 @@ class GroupingTest {
         t.run("turnSummary singular forms") {
             val turn = Turn(groups = emptyList(), toolCount = 1, textCount = 1)
             assertEquals("1 message, 1 tool call", turnSummary(turn))
+        }
+    }
+
+    @Test
+    fun testMergePass() {
+        t.run("tool groups separated by text merge into one") {
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                ClaudeEventMessage(
+                    kind = EventKinds.Usage, ts = 0,
+                    usage = ClaudeEventUsage(
+                        inputTokens = 100, outputTokens = 50,
+                        cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                    ),
+                ),
+                textDeltaEvent("commentary"),
+                toolUseEvent("t2", "Bash"),
+                ClaudeEventMessage(
+                    kind = EventKinds.Usage, ts = 0,
+                    usage = ClaudeEventUsage(
+                        inputTokens = 200, outputTokens = 100,
+                        cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                    ),
+                ),
+                textDeltaEvent("more commentary"),
+                toolUseEvent("t3", "Edit"),
+            ))
+            // Three tool groups separated by text → merge pass consolidates into one.
+            assertEquals(3, groups.size) // [TOOL(t1+t2+t3), TEXT, TEXT]
+            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(3, groups[0].toolCalls.size)
+        }
+
+        t.run("ask group prevents tool group merging across turns") {
+            // In practice, an ask is always followed by a usage event from the
+            // next assistant turn. The ask + usage together form a hard boundary.
+            val usage = ClaudeEventMessage(
+                kind = EventKinds.Usage, ts = 0,
+                usage = ClaudeEventUsage(
+                    inputTokens = 100, outputTokens = 50,
+                    cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                ),
+            )
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                usage,
+                askEvent("a1", "Continue?"),
+                userInputEvent("yes"),
+                toolUseEvent("t2", "Bash"),
+            ))
+            // Ask is a hard boundary — merge pass won't merge tool groups across it.
+            assertEquals(3, groups.size)
+            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(GroupKind.ASK, groups[1].kind)
+            assertEquals(GroupKind.TOOL, groups[2].kind)
+        }
+
+        t.run("todo events are skipped and don't split tool groups") {
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                ClaudeEventMessage(kind = EventKinds.Todo, ts = 0),
+                toolUseEvent("t2", "Bash"),
+            ))
+            assertEquals(1, groups.size)
+            assertEquals(2, groups[0].toolCalls.size)
+        }
+    }
+
+    @Test
+    fun testPlanHelpers() {
+        t.run("turnHasExitPlanMode detects ExitPlanMode") {
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "ExitPlanMode"),
+                resultEvent(),
+            ))
+            val turns = groupTurns(groups)
+            assertTrue(turnHasExitPlanMode(turns[0]))
+        }
+
+        t.run("turnHasExitPlanMode false when absent") {
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                resultEvent(),
+            ))
+            val turns = groupTurns(groups)
+            assertTrue(!turnHasExitPlanMode(turns[0]))
+        }
+
+        t.run("turnPlanContent extracts plan from Write tool call") {
+            val writeInput = JsonObject(mapOf(
+                "file_path" to JsonPrimitive("/home/user/.claude/plans/my-plan.md"),
+                "content" to JsonPrimitive("# My Plan\n\nDo things."),
+            ))
+            val groups = groupMessages(listOf(
+                ClaudeEventMessage(
+                    kind = EventKinds.ToolUse, ts = 0,
+                    toolUse = ClaudeEventToolUse(toolUseID = "w1", name = "Write", input = writeInput),
+                ),
+                toolUseEvent("e1", "ExitPlanMode"),
+                resultEvent(),
+            ))
+            val turns = groupTurns(groups)
+            assertEquals("# My Plan\n\nDo things.", turnPlanContent(turns[0]))
+        }
+
+        t.run("turnPlanContent returns null when no plan file") {
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                resultEvent(),
+            ))
+            val turns = groupTurns(groups)
+            assertNull(turnPlanContent(turns[0]))
         }
     }
 

@@ -6,6 +6,8 @@ import com.caic.sdk.v1.ClaudeEventMessage
 import com.caic.sdk.v1.ClaudeEventToolResult
 import com.caic.sdk.v1.ClaudeEventToolUse
 import com.caic.sdk.v1.EventKinds
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 enum class GroupKind { TEXT, TOOL, ASK, USER_INPUT, OTHER }
 
@@ -36,6 +38,10 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
 
     fun lastGroup(): MessageGroup? = groups.lastOrNull()
 
+    // Tracks whether a usage event appeared since the last tool group,
+    // which signals a new AssistantMessage boundary.
+    var usageSinceLastTool = false
+
     for (ev in msgs) {
         when (ev.kind) {
             EventKinds.Text -> {
@@ -60,17 +66,24 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                 val toolUse = ev.toolUse ?: continue
                 val call = ToolCall(use = toolUse)
                 val last = lastGroup()
-                if (last != null && last.kind == GroupKind.TOOL) {
+                if (last != null && last.kind == GroupKind.TOOL && !usageSinceLastTool) {
+                    // Consecutive toolUse in the same AssistantMessage — merge.
                     last.events.add(ev)
                     last.toolCalls.add(call)
+                } else if (!usageSinceLastTool) {
+                    // Same AssistantMessage but intervening text; find the most
+                    // recent tool group to coalesce into.
+                    val anchor = groups.lastOrNull { it.kind == GroupKind.TOOL }
+                    if (anchor != null) {
+                        anchor.events.add(ev)
+                        anchor.toolCalls.add(call)
+                    } else {
+                        groups.add(newToolGroup(ev, call))
+                    }
                 } else {
-                    groups.add(
-                        MessageGroup(
-                            kind = GroupKind.TOOL,
-                            events = mutableListOf(ev),
-                            toolCalls = mutableListOf(call),
-                        )
-                    )
+                    // New AssistantMessage — start a new tool group.
+                    groups.add(newToolGroup(ev, call))
+                    usageSinceLastTool = false
                 }
             }
             EventKinds.ToolResult -> {
@@ -106,6 +119,7 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                 }
             }
             EventKinds.Usage -> {
+                usageSinceLastTool = true
                 val last = lastGroup()
                 if (last != null && (last.kind == GroupKind.TEXT || last.kind == GroupKind.TOOL)) {
                     last.events.add(ev)
@@ -113,6 +127,7 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
                     groups.add(MessageGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
                 }
             }
+            EventKinds.Todo -> { /* Rendered by TodoPanel directly; skip to avoid splitting tool groups. */ }
             EventKinds.DiffStat -> { /* Metadata-only; skip. */ }
             else -> {
                 groups.add(MessageGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
@@ -120,17 +135,40 @@ fun groupMessages(msgs: List<ClaudeEventMessage>): List<MessageGroup> {
         }
     }
 
+    // Merge tool groups separated only by text groups. The agent often emits
+    // short commentary between tool calls ("Let me read...", "Now let me edit...").
+    // Without merging, each appears as a separate 1-tool block. ask, userInput,
+    // and other groups act as hard boundaries that prevent merging.
+    val merged = mutableListOf<MessageGroup>()
+    for (g in groups) {
+        if (g.kind == GroupKind.TOOL) {
+            val anchor = merged.lastOrNull { it.kind != GroupKind.TEXT }
+            if (anchor != null && anchor.kind == GroupKind.TOOL) {
+                anchor.events.addAll(g.events)
+                anchor.toolCalls.addAll(g.toolCalls)
+                continue
+            }
+        }
+        merged.add(g)
+    }
+
     // Mark tool calls as implicitly done when later events exist.
-    val lastToolIdx = groups.indexOfLast { it.kind == GroupKind.TOOL }
-    for (i in groups.indices) {
-        val g = groups[i]
+    val lastToolIdx = merged.indexOfLast { it.kind == GroupKind.TOOL }
+    for (i in merged.indices) {
+        val g = merged[i]
         if (g.kind != GroupKind.TOOL) continue
-        if (i < lastToolIdx || i < groups.size - 1) {
+        if (i < lastToolIdx || i < merged.size - 1) {
             for (tc in g.toolCalls) tc.done = true
         }
     }
-    return groups
+    return merged
 }
+
+private fun newToolGroup(ev: ClaudeEventMessage, call: ToolCall) = MessageGroup(
+    kind = GroupKind.TOOL,
+    events = mutableListOf(ev),
+    toolCalls = mutableListOf(call),
+)
 
 /** Splits message groups into turns separated by "result" events. */
 fun groupTurns(groups: List<MessageGroup>): List<Turn> {
@@ -184,4 +222,24 @@ fun toolCountSummary(calls: List<ToolCall>): String {
     return counts.entries.joinToString(", ") { (name, c) ->
         if (c > 1) "$name \u00d7$c" else name
     }
+}
+
+/** True if any tool call in the turn is ExitPlanMode. */
+fun turnHasExitPlanMode(turn: Turn): Boolean =
+    turn.groups.any { g ->
+        g.kind == GroupKind.TOOL && g.toolCalls.any { it.use.name == "ExitPlanMode" }
+    }
+
+/** Extracts the plan markdown content from the Write tool call that wrote to .claude/plans/. */
+fun turnPlanContent(turn: Turn): String? {
+    val writes = turn.groups
+        .filter { it.kind == GroupKind.TOOL }
+        .flatMap { it.toolCalls }
+        .filter { it.use.name == "Write" }
+    for (tc in writes) {
+        val obj = runCatching { tc.use.input.jsonObject }.getOrNull() ?: continue
+        val fp = (obj["file_path"] ?: obj["filePath"])?.jsonPrimitive?.content ?: ""
+        if (".claude/plans/" in fp) return obj["content"]?.jsonPrimitive?.content
+    }
+    return null
 }

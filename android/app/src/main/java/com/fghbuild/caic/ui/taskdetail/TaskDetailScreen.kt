@@ -208,7 +208,15 @@ fun TaskDetailScreen(
                 CircularProgressIndicator()
             }
         } else {
-            MessageList(state = state, padding = padding, onAnswer = { viewModel.sendInput() })
+            MessageList(
+        state = state,
+        padding = padding,
+        onAnswer = { viewModel.sendInput() },
+        onClearAndExecutePlan = {
+            viewModel.restartTask(state.inputDraft.trim())
+            viewModel.updateInputDraft("")
+        },
+    )
         }
     }
 }
@@ -218,6 +226,7 @@ private fun MessageList(
     state: TaskDetailState,
     padding: PaddingValues,
     onAnswer: (String) -> Unit,
+    onClearAndExecutePlan: () -> Unit,
 ) {
     val listState = rememberLazyListState()
     var userScrolledUp by remember { mutableStateOf(false) }
@@ -261,7 +270,12 @@ private fun MessageList(
                     if (index < turns.size - 1) {
                         ElidedTurn(turn = turn)
                     } else {
-                        TurnContent(turn = turn, onAnswer = onAnswer)
+                        TurnContent(
+                            turn = turn,
+                            onAnswer = onAnswer,
+                            isWaiting = state.task?.state == "waiting",
+                            onClearAndExecutePlan = onClearAndExecutePlan,
+                        )
                     }
                 }
             }

@@ -287,6 +287,15 @@ a.headerRepo:hover {
   margin-top: 0.5rem;
 }
 
+.planContent {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+
 .resultDiffStat {
   margin: 0.25rem 0 0;
   padding: 0.4rem 0.6rem;

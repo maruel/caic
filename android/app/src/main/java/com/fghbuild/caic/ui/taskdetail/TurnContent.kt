@@ -2,6 +2,7 @@
 package com.fghbuild.caic.ui.taskdetail
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,12 +10,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -23,9 +28,20 @@ import com.caic.sdk.v1.ImageData
 import com.fghbuild.caic.util.GroupKind
 import com.fghbuild.caic.util.Turn
 import com.fghbuild.caic.util.imageDataToBitmap
+import com.fghbuild.caic.util.turnHasExitPlanMode
+import com.fghbuild.caic.util.turnPlanContent
+import com.mikepenz.markdown.m3.Markdown
+
+private val PlanBorderColor = Color(0xFFDDD6FE)
+private val PlanBgColor = Color(0xFFF5F3FF)
 
 @Composable
-fun TurnContent(turn: Turn, onAnswer: ((String) -> Unit)?) {
+fun TurnContent(
+    turn: Turn,
+    onAnswer: ((String) -> Unit)?,
+    isWaiting: Boolean = false,
+    onClearAndExecutePlan: (() -> Unit)? = null,
+) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -49,8 +65,46 @@ fun TurnContent(turn: Turn, onAnswer: ((String) -> Unit)?) {
                     val result = group.events.firstOrNull { it.kind == EventKinds.Result }?.result
                     if (result != null) {
                         ResultCard(result = result)
+                        if (isWaiting && turnHasExitPlanMode(turn)) {
+                            PlanApprovalSection(turn = turn, onExecute = onClearAndExecutePlan)
+                        }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlanApprovalSection(turn: Turn, onExecute: (() -> Unit)?) {
+    val planContent = remember(turn) { turnPlanContent(turn) }
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (planContent != null) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, PlanBorderColor, RoundedCornerShape(6.dp)),
+                shape = RoundedCornerShape(6.dp),
+                color = PlanBgColor,
+            ) {
+                Markdown(
+                    content = planContent,
+                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                )
+            }
+        }
+        if (onExecute != null) {
+            Button(
+                onClick = onExecute,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                ),
+            ) {
+                Text("Clear and execute plan")
             }
         }
     }
