@@ -456,7 +456,10 @@ function MessageItem(props: { ev: ClaudeEventMessage; taskId?: string }) {
               )}
             </Show>
             <div class={styles.resultMeta}>
-              ${result.totalCostUSD.toFixed(4)} &middot; {result.duration.toFixed(1)}s &middot; {result.numTurns} turns
+              <Show when={result.totalCostUSD !== 0}>
+                ${result.totalCostUSD.toFixed(4)} &middot;{" "}
+              </Show>
+              {result.duration.toFixed(1)}s &middot; {result.numTurns} turns
             </div>
           </div>
         )}
