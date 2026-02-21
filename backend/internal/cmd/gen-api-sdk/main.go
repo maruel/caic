@@ -202,6 +202,7 @@ var kotlinAliases = []kotlinTypeAlias{
 		name: "Harness",
 		constants: []kotlinConstant{
 			{"Claude", string(v1.HarnessClaude)},
+			{"Codex", string(v1.HarnessCodex)},
 			{"Gemini", string(v1.HarnessGemini)},
 		},
 	},

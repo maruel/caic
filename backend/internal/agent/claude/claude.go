@@ -28,6 +28,8 @@ var Wire agent.WireFormat = &Backend{}
 func (b *Backend) Harness() agent.Harness { return agent.Claude }
 
 // Models returns the model aliases supported by Claude Code CLI.
+//
+// TODO: Figure out a way to generate this list at runtime.
 func (b *Backend) Models() []string { return []string{"opus", "sonnet", "haiku"} }
 
 // SupportsImages reports that Claude Code accepts image content blocks.

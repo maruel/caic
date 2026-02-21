@@ -81,7 +81,14 @@ private fun objectSchema(
     }
 )
 
-val functionDeclarations: List<FunctionDeclaration> = listOf(
+fun buildFunctionDeclarations(harnesses: List<String>): List<FunctionDeclaration> {
+    val harnessDesc = if (harnesses.isEmpty()) {
+        "Agent harness to use (optional)"
+    } else {
+        val quoted = harnesses.joinToString(", ") { "'$it'" }
+        "Agent harness: $quoted (default: ${harnesses.first()})"
+    }
+    return listOf(
     FunctionDeclaration(
         name = "tasks_list",
         description = "List all current coding tasks with their status, cost, and duration.",
@@ -96,7 +103,7 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
             "prompt" to stringProp("The task description/prompt for the coding agent"),
             "repo" to stringProp("Repository path to work in"),
             "model" to stringProp("Model to use (optional)"),
-            "harness" to stringProp("Agent harness: 'claude' or 'gemini' (default: claude)"),
+            "harness" to stringProp(harnessDesc),
             required = listOf("prompt", "repo"),
         ),
         behavior = "NON_BLOCKING",
@@ -184,4 +191,5 @@ val functionDeclarations: List<FunctionDeclaration> = listOf(
         behavior = "NON_BLOCKING",
         scheduling = "INTERRUPT",
     ),
-)
+    )
+}

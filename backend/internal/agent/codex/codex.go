@@ -28,7 +28,14 @@ var _ agent.Backend = (*Backend)(nil)
 func (b *Backend) Harness() agent.Harness { return agent.Codex }
 
 // Models returns the model names supported by Codex CLI.
-func (b *Backend) Models() []string { return []string{"o4-mini", "codex-mini-latest"} }
+//
+// TODO: Figure out a way to generate this list at runtime.
+func (b *Backend) Models() []string {
+	return []string{
+		"gpt-5.3-codex",
+		"gpt-5.3-codex-spark",
+	}
+}
 
 // SupportsImages reports that Codex CLI does not accept image input.
 func (b *Backend) SupportsImages() bool { return false }

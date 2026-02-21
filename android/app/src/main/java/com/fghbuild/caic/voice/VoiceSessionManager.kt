@@ -57,7 +57,7 @@ import javax.inject.Singleton
 
 private const val TAG = "VoiceSession"
 private val functionScheduling: Map<String, String> =
-    functionDeclarations.mapNotNull { fd ->
+    buildFunctionDeclarations(emptyList()).mapNotNull { fd ->
         fd.scheduling?.let { fd.name to it }
     }.toMap()
 private const val RECORD_SAMPLE_RATE = 16000
@@ -85,6 +85,7 @@ class VoiceSessionManager @Inject constructor(
     private var audioTrack: AudioTrack? = null
     private var recordingJob: Job? = null
     private var functionHandlers: FunctionHandlers? = null
+    private var availableHarnesses: List<String> = emptyList()
     private var deviceCallback: AudioDeviceCallback? = null
     private var scoReceiver: BroadcastReceiver? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -147,6 +148,7 @@ class VoiceSessionManager @Inject constructor(
                 functionHandlers = FunctionHandlers(
                     apiClient, taskRepository, settings.serverURL, taskNumberMap,
                 ) { excludedTaskIds }
+                availableHarnesses = apiClient.listHarnesses().map { it.name }
 
                 val tokenResp = apiClient.getVoiceToken()
                 setStatus("Connecting…")
@@ -275,12 +277,12 @@ class VoiceSessionManager @Inject constructor(
     }
 
     private fun sendSetupMessage(voiceName: String) {
-        val setup = buildSetupMessage(voiceName)
+        val setup = buildSetupMessage(voiceName, availableHarnesses)
         Log.i(TAG, "sending setup message")
         webSocket?.send(setup)
     }
 
-    private fun buildSetupMessage(voiceName: String): String {
+    private fun buildSetupMessage(voiceName: String, harnesses: List<String>): String {
         val setup = BidiGenerateContentSetup(
             model = MODEL_NAME,
             generationConfig = GenerationConfig(
@@ -299,7 +301,7 @@ class VoiceSessionManager @Inject constructor(
             ),
             tools = listOf(
                 Tool(
-                    functionDeclarations = functionDeclarations.map { fd ->
+                    functionDeclarations = buildFunctionDeclarations(harnesses).map { fd ->
                         LiveFunctionDeclaration(
                             name = fd.name,
                             description = fd.description,

@@ -33,7 +33,7 @@ data class TaskListState(
     val config: Config? = null,
     val usage: UsageResp? = null,
     val selectedRepo: String = "",
-    val selectedHarness: String = "claude",
+    val selectedHarness: String = "",
     val selectedModel: String = "",
     val prompt: String = "",
     val recentRepoCount: Int = 0,
@@ -104,6 +104,7 @@ class TaskListViewModel @Inject constructor(
                 val restRepos = repos.filter { it.path !in recentSet }
                 val ordered = recentRepos + restRepos
                 val selectedHarness = _formState.value.selectedHarness
+                    .ifBlank { harnesses.firstOrNull()?.name ?: "" }
                 val lastModels = settingsRepository.settings.value.lastModels
                 val lastModel = lastModels[selectedHarness] ?: ""
                 val harnessModels = harnesses.find { it.name == selectedHarness }?.models.orEmpty()
@@ -113,6 +114,7 @@ class TaskListViewModel @Inject constructor(
                     config = config,
                     recentRepoCount = recentRepos.size,
                     selectedRepo = ordered.firstOrNull()?.path ?: "",
+                    selectedHarness = selectedHarness,
                     selectedModel = if (lastModel in harnessModels) lastModel else "",
                 )
             } catch (_: Exception) {
@@ -206,7 +208,7 @@ class TaskListViewModel @Inject constructor(
         val config: Config? = null,
         val recentRepoCount: Int = 0,
         val selectedRepo: String = "",
-        val selectedHarness: String = "claude",
+        val selectedHarness: String = "",
         val selectedModel: String = "",
         val prompt: String = "",
         val submitting: Boolean = false,

@@ -35,7 +35,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.caic.sdk.v1.Harnesses
 import com.caic.sdk.v1.Task
 import com.fghbuild.caic.ui.theme.stateColor
 import com.fghbuild.caic.util.formatCost
@@ -118,9 +117,7 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
             }
 
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (task.harness != Harnesses.Claude) {
-                    MetaText(task.harness)
-                }
+                MetaText(task.harness)
                 task.model?.let { MetaText(it) }
                 val tokenCount = task.activeInputTokens + task.activeCacheReadTokens
                 if (tokenCount > 0) {

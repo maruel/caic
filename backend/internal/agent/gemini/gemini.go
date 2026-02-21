@@ -28,7 +28,9 @@ var Wire agent.WireFormat = &Backend{}
 func (b *Backend) Harness() agent.Harness { return agent.Gemini }
 
 // Models returns the model names supported by Gemini CLI.
-func (b *Backend) Models() []string { return []string{"gemini-2.5-pro", "gemini-2.5-flash"} }
+//
+// TODO: Figure out a way to generate this list at runtime.
+func (b *Backend) Models() []string { return []string{"gemini-3.1-pro", "gemini-3-flash"} }
 
 // SupportsImages reports that Gemini CLI does not yet accept image input.
 func (b *Backend) SupportsImages() bool { return false }

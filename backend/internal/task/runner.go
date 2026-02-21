@@ -17,6 +17,7 @@ import (
 
 	"github.com/maruel/caic/backend/internal/agent"
 	"github.com/maruel/caic/backend/internal/agent/claude"
+	"github.com/maruel/caic/backend/internal/agent/codex"
 	"github.com/maruel/md/gitutil"
 )
 
@@ -74,6 +75,7 @@ func (r *Runner) initDefaults() {
 		if r.Backends == nil {
 			r.Backends = map[agent.Harness]agent.Backend{
 				agent.Claude: &claude.Backend{},
+				agent.Codex:  &codex.Backend{},
 			}
 		}
 		if r.GitTimeout == 0 {
