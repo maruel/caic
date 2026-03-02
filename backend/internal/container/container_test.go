@@ -3,6 +3,7 @@ package container
 import "testing"
 
 func TestNew(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	c, err := New("")
 	if err != nil {
 		t.Fatal(err)
