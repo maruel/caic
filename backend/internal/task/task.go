@@ -107,6 +107,7 @@ type Task struct {
 	agentVersion   string    // Agent version, captured from SystemInitMessage.
 	planFile       string    // Path to plan file inside container, captured from Write tool_use.
 	planContent    string    // Content of the plan file, captured from Write tool_use input.
+	planDismissed  bool      // True after ClearMessages; suppresses plan tracking until the next ResultMessage.
 	inPlanMode     bool      // True while the agent is in plan mode (between EnterPlanMode and ExitPlanMode).
 	title          string    // LLM-generated short title; set via SetTitle.
 	msgs           []agent.Message
@@ -313,18 +314,23 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	}
 	// Restore plan state from tool_use events. A context_cleared marker
 	// resets plan state — it means ClearMessages was called (e.g. "Clear
-	// and execute plan"), so plan data before the marker is stale.
+	// and execute plan"), so plan data before the marker is stale and plan
+	// tracking is suppressed until the next ResultMessage.
 	for _, m := range msgs {
 		if sm, ok := m.(*agent.SystemMessage); ok && sm.Subtype == "context_cleared" {
 			t.inPlanMode = false
 			t.planFile = ""
 			t.planContent = ""
+			t.planDismissed = true
 		}
 		if am, ok := m.(*agent.AssistantMessage); ok {
 			t.trackPlanState(am)
 			if u := am.Message.Usage; u.InputTokens+u.CacheCreationInputTokens+u.CacheReadInputTokens > 0 {
 				t.lastAPIUsage = u
 			}
+		}
+		if _, ok := m.(*agent.ResultMessage); ok {
+			t.planDismissed = false
 		}
 	}
 	// Restore live diff stat from the last DiffStatMessage or ResultMessage,
@@ -416,6 +422,7 @@ func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
 		t.lastUsage = rm.Usage
+		t.planDismissed = false
 		// Transition Running→Waiting/Asking. Also handle Running/Waiting
 		// because watchSession may have already set Waiting before the
 		// dispatch goroutine processed this ResultMessage (it does a
@@ -456,6 +463,9 @@ func (t *Task) trackPlanState(am *agent.AssistantMessage) {
 		case "ExitPlanMode":
 			t.inPlanMode = false
 		case "Write":
+			if t.planDismissed {
+				continue
+			}
 			var input struct {
 				FilePath string `json:"file_path"`
 				Content  string `json:"content"`
@@ -544,6 +554,7 @@ func (t *Task) ClearMessages(ctx context.Context) {
 	t.inPlanMode = false
 	t.planFile = ""
 	t.planContent = ""
+	t.planDismissed = true
 }
 
 // syntheticUserInput creates a UserMessage representing user-provided text
@@ -742,6 +753,7 @@ func (t *Task) SendInput(ctx context.Context, p agent.Prompt) error {
 		// than clicking "Clear and execute plan".
 		t.planFile = ""
 		t.planContent = ""
+		t.planDismissed = false
 	}
 	t.mu.Unlock()
 	if h == nil {

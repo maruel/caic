@@ -632,6 +632,94 @@ func TestTask(t *testing.T) {
 				t.Errorf("PlanFile = %q after ClearMessages, want empty", tk.GetPlanFile())
 			}
 		})
+		t.Run("SuppressesPlanRewrite", func(t *testing.T) {
+			// After ClearMessages (restart), the agent may re-enter plan mode
+			// and write to .claude/plans/. The plan must not resurface.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			// Original plan.
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"the plan"}`)},
+						{Type: "tool_use", Name: "ExitPlanMode"},
+					},
+				},
+			})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+
+			// User clicks "Clear and execute plan".
+			tk.ClearMessages(t.Context())
+			tk.SetState(StateRunning)
+
+			// Agent re-enters plan mode during execution.
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "tool_use", Name: "EnterPlanMode"},
+					},
+				},
+			})
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"rewritten plan"}`)},
+						{Type: "tool_use", Name: "ExitPlanMode"},
+					},
+				},
+			})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+
+			snap := tk.Snapshot()
+			if snap.PlanContent != "" {
+				t.Errorf("PlanContent = %q, want empty (plan written after ClearMessages should be suppressed)", snap.PlanContent)
+			}
+			if tk.GetPlanFile() != "" {
+				t.Errorf("PlanFile = %q, want empty", tk.GetPlanFile())
+			}
+		})
+		t.Run("SuppressionLiftsAfterTurn", func(t *testing.T) {
+			// After the restart turn completes, a subsequent user-initiated turn
+			// must be able to produce a plan again.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"plan"}`)},
+					},
+				},
+			})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+
+			// Restart.
+			tk.ClearMessages(t.Context())
+			tk.SetState(StateRunning)
+			// Turn completes without plan.
+			tk.addMessage(t.Context(), &agent.AssistantMessage{MessageType: "assistant"})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+
+			// Suppression lifted — next turn can set plan.
+			tk.SetState(StateRunning)
+			tk.addMessage(t.Context(), &agent.AssistantMessage{
+				MessageType: "assistant",
+				Message: agent.APIMessage{
+					Content: []agent.ContentBlock{
+						{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"fresh plan"}`)},
+					},
+				},
+			})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+
+			snap := tk.Snapshot()
+			if snap.PlanContent != "fresh plan" {
+				t.Errorf("PlanContent = %q, want %q (suppression should have lifted)", snap.PlanContent, "fresh plan")
+			}
+		})
 	})
 
 	t.Run("RestoreMessages", func(t *testing.T) {
@@ -831,6 +919,55 @@ func TestTask(t *testing.T) {
 			}
 			if tk.GetPlanFile() != "" {
 				t.Errorf("PlanFile = %q, want empty (context_cleared should reset)", tk.GetPlanFile())
+			}
+		})
+		t.Run("ContextClearedSuppressesPlanRewrite", func(t *testing.T) {
+			// After "Clear and execute plan", the agent may re-enter plan mode
+			// and write to .claude/plans/ during execution. The dismissed plan
+			// must not resurface when the turn completes.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			msgs := []agent.Message{
+				// Original plan.
+				&agent.AssistantMessage{
+					MessageType: "assistant",
+					Message: agent.APIMessage{
+						Content: []agent.ContentBlock{
+							{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"old plan"}`)},
+							{Type: "tool_use", Name: "ExitPlanMode"},
+						},
+					},
+				},
+				&agent.ResultMessage{MessageType: "result"},
+				// User clicked "Clear and execute plan".
+				&agent.SystemMessage{MessageType: "system", Subtype: "context_cleared"},
+				// Agent re-enters plan mode during execution.
+				&agent.AssistantMessage{
+					MessageType: "assistant",
+					Message: agent.APIMessage{
+						Content: []agent.ContentBlock{
+							{Type: "tool_use", Name: "EnterPlanMode"},
+						},
+					},
+				},
+				&agent.AssistantMessage{
+					MessageType: "assistant",
+					Message: agent.APIMessage{
+						Content: []agent.ContentBlock{
+							{Type: "tool_use", Name: "Write", Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"new plan"}`)},
+							{Type: "tool_use", Name: "ExitPlanMode"},
+						},
+					},
+				},
+				&agent.ResultMessage{MessageType: "result"},
+			}
+			tk.RestoreMessages(msgs)
+			snap := tk.Snapshot()
+			if snap.PlanContent != "" {
+				t.Errorf("PlanContent = %q, want empty (plan written after context_cleared should be suppressed)", snap.PlanContent)
+			}
+			if tk.GetPlanFile() != "" {
+				t.Errorf("PlanFile = %q, want empty", tk.GetPlanFile())
 			}
 		})
 		t.Run("Subscribe", func(t *testing.T) {
