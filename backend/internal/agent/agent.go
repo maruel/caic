@@ -406,10 +406,9 @@ func (w *SlogWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// ReadRelayOutput reads the complete output.jsonl from the container's relay
-// and parses each line using parseFn. This is the shared implementation used
-// by all backends.
-func ReadRelayOutput(ctx context.Context, container string, parseFn func([]byte) (Message, error)) (msgs []Message, size int64, err error) {
+// readRelayOutput reads the complete output.jsonl from the container's relay
+// and parses each line using parseFn. Called by Base.ReadRelayOutput.
+func readRelayOutput(ctx context.Context, container string, parseFn func([]byte) (Message, error)) (msgs []Message, size int64, err error) {
 	cmd := exec.CommandContext(ctx, "ssh", container, "cat", RelayOutputPath) //nolint:gosec // args are not user-controlled.
 	out, err := cmd.Output()
 	if err != nil {
@@ -434,10 +433,10 @@ func ReadRelayOutput(ctx context.Context, container string, parseFn func([]byte)
 	return msgs, size, scanner.Err()
 }
 
-// AttachRelaySession connects to an already-running relay in the container
-// and returns a new Session. This is the shared implementation for backends
-// whose attach path needs no per-session wire state (claude, gemini, kilo).
-func AttachRelaySession(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer, wire WireFormat) (*Session, error) {
+// attachRelaySession connects to an already-running relay in the container
+// and returns a new Session. Called by Base.AttachRelay for backends whose
+// attach path needs no per-session wire state (claude, gemini, kilo).
+func attachRelaySession(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer, wire WireFormat) (*Session, error) {
 	sshArgs := []string{
 		container, "python3", RelayScriptPath, "attach",
 		"--offset", strconv.FormatInt(offset, 10),

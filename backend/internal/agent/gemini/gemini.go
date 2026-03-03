@@ -13,26 +13,27 @@ import (
 )
 
 // Backend implements agent.Backend for Gemini CLI.
-type Backend struct{}
+type Backend struct {
+	agent.Base
+}
 
 var _ agent.Backend = (*Backend)(nil)
 
+// New creates a Gemini CLI backend with wire format and parser configured.
+func New() *Backend {
+	b := &Backend{}
+	b.Base = agent.Base{
+		HarnessID:     agent.Gemini,
+		ModelList:     []string{"gemini-3.1-pro", "gemini-3-flash"},
+		ContextWindow: 1_000_000,
+		Parse:         ParseMessage,
+	}
+	b.Wire = b
+	return b
+}
+
 // Wire is the wire format for Gemini CLI (stream-json over stdin/stdout).
-var Wire agent.WireFormat = &Backend{}
-
-// Harness returns the harness identifier.
-func (b *Backend) Harness() agent.Harness { return agent.Gemini }
-
-// Models returns the model names supported by Gemini CLI.
-//
-// TODO: Figure out a way to generate this list at runtime.
-func (b *Backend) Models() []string { return []string{"gemini-3.1-pro", "gemini-3-flash"} }
-
-// SupportsImages reports that Gemini CLI does not yet accept image input.
-func (b *Backend) SupportsImages() bool { return false }
-
-// ContextWindowLimit returns the API prompt token limit for Gemini models.
-func (b *Backend) ContextWindowLimit(model string) int { return 1_000_000 }
+var Wire agent.WireFormat = New()
 
 // Start launches a Gemini CLI process via the relay daemon in the given
 // container.
@@ -66,7 +67,7 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 	}
 
 	log := slog.With("container", opts.Container)
-	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
+	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, b, log)
 	if opts.InitialPrompt.Text != "" {
 		if err := s.Send(opts.InitialPrompt); err != nil {
 			s.Close()
@@ -74,22 +75,6 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 		}
 	}
 	return s, nil
-}
-
-// AttachRelay connects to an already-running relay in the container.
-func (b *Backend) AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
-	return agent.AttachRelaySession(ctx, container, offset, msgCh, logW, Wire)
-}
-
-// ReadRelayOutput reads the complete output.jsonl from the container's relay
-// and parses it into Messages.
-func (b *Backend) ReadRelayOutput(ctx context.Context, container string) ([]agent.Message, int64, error) {
-	return agent.ReadRelayOutput(ctx, container, ParseMessage)
-}
-
-// ParseMessage decodes a single Gemini CLI stream-json line into a typed Message.
-func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
-	return ParseMessage(line)
 }
 
 // WritePrompt writes a single user message to Gemini CLI's stdin.

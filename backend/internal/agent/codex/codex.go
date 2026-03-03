@@ -20,28 +20,21 @@ import (
 
 // Backend implements agent.Backend for Codex CLI using the app-server
 // JSON-RPC 2.0 protocol.
-type Backend struct{}
+type Backend struct {
+	agent.Base
+}
 
 var _ agent.Backend = (*Backend)(nil)
 
-// Harness returns the harness identifier.
-func (b *Backend) Harness() agent.Harness { return agent.Codex }
-
-// Models returns the model names supported by Codex CLI.
-//
-// TODO: Figure out a way to generate this list at runtime.
-func (b *Backend) Models() []string {
-	return []string{
-		"gpt-5.3-codex",
-		"gpt-5.3-codex-spark",
-	}
+// New creates a Codex CLI backend with parser configured.
+func New() *Backend {
+	return &Backend{Base: agent.Base{
+		HarnessID:     agent.Codex,
+		ModelList:     []string{"gpt-5.3-codex", "gpt-5.3-codex-spark"},
+		ContextWindow: 200_000,
+		Parse:         ParseMessage,
+	}}
 }
-
-// SupportsImages reports that Codex CLI does not accept image input.
-func (b *Backend) SupportsImages() bool { return false }
-
-// ContextWindowLimit returns the API prompt token limit for Codex models.
-func (b *Backend) ContextWindowLimit(model string) int { return 200_000 }
 
 // Start launches a Codex CLI app-server process via the relay daemon in the
 // given container. It performs the JSON-RPC handshake (initialize →
@@ -124,17 +117,6 @@ func (b *Backend) AttachRelay(ctx context.Context, container string, offset int6
 
 	log := slog.With("container", container)
 	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, wire, log), nil
-}
-
-// ReadRelayOutput reads the complete output.jsonl from the container's relay
-// and parses it into Messages.
-func (b *Backend) ReadRelayOutput(ctx context.Context, container string) ([]agent.Message, int64, error) {
-	return agent.ReadRelayOutput(ctx, container, ParseMessage)
-}
-
-// ParseMessage decodes a single Codex CLI app-server line into a typed Message.
-func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
-	return ParseMessage(line)
 }
 
 // wireFormat implements agent.WireFormat for the codex app-server JSON-RPC

@@ -42,3 +42,41 @@ type Backend interface {
 	// The model parameter is the model name reported by the agent at runtime.
 	ContextWindowLimit(model string) int
 }
+
+// Base provides default implementations for all Backend methods except Start.
+// Embed it in backend-specific types to inherit the boilerplate; only Start
+// (and optionally AttachRelay for backends with per-session wire state) needs
+// overriding.
+type Base struct {
+	HarnessID     Harness
+	ModelList     []string
+	Images        bool
+	ContextWindow int
+	Wire          WireFormat                    // Used by AttachRelay. Nil if the backend overrides AttachRelay.
+	Parse         func([]byte) (Message, error) // Used by ParseMessage and ReadRelayOutput.
+}
+
+// Harness implements Backend.
+func (b *Base) Harness() Harness { return b.HarnessID }
+
+// Models implements Backend.
+func (b *Base) Models() []string { return b.ModelList }
+
+// SupportsImages implements Backend.
+func (b *Base) SupportsImages() bool { return b.Images }
+
+// ContextWindowLimit implements Backend.
+func (b *Base) ContextWindowLimit(string) int { return b.ContextWindow }
+
+// ParseMessage implements Backend by delegating to Parse.
+func (b *Base) ParseMessage(line []byte) (Message, error) { return b.Parse(line) }
+
+// ReadRelayOutput implements Backend.
+func (b *Base) ReadRelayOutput(ctx context.Context, container string) ([]Message, int64, error) {
+	return readRelayOutput(ctx, container, b.Parse)
+}
+
+// AttachRelay implements Backend.
+func (b *Base) AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer) (*Session, error) {
+	return attachRelaySession(ctx, container, offset, msgCh, logW, b.Wire)
+}

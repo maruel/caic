@@ -15,26 +15,28 @@ import (
 )
 
 // Backend implements agent.Backend for Claude Code.
-type Backend struct{}
+type Backend struct {
+	agent.Base
+}
 
 var _ agent.Backend = (*Backend)(nil)
 
+// New creates a Claude Code backend with wire format and parser configured.
+func New() *Backend {
+	b := &Backend{}
+	b.Base = agent.Base{
+		HarnessID:     agent.Claude,
+		ModelList:     []string{"opus", "sonnet", "haiku"},
+		Images:        true,
+		ContextWindow: 180_000,
+		Parse:         agent.ParseMessage,
+	}
+	b.Wire = b
+	return b
+}
+
 // Wire is the wire format for Claude Code (stream-json over stdin/stdout).
-var Wire agent.WireFormat = &Backend{}
-
-// Harness returns the harness identifier.
-func (b *Backend) Harness() agent.Harness { return agent.Claude }
-
-// Models returns the model aliases supported by Claude Code CLI.
-//
-// TODO: Figure out a way to generate this list at runtime.
-func (b *Backend) Models() []string { return []string{"opus", "sonnet", "haiku"} }
-
-// SupportsImages reports that Claude Code accepts image content blocks.
-func (b *Backend) SupportsImages() bool { return true }
-
-// ContextWindowLimit returns the API prompt token limit for Claude models.
-func (b *Backend) ContextWindowLimit(model string) int { return 180_000 }
+var Wire agent.WireFormat = New()
 
 // Start launches a Claude Code process via the relay daemon in the given
 // container. It deploys the relay script and starts claude via serve-attach.
@@ -68,7 +70,7 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 	}
 
 	log := slog.With("container", opts.Container)
-	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, Wire, log)
+	s := agent.NewSession(cmd, stdin, stdout, msgCh, logW, b, log)
 	if opts.InitialPrompt.Text != "" || len(opts.InitialPrompt.Images) > 0 {
 		if err := s.Send(opts.InitialPrompt); err != nil {
 			s.Close()
@@ -76,22 +78,6 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 		}
 	}
 	return s, nil
-}
-
-// AttachRelay connects to an already-running relay in the container.
-func (b *Backend) AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
-	return agent.AttachRelaySession(ctx, container, offset, msgCh, logW, Wire)
-}
-
-// ReadRelayOutput reads the complete output.jsonl from the container's relay
-// and parses it into Messages.
-func (b *Backend) ReadRelayOutput(ctx context.Context, container string) ([]agent.Message, int64, error) {
-	return agent.ReadRelayOutput(ctx, container, agent.ParseMessage)
-}
-
-// ParseMessage decodes a single Claude Code NDJSON line into a typed Message.
-func (b *Backend) ParseMessage(line []byte) (agent.Message, error) {
-	return agent.ParseMessage(line)
 }
 
 // userInputMessage is the NDJSON message sent to Claude Code via stdin.
