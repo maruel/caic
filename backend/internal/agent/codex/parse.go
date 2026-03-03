@@ -115,20 +115,32 @@ func parseItemStarted(msg *JSONRPCMessage) ([]agent.Message, error) {
 	if err := json.Unmarshal(msg.Params, &p); err != nil {
 		return nil, fmt.Errorf("item/started params: %w", err)
 	}
-	switch p.Item.Type {
+	var h ItemHeader
+	if err := json.Unmarshal(p.Item, &h); err != nil {
+		return nil, fmt.Errorf("item/started header: %w", err)
+	}
+	switch h.Type {
 	case ItemTypeCommandExecution:
-		input, _ := json.Marshal(map[string]string{"command": p.Item.Command})
+		var item CommandExecutionItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/started commandExecution: %w", err)
+		}
+		input, _ := json.Marshal(map[string]string{"command": item.Command})
 		return []agent.Message{&agent.ToolUseMessage{
-			ToolUseID: p.Item.ID,
+			ToolUseID: item.ID,
 			Name:      "Bash",
 			Input:     input,
 		}}, nil
 
 	case ItemTypeMCPToolCall:
+		var item McpToolCallItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/started mcpToolCall: %w", err)
+		}
 		return []agent.Message{&agent.ToolUseMessage{
-			ToolUseID: p.Item.ID,
-			Name:      p.Item.Tool,
-			Input:     p.Item.Arguments,
+			ToolUseID: item.ID,
+			Name:      item.Tool,
+			Input:     item.Arguments,
 		}}, nil
 
 	default:
@@ -142,46 +154,74 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 	if err := json.Unmarshal(msg.Params, &p); err != nil {
 		return nil, fmt.Errorf("item/completed params: %w", err)
 	}
-	switch p.Item.Type {
+	var h ItemHeader
+	if err := json.Unmarshal(p.Item, &h); err != nil {
+		return nil, fmt.Errorf("item/completed header: %w", err)
+	}
+	switch h.Type {
 	case ItemTypeAgentMessage:
-		return []agent.Message{&agent.TextMessage{Text: p.Item.Text}}, nil
+		var item AgentMessageItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed agentMessage: %w", err)
+		}
+		return []agent.Message{&agent.TextMessage{Text: item.Text}}, nil
 
 	case ItemTypeReasoning:
-		text := strings.Join(p.Item.Summary, "\n")
+		var item ReasoningItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed reasoning: %w", err)
+		}
+		text := strings.Join(item.Summary, "\n")
 		return []agent.Message{&agent.TextMessage{Text: text}}, nil
 
 	case ItemTypePlan:
-		return []agent.Message{&agent.TextMessage{Text: p.Item.Text}}, nil
+		var item PlanItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed plan: %w", err)
+		}
+		return []agent.Message{&agent.TextMessage{Text: item.Text}}, nil
 
 	case ItemTypeCommandExecution:
-		return []agent.Message{&agent.ToolResultMessage{ToolUseID: p.Item.ID}}, nil
+		return []agent.Message{&agent.ToolResultMessage{ToolUseID: h.ID}}, nil
 
 	case ItemTypeFileChange:
+		var item FileChangeItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed fileChange: %w", err)
+		}
 		toolName := "Edit"
-		for _, c := range p.Item.Changes {
+		for _, c := range item.Changes {
 			if c.Kind.Type == "add" {
 				toolName = "Write"
 				break
 			}
 		}
-		input, _ := json.Marshal(p.Item.Changes)
+		input, _ := json.Marshal(item.Changes)
 		return []agent.Message{&agent.ToolUseMessage{
-			ToolUseID: p.Item.ID,
+			ToolUseID: item.ID,
 			Name:      toolName,
 			Input:     input,
 		}}, nil
 
 	case ItemTypeMCPToolCall:
-		m := &agent.ToolResultMessage{ToolUseID: p.Item.ID}
-		if p.Item.Error != nil {
-			m.Error = p.Item.Error.Message
+		var item McpToolCallItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed mcpToolCall: %w", err)
+		}
+		m := &agent.ToolResultMessage{ToolUseID: item.ID}
+		if item.Error != nil {
+			m.Error = item.Error.Message
 		}
 		return []agent.Message{m}, nil
 
 	case ItemTypeWebSearch:
-		input, _ := json.Marshal(map[string]string{"query": p.Item.Query})
+		var item WebSearchItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed webSearch: %w", err)
+		}
+		input, _ := json.Marshal(map[string]string{"query": item.Query})
 		return []agent.Message{&agent.ToolUseMessage{
-			ToolUseID: p.Item.ID,
+			ToolUseID: item.ID,
 			Name:      "WebSearch",
 			Input:     input,
 		}}, nil
