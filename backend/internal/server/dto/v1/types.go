@@ -18,6 +18,7 @@ const (
 	HarnessClaude Harness = "claude"
 	HarnessCodex  Harness = "codex"
 	HarnessGemini Harness = "gemini"
+	HarnessKilo   Harness = "kilo"
 )
 
 // HarnessInfo is the JSON representation of an available harness.

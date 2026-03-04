@@ -160,9 +160,18 @@ def serve(cmd_args, work_dir, log_stdin=True):
         cwd=work_dir,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
     )
     logging.info("subprocess started pid=%d", proc.pid)
+
+    # Drain subprocess stderr to relay log so bridge diagnostics are visible.
+    def _drain_stderr():
+        for raw in proc.stderr:
+            line = raw.decode("utf-8", errors="replace").rstrip()
+            if line:
+                logging.info("bridge: %s", line)
+
+    threading.Thread(target=_drain_stderr, daemon=True).start()
 
     # Open output log (append-only).
     output_file = open(OUTPUT_PATH, "ab", buffering=0)

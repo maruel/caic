@@ -26,6 +26,7 @@ import (
 
 	"github.com/caic-xyz/caic/backend/frontend"
 	"github.com/caic-xyz/caic/backend/internal/agent"
+	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
 	"github.com/caic-xyz/caic/backend/internal/container"
 	"github.com/caic-xyz/caic/backend/internal/preferences"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
@@ -318,6 +319,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 	}
 
 	s.watchContainerEvents(ctx)
+	go s.discoverKiloModels()
 	return s, nil
 }
 
@@ -1448,6 +1450,47 @@ func (s *Server) watchContainerEvents(ctx context.Context) {
 			}
 		}
 	}()
+}
+
+// discoverKiloModels fetches available models from the OpenRouter API and
+// updates all runners' Kilo backends. Falls back to defaults on any error.
+func (s *Server) discoverKiloModels() {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://openrouter.ai/api/v1/models")
+	if err != nil {
+		slog.Warn("kilo: failed to fetch OpenRouter models, keeping defaults", "err", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("kilo: OpenRouter API returned non-200, keeping defaults", "status", resp.StatusCode)
+		return
+	}
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		slog.Warn("kilo: failed to decode OpenRouter response, keeping defaults", "err", err)
+		return
+	}
+	models := make([]string, 0, len(body.Data))
+	for _, m := range body.Data {
+		if m.ID != "" {
+			models = append(models, m.ID)
+		}
+	}
+	if len(models) == 0 {
+		slog.Warn("kilo: OpenRouter returned no models, keeping defaults")
+		return
+	}
+	for _, r := range s.runners {
+		if b, ok := r.Backends[agent.Kilo].(*kilo.Backend); ok {
+			b.SetModels(kilo.SortModels(models))
+		}
+	}
+	slog.Info("kilo: discovered models from OpenRouter", "count", len(models))
 }
 
 // handleContainerDeath looks up a task by container name and triggers cleanup.

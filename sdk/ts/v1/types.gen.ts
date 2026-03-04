@@ -290,6 +290,10 @@ export const HarnessCodex: Harness = "codex";
  */
 export const HarnessGemini: Harness = "gemini";
 /**
+ * Supported agent harnesses.
+ */
+export const HarnessKilo: Harness = "kilo";
+/**
  * HarnessInfo is the JSON representation of an available harness.
  */
 export interface HarnessInfo {

@@ -15,6 +15,7 @@ const (
 	Claude Harness = "claude"
 	Codex  Harness = "codex"
 	Gemini Harness = "gemini"
+	Kilo   Harness = "kilo"
 )
 
 // DiffFileStat describes changes to a single file.

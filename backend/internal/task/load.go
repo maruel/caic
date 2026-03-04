@@ -17,6 +17,7 @@ import (
 	agentclaude "github.com/caic-xyz/caic/backend/internal/agent/claude"
 	agentcodex "github.com/caic-xyz/caic/backend/internal/agent/codex"
 	agentgemini "github.com/caic-xyz/caic/backend/internal/agent/gemini"
+	agentkilo "github.com/caic-xyz/caic/backend/internal/agent/kilo"
 )
 
 // errNotLogFile is returned when a file doesn't contain a valid caic_meta header.
@@ -316,6 +317,8 @@ func parseFnForHarness(h agent.Harness) func([]byte) ([]agent.Message, error) {
 		return agentcodex.ParseMessage
 	case agent.Gemini:
 		return agentgemini.ParseMessage
+	case agent.Kilo:
+		return agentkilo.ParseMessage
 	default:
 		return agentclaude.ParseMessage
 	}
