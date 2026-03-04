@@ -25,6 +25,22 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+private val naturalChunkRegex = Regex("(\\d+|\\D+)")
+
+private fun naturalCompare(a: String, b: String): Int {
+    val ac = naturalChunkRegex.findAll(a).map { it.value }.toList()
+    val bc = naturalChunkRegex.findAll(b).map { it.value }.toList()
+    for (i in 0 until minOf(ac.size, bc.size)) {
+        val cmp = if (ac[i][0].isDigit() && bc[i][0].isDigit()) {
+            ac[i].toLong().compareTo(bc[i].toLong())
+        } else {
+            ac[i].compareTo(bc[i], ignoreCase = true)
+        }
+        if (cmp != 0) return cmp
+    }
+    return ac.size.compareTo(bc.size)
+}
+
 data class TaskListState(
     val tasks: List<Task> = emptyList(),
     val connected: Boolean = false,
@@ -62,7 +78,10 @@ class TaskListViewModel @Inject constructor(
         _formState,
     ) { tasks, connected, usage, settings, form ->
         val active = tasks.filter { it.state in activeStates }
-            .sortedWith(compareBy<Task> { it.repo }.thenBy { it.branch })
+            .sortedWith(
+                Comparator<Task> { a, b -> naturalCompare(a.repo, b.repo) }
+                    .thenComparator { a, b -> naturalCompare(a.branch, b.branch) }
+            )
         val terminal = tasks.filter { it.state !in activeStates }
             .sortedByDescending { it.id }
         val sorted = active + terminal

@@ -19,15 +19,18 @@ export interface TaskListProps {
   onDiffClick?: (id: string) => void;
 }
 
+const naturalCompare = (a: string, b: string) =>
+  a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+
 /** Sort active tasks by repo then branch; terminal tasks by ID descending. */
 export function sortTasks(tasks: Task[]): Task[] {
   const isTerminal = (s: string) => s === "failed" || s === "terminated";
   const active = tasks.filter((t) => !isTerminal(t.state));
   const terminal = tasks.filter((t) => isTerminal(t.state));
   active.sort((a, b) => {
-    const rc = a.repo.localeCompare(b.repo);
+    const rc = naturalCompare(a.repo, b.repo);
     if (rc !== 0) return rc;
-    return a.branch.localeCompare(b.branch);
+    return naturalCompare(a.branch, b.branch);
   });
   terminal.sort((a, b) => (b.id > a.id ? -1 : b.id < a.id ? 1 : 0));
   return [...active, ...terminal];
@@ -46,9 +49,9 @@ export default function TaskList(props: TaskListProps) {
     const active = all.filter((t) => !isTerminal(t.state));
     const terminal = all.filter((t) => isTerminal(t.state));
     active.sort((a, b) => {
-      const rc = a.repo.localeCompare(b.repo);
+      const rc = naturalCompare(a.repo, b.repo);
       if (rc !== 0) return rc;
-      return a.branch.localeCompare(b.branch);
+      return naturalCompare(a.branch, b.branch);
     });
     const groups: RepoGroup[] = [];
     for (const t of active) {
