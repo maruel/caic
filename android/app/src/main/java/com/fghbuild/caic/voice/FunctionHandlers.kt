@@ -62,7 +62,7 @@ class FunctionHandlers(
 
     private suspend fun handleCreateTask(args: JsonObject): JsonElement {
         val prompt = args.requireString("prompt")
-        val repo = resolveRepo(args.requireString("repo"))
+        val repo = args.requireString("repo")
             ?: return errorResult("Unknown repo: ${args.requireString("repo")}")
         val model = args.optString("model")
         val harness = args.optString("harness") ?: "claude"
@@ -96,9 +96,9 @@ class FunctionHandlers(
         val detail = buildString {
             appendLine("## Task #$num: $shortName")
             appendLine()
-            append("**State:** ${t.state}  ")
-            append("**Elapsed:** ${formatElapsed(t.duration)}  ")
-            appendLine("**Cost:** ${formatCost(t.costUSD)}")
+            append("State: ${t.state}  ")
+            append("Elapsed: ${formatElapsed(t.duration)}  ")
+            appendLine("Cost: ${formatCost(t.costUSD)}")
             when {
                 t.state == "asking" -> appendLine("Waiting for user input before it can continue.")
                 t.state == "terminated" && !t.result.isNullOrBlank() ->
@@ -198,12 +198,6 @@ class FunctionHandlers(
         val path = args.optString("path")
         val repo = apiClient.cloneRepo(CloneRepoReq(url = url, path = path))
         return textResult("Cloned **${repo.path}** (base: ${repo.baseBranch}).")
-    }
-
-    /** Resolve a repo name to its canonical path using case-insensitive matching. */
-    private suspend fun resolveRepo(name: String): String? {
-        val repos = apiClient.listRepos()
-        return repos.find { it.path.equals(name, ignoreCase = true) }?.path
     }
 
     /** Resolve task_number from args to a real task ID via the map. */
