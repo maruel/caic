@@ -517,6 +517,36 @@ func TestTask(t *testing.T) {
 				t.Errorf("ExitPlanMode.PlanContent = %q, want %q", exitMsg.PlanContent, "plan A")
 			}
 		})
+		t.Run("NewExitPlanModeClearsPreviousPlanContent", func(t *testing.T) {
+			// When a second ExitPlanMode arrives, the first one's PlanContent
+			// must be cleared so the frontend doesn't list the stale plan.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu1", Name: "Write",
+				Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"plan v1"}`),
+			})
+			exitMsg1 := &agent.ToolUseMessage{ToolUseID: "tu2", Name: "ExitPlanMode"}
+			tk.addMessage(t.Context(), exitMsg1)
+			if exitMsg1.PlanContent != "plan v1" {
+				t.Fatalf("exitMsg1.PlanContent = %q before update, want %q", exitMsg1.PlanContent, "plan v1")
+			}
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+
+			// Agent updates the plan.
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu3", Name: "Write",
+				Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"plan v2"}`),
+			})
+			exitMsg2 := &agent.ToolUseMessage{ToolUseID: "tu4", Name: "ExitPlanMode"}
+			tk.addMessage(t.Context(), exitMsg2)
+			if exitMsg1.PlanContent != "" {
+				t.Errorf("exitMsg1.PlanContent = %q, want empty (superseded by plan v2)", exitMsg1.PlanContent)
+			}
+			if exitMsg2.PlanContent != "plan v2" {
+				t.Errorf("exitMsg2.PlanContent = %q, want %q", exitMsg2.PlanContent, "plan v2")
+			}
+		})
 		t.Run("HasPlanToRunningOnText", func(t *testing.T) {
 			// TextMessage while HasPlan → Running.
 			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
@@ -817,6 +847,28 @@ func TestTask(t *testing.T) {
 				t.Errorf("PlanFile = %q, want empty", tk.GetPlanFile())
 			}
 		})
+		t.Run("ClearsExitPlanModePlanContent", func(t *testing.T) {
+			// After ClearMessages the ExitPlanMode message's PlanContent in
+			// history must be erased so new subscribers don't see stale plans.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			exitMsg := &agent.ToolUseMessage{ToolUseID: "tu2", Name: "ExitPlanMode"}
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu1", Name: "Write",
+				Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"the plan"}`),
+			})
+			tk.addMessage(t.Context(), exitMsg)
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+			if exitMsg.PlanContent != "the plan" {
+				t.Fatalf("exitMsg.PlanContent = %q before ClearMessages, want %q", exitMsg.PlanContent, "the plan")
+			}
+
+			tk.ClearMessages(t.Context())
+
+			if exitMsg.PlanContent != "" {
+				t.Errorf("exitMsg.PlanContent = %q after ClearMessages, want empty", exitMsg.PlanContent)
+			}
+		})
 		t.Run("SuppressionLiftsAfterTurn", func(t *testing.T) {
 			// After the restart turn completes, a subsequent user-initiated turn
 			// must be able to produce a plan again.
@@ -1067,6 +1119,60 @@ func TestTask(t *testing.T) {
 			}
 			if tk.GetPlanFile() != "" {
 				t.Errorf("PlanFile = %q, want empty", tk.GetPlanFile())
+			}
+		})
+		t.Run("ContextClearedClearsExitPlanModePlanContent", func(t *testing.T) {
+			// context_cleared in history must zero PlanContent on preceding
+			// ExitPlanMode events so new subscribers see no stale plan.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			exitMsg1 := &agent.ToolUseMessage{ToolUseID: "tu2", Name: "ExitPlanMode"}
+			msgs := []agent.Message{
+				&agent.ToolUseMessage{
+					ToolUseID: "tu1", Name: "Write",
+					Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"old plan"}`),
+				},
+				exitMsg1,
+				&agent.ResultMessage{MessageType: "result"},
+				&agent.SystemMessage{MessageType: "system", Subtype: "context_cleared"},
+				&agent.TextMessage{Text: "done"},
+				&agent.ResultMessage{MessageType: "result"},
+			}
+			tk.RestoreMessages(msgs)
+			if exitMsg1.PlanContent != "" {
+				t.Errorf("exitMsg1.PlanContent = %q, want empty (context_cleared should clear it)", exitMsg1.PlanContent)
+			}
+		})
+		t.Run("PlanUpdateClearsPreviousExitPlanModePlanContent", func(t *testing.T) {
+			// When a plan is updated (two ExitPlanMode without context_cleared),
+			// only the latest ExitPlanMode should retain its PlanContent.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			exitMsg1 := &agent.ToolUseMessage{ToolUseID: "tu2", Name: "ExitPlanMode"}
+			exitMsg2 := &agent.ToolUseMessage{ToolUseID: "tu5", Name: "ExitPlanMode"}
+			msgs := []agent.Message{
+				&agent.ToolUseMessage{
+					ToolUseID: "tu1", Name: "Write",
+					Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"plan v1"}`),
+				},
+				exitMsg1,
+				&agent.ResultMessage{MessageType: "result"},
+				&agent.ToolUseMessage{
+					ToolUseID: "tu3", Name: "EnterPlanMode",
+				},
+				&agent.ToolUseMessage{
+					ToolUseID: "tu4", Name: "Write",
+					Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"plan v2"}`),
+				},
+				exitMsg2,
+				&agent.ResultMessage{MessageType: "result"},
+			}
+			tk.RestoreMessages(msgs)
+			if exitMsg1.PlanContent != "" {
+				t.Errorf("exitMsg1.PlanContent = %q, want empty (superseded by plan v2)", exitMsg1.PlanContent)
+			}
+			if exitMsg2.PlanContent != "plan v2" {
+				t.Errorf("exitMsg2.PlanContent = %q, want %q", exitMsg2.PlanContent, "plan v2")
 			}
 		})
 		t.Run("Subscribe", func(t *testing.T) {

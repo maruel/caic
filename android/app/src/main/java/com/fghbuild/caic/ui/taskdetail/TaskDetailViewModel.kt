@@ -173,8 +173,36 @@ class TaskDetailViewModel @Inject constructor(
                                         flushJob = launch {
                                             delay(LIVE_BATCH_MS)
                                             if (pending.isNotEmpty()) {
-                                                _messages.value = _messages.value + pending.toList()
+                                                val batch = pending.toList()
                                                 pending.clear()
+                                                val clearsOldPlan = batch.any { msg ->
+                                                    val isExitWithPlan = msg.toolUse?.let {
+                                                        it.name == "ExitPlanMode" &&
+                                                            it.planContent != null
+                                                    } ?: false
+                                                    isExitWithPlan ||
+                                                        msg.system?.subtype == "context_cleared"
+                                                }
+                                                val base = if (clearsOldPlan) {
+                                                    _messages.value.map { m ->
+                                                        val hasStale = m.toolUse?.let {
+                                                            it.name == "ExitPlanMode" &&
+                                                                it.planContent != null
+                                                        } ?: false
+                                                        if (hasStale) {
+                                                            m.copy(
+                                                                toolUse = m.toolUse!!.copy(
+                                                                    planContent = null,
+                                                                ),
+                                                            )
+                                                        } else {
+                                                            m
+                                                        }
+                                                    }
+                                                } else {
+                                                    _messages.value
+                                                }
+                                                _messages.value = base + batch
                                             }
                                             flushJob = null
                                         }

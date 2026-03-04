@@ -319,15 +319,30 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	// resets plan state — it means ClearMessages was called (e.g. "Clear
 	// and execute plan"), so plan data before the marker is stale and plan
 	// tracking is suppressed until the next ResultMessage.
+	//
+	// lastExitPlan tracks the most recent ExitPlanMode message. When a new
+	// ExitPlanMode or a context_cleared is encountered, the previous
+	// ExitPlanMode's PlanContent is erased so only the latest plan is visible.
+	var lastExitPlan *agent.ToolUseMessage
 	for _, m := range msgs {
 		if sm, ok := m.(*agent.SystemMessage); ok && sm.Subtype == "context_cleared" {
 			t.inPlanMode = false
 			t.planFile = ""
 			t.planContent = ""
 			t.planDismissed = true
+			if lastExitPlan != nil {
+				lastExitPlan.PlanContent = ""
+				lastExitPlan = nil
+			}
 		}
 		if tu, ok := m.(*agent.ToolUseMessage); ok {
 			t.trackToolUse(tu)
+			if tu.Name == "ExitPlanMode" {
+				if lastExitPlan != nil {
+					lastExitPlan.PlanContent = ""
+				}
+				lastExitPlan = tu
+			}
 		}
 		if u, ok := m.(*agent.UsageMessage); ok {
 			t.lastAPIUsage = u.Usage
@@ -398,6 +413,15 @@ func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 	// Track plan mode and plan file from tool_use events.
 	if tu, ok := m.(*agent.ToolUseMessage); ok {
 		t.trackToolUse(tu)
+		// When a new ExitPlanMode arrives, clear PlanContent on all prior
+		// ExitPlanMode messages so the frontend only renders the latest plan.
+		if tu.Name == "ExitPlanMode" {
+			for _, prev := range t.msgs[:len(t.msgs)-1] {
+				if pu, ok := prev.(*agent.ToolUseMessage); ok && pu.Name == "ExitPlanMode" {
+					pu.PlanContent = ""
+				}
+			}
+		}
 	}
 	if u, ok := m.(*agent.UsageMessage); ok {
 		t.lastAPIUsage = u.Usage
@@ -585,6 +609,13 @@ func (t *Task) ClearMessages(ctx context.Context) {
 	t.planFile = ""
 	t.planContent = ""
 	t.planDismissed = true
+	// Clear PlanContent on all ExitPlanMode messages so new subscribers
+	// do not see stale plan content after context is cleared.
+	for _, m := range t.msgs {
+		if tu, ok := m.(*agent.ToolUseMessage); ok && tu.Name == "ExitPlanMode" {
+			tu.PlanContent = ""
+		}
+	}
 }
 
 // syntheticUserInput creates a UserInputMessage representing user-provided

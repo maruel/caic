@@ -102,12 +102,30 @@ export default function TaskView(props: Props) {
     let buf: EventMessage[] = [];
     let live = false;
 
+    // Returns a copy of msgs with planContent cleared on all ExitPlanMode
+    // events. Called when a new ExitPlanMode or context_cleared arrives so
+    // the frontend doesn't list superseded plan proposals.
+    function clearExitPlanContent(msgs: EventMessage[]): EventMessage[] {
+      return msgs.map((m) =>
+        m.toolUse?.name === "ExitPlanMode" && m.toolUse.planContent
+          ? { ...m, toolUse: { ...m.toolUse, planContent: "" } }
+          : m
+      );
+    }
+
     function connect() {
       buf = [];
       live = false;
       es = taskEvents(id, (ev) => {
         if (live) {
-          setMessages((prev) => [...prev, ev]);
+          const clearsOldPlan =
+            (ev.toolUse?.name === "ExitPlanMode" && !!ev.toolUse.planContent) ||
+            ev.system?.subtype === "context_cleared";
+          if (clearsOldPlan) {
+            setMessages((prev) => [...clearExitPlanContent(prev), ev]);
+          } else {
+            setMessages((prev) => [...prev, ev]);
+          }
         } else {
           buf.push(ev);
         }
