@@ -626,57 +626,61 @@ func TestRunner(t *testing.T) {
 	})
 
 	t.Run("RestartSession", func(t *testing.T) {
-		logDir := t.TempDir()
-		backend := &testBackend{}
+		for _, startState := range []State{StateWaiting, StateAsking, StateHasPlan} {
+			t.Run(startState.String(), func(t *testing.T) {
+				logDir := t.TempDir()
+				backend := &testBackend{}
 
-		r := &Runner{
-			LogDir:   logDir,
-			Backends: map[agent.Harness]agent.Backend{"test": backend},
-		}
+				r := &Runner{
+					LogDir:   logDir,
+					Backends: map[agent.Harness]agent.Backend{"test": backend},
+				}
 
-		tk := &Task{
-			ID:            ksid.NewID(),
-			InitialPrompt: agent.Prompt{Text: "old prompt"},
-			Repo:          "org/repo",
-			Harness:       "test",
-			Branch:        "caic-0",
-			Container:     "fake-container",
-		}
-		tk.SetState(StateWaiting)
+				tk := &Task{
+					ID:            ksid.NewID(),
+					InitialPrompt: agent.Prompt{Text: "old prompt"},
+					Repo:          "org/repo",
+					Harness:       "test",
+					Branch:        "caic-0",
+					Container:     "fake-container",
+				}
+				tk.SetState(startState)
 
-		h, err := r.RestartSession(t.Context(), tk, agent.Prompt{Text: "new plan"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if h == nil {
-			t.Fatal("RestartSession returned nil handle")
-		}
-		if tk.GetState() != StateRunning {
-			t.Errorf("state = %v, want %v", tk.GetState(), StateRunning)
-		}
-		if tk.InitialPrompt.Text != "old prompt" {
-			t.Errorf("Prompt.Text = %q, want %q (must not be mutated by RestartSession)", tk.InitialPrompt.Text, "old prompt")
-		}
+				h, err := r.RestartSession(t.Context(), tk, agent.Prompt{Text: "new plan"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if h == nil {
+					t.Fatal("RestartSession returned nil handle")
+				}
+				if tk.GetState() != StateRunning {
+					t.Errorf("state = %v, want %v", tk.GetState(), StateRunning)
+				}
+				if tk.InitialPrompt.Text != "old prompt" {
+					t.Errorf("Prompt.Text = %q, want %q (must not be mutated by RestartSession)", tk.InitialPrompt.Text, "old prompt")
+				}
 
-		// The context passed to AgentBackend.Start must still be valid after
-		// RestartSession returns (it must not be a request-scoped context).
-		select {
-		case <-backend.capturedCtx.Done():
-			t.Error("context passed to AgentBackend was canceled; must use a long-lived context")
-		default:
-		}
+				// The context passed to AgentBackend.Start must still be valid after
+				// RestartSession returns (it must not be a request-scoped context).
+				select {
+				case <-backend.capturedCtx.Done():
+					t.Error("context passed to AgentBackend was canceled; must use a long-lived context")
+				default:
+				}
 
-		// Verify the session is functional: wait briefly and check the context
-		// is still alive (not canceled by a short-lived HTTP request context).
-		time.Sleep(50 * time.Millisecond)
-		select {
-		case <-backend.capturedCtx.Done():
-			t.Error("context was canceled shortly after RestartSession returned")
-		default:
-		}
+				// Verify the session is functional: wait briefly and check the context
+				// is still alive (not canceled by a short-lived HTTP request context).
+				time.Sleep(50 * time.Millisecond)
+				select {
+				case <-backend.capturedCtx.Done():
+					t.Error("context was canceled shortly after RestartSession returned")
+				default:
+				}
 
-		// Clean up: close the session.
-		tk.CloseAndDetachSession()
+				// Clean up: close the session.
+				tk.CloseAndDetachSession()
+			})
+		}
 	})
 
 	t.Run("RestartSession/LogContainsContextCleared", func(t *testing.T) {

@@ -520,7 +520,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 	r.initDefaults()
 
 	state := t.GetState()
-	if state != StateWaiting && state != StateAsking {
+	if state != StateWaiting && state != StateAsking && state != StateHasPlan {
 		return nil, fmt.Errorf("cannot restart in state %s", state)
 	}
 
