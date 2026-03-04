@@ -824,7 +824,7 @@ func (s *Server) sendInput(ctx context.Context, entry *taskEntry, req *v1.InputR
 
 func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *v1.RestartReq) (*v1.StatusResp, error) {
 	t := entry.task
-	if state := t.GetState(); state != task.StateWaiting && state != task.StateAsking {
+	if state := t.GetState(); state != task.StateWaiting && state != task.StateAsking && state != task.StateHasPlan {
 		return nil, dto.Conflict("task is not waiting or asking")
 	}
 	prompt := v1PromptToAgent(req.Prompt)
@@ -852,7 +852,7 @@ func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *v1.Restar
 
 func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq) (*v1.StatusResp, error) {
 	state := entry.task.GetState()
-	if state != task.StateWaiting && state != task.StateAsking && state != task.StateRunning {
+	if state != task.StateWaiting && state != task.StateAsking && state != task.StateHasPlan && state != task.StateRunning {
 		return nil, dto.Conflict("task is not running or waiting")
 	}
 	entry.task.SetState(task.StateTerminating)
@@ -871,7 +871,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 		return nil, dto.Conflict("task has no container yet")
 	case task.StateTerminating, task.StateFailed, task.StateTerminated:
 		return nil, dto.Conflict("task is in a terminal state")
-	case task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StatePulling, task.StatePushing:
+	case task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StateHasPlan, task.StatePulling, task.StatePushing:
 	}
 	runner := s.runners[t.Repo]
 

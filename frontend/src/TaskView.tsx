@@ -163,10 +163,10 @@ export default function TaskView(props: Props) {
 
   const isActive = () => {
     const s = props.taskState;
-    return s === "running" || s === "branching" || s === "provisioning" || s === "starting" || s === "waiting" || s === "asking" || s === "terminating";
+    return s === "running" || s === "branching" || s === "provisioning" || s === "starting" || s === "waiting" || s === "asking" || s === "has_plan" || s === "terminating";
   };
 
-  const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking";
+  const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking" || props.taskState === "has_plan";
   const isGitHub = () => !!props.repoURL?.includes("github.com");
 
   function clearAndExecutePlan() {

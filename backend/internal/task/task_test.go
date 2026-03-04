@@ -454,6 +454,63 @@ func TestTask(t *testing.T) {
 				t.Errorf("state = %v, want %v", tk.GetState(), StateAsking)
 			}
 		})
+		t.Run("TransitionsToHasPlan", func(t *testing.T) {
+			// ExitPlanMode + plan content + ResultMessage → StateHasPlan.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu1", Name: "Write",
+				Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"the plan"}`),
+			})
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu2", Name: "ExitPlanMode",
+			})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+			if tk.GetState() != StateHasPlan {
+				t.Errorf("state = %v, want %v", tk.GetState(), StateHasPlan)
+			}
+		})
+		t.Run("AskingTakesPriorityOverHasPlan", func(t *testing.T) {
+			// Both AskMessage and ExitPlanMode in same turn → StateAsking.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu1", Name: "Write",
+				Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"the plan"}`),
+			})
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu2", Name: "ExitPlanMode",
+			})
+			tk.addMessage(t.Context(), &agent.AskMessage{
+				ToolUseID: "ask1",
+				Questions: []agent.AskQuestion{{Question: "which?"}},
+			})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+			if tk.GetState() != StateAsking {
+				t.Errorf("state = %v, want %v", tk.GetState(), StateAsking)
+			}
+		})
+		t.Run("NoHasPlanWithoutPlanContent", func(t *testing.T) {
+			// ExitPlanMode without plan content → StateWaiting.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			tk.addMessage(t.Context(), &agent.ToolUseMessage{
+				ToolUseID: "tu1", Name: "ExitPlanMode",
+			})
+			tk.addMessage(t.Context(), &agent.ResultMessage{MessageType: "result"})
+			if tk.GetState() != StateWaiting {
+				t.Errorf("state = %v, want %v", tk.GetState(), StateWaiting)
+			}
+		})
+		t.Run("HasPlanToRunningOnText", func(t *testing.T) {
+			// TextMessage while HasPlan → Running.
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateHasPlan)
+			tk.addMessage(t.Context(), &agent.TextMessage{Text: "output"})
+			if tk.GetState() != StateRunning {
+				t.Errorf("state = %v, want %v", tk.GetState(), StateRunning)
+			}
+		})
 		t.Run("NoTransitionForNonActiveStates", func(t *testing.T) {
 			// TextMessages should NOT transition terminal or
 			// setup states.
@@ -815,6 +872,22 @@ func TestTask(t *testing.T) {
 				t.Errorf("state = %v, want %v (should infer asking from AskMessage + ResultMessage)", tk.GetState(), StateAsking)
 			}
 		})
+		t.Run("InfersHasPlan", func(t *testing.T) {
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			msgs := []agent.Message{
+				&agent.ToolUseMessage{
+					ToolUseID: "tu1", Name: "Write",
+					Input: json.RawMessage(`{"file_path":"/home/user/.claude/plans/p.md","content":"the plan"}`),
+				},
+				&agent.ToolUseMessage{ToolUseID: "tu2", Name: "ExitPlanMode"},
+				&agent.ResultMessage{MessageType: "result"},
+			}
+			tk.RestoreMessages(msgs)
+			if tk.GetState() != StateHasPlan {
+				t.Errorf("state = %v, want %v", tk.GetState(), StateHasPlan)
+			}
+		})
 		t.Run("SkipsTrailingDiffStat", func(t *testing.T) {
 			// The relay emits DiffStatMessage after the ResultMessage.
 			// RestoreMessages should skip it and still infer Waiting.
@@ -1013,6 +1086,7 @@ func TestState(t *testing.T) {
 			{StateRunning, "running"},
 			{StateWaiting, "waiting"},
 			{StateAsking, "asking"},
+			{StateHasPlan, "has_plan"},
 			{StatePulling, "pulling"},
 			{StatePushing, "pushing"},
 			{StateTerminating, "terminating"},

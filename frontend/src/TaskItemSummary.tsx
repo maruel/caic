@@ -212,6 +212,8 @@ function stateColor(state: string): string {
       return "#d4edda";
     case "asking":
       return "#cce5ff";
+    case "has_plan":
+      return "#ede9fe";
     case "failed":
       return "#f8d7da";
     case "terminating":

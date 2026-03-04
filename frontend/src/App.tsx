@@ -251,8 +251,8 @@ export default function App() {
         try {
           const updated = JSON.parse(e.data) as Task[];
           for (const t of updated) {
-            const needsInput = t.state === "waiting" || t.state === "asking";
-            const prevNeedsInput = prevStates.get(t.id) === "waiting" || prevStates.get(t.id) === "asking";
+            const needsInput = t.state === "waiting" || t.state === "asking" || t.state === "has_plan";
+            const prevNeedsInput = prevStates.get(t.id) === "waiting" || prevStates.get(t.id) === "asking" || prevStates.get(t.id) === "has_plan";
             if (needsInput && !prevNeedsInput) {
               notifyWaiting(t.id, t.title);
             }

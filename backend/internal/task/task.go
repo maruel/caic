@@ -29,6 +29,7 @@ const (
 	StateRunning            // Agent is executing.
 	StateWaiting            // Agent completed a turn, awaiting user input or terminate.
 	StateAsking             // Agent asked a question (AskUserQuestion), needs answer.
+	StateHasPlan            // Agent finished planning (ExitPlanMode with plan content), awaiting approval.
 	StatePulling            // Pulling changes from container.
 	StatePushing            // Pushing to origin.
 	StateTerminating        // User requested termination; cleanup in progress.
@@ -52,6 +53,8 @@ func (s State) String() string {
 		return "waiting"
 	case StateAsking:
 		return "asking"
+	case StateHasPlan:
+		return "has_plan"
 	case StatePulling:
 		return "pulling"
 	case StatePushing:
@@ -370,9 +373,12 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	// logs must keep their recorded state.
 	if len(msgs) > 0 && t.state != StateTerminated && t.state != StateFailed && t.state != StateTerminating {
 		if lastAgentMessage(msgs) != nil {
-			if lastTurnHasAsk(msgs) {
+			switch {
+			case lastTurnHasAsk(msgs):
 				t.setState(StateAsking)
-			} else {
+			case lastTurnHasExitPlan(msgs) && t.planContent != "":
+				t.setState(StateHasPlan)
+			default:
 				t.setState(StateWaiting)
 			}
 		}
@@ -403,7 +409,7 @@ func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 	// new turn on the relay before we reattached.
 	switch m.(type) {
 	case *agent.TextMessage, *agent.ToolUseMessage, *agent.AskMessage, *agent.TodoMessage:
-		if t.state == StateWaiting || t.state == StateAsking {
+		if t.state == StateWaiting || t.state == StateAsking || t.state == StateHasPlan {
 			t.setState(StateRunning)
 		}
 	}
@@ -425,15 +431,18 @@ func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
 		t.lastUsage = rm.Usage
 		t.planDismissed = false
-		// Transition Running→Waiting/Asking. Also handle Running/Waiting
-		// because watchSession may have already set Waiting before the
-		// dispatch goroutine processed this ResultMessage (it does a
-		// blocking Fetch first). In that case we still need to
-		// distinguish Waiting from Asking.
+		// Transition Running→Waiting/Asking/HasPlan. Also handle
+		// Running/Waiting because watchSession may have already set
+		// Waiting before the dispatch goroutine processed this
+		// ResultMessage (it does a blocking Fetch first). In that case
+		// we still need to distinguish Waiting from Asking/HasPlan.
 		if t.state == StateRunning || t.state == StateWaiting {
-			if lastTurnHasAsk(t.msgs) {
+			switch {
+			case lastTurnHasAsk(t.msgs):
 				t.setState(StateAsking)
-			} else {
+			case lastTurnHasExitPlan(t.msgs) && t.planContent != "":
+				t.setState(StateHasPlan)
+			default:
 				t.setState(StateWaiting)
 			}
 		}
@@ -638,6 +647,27 @@ func lastTurnHasAsk(msgs []agent.Message) bool {
 	return false
 }
 
+// lastTurnHasExitPlan reports whether the current turn contains an ExitPlanMode
+// tool call. It scans backwards from the end until it hits a previous turn's
+// ResultMessage boundary, mirroring lastTurnHasAsk.
+func lastTurnHasExitPlan(msgs []agent.Message) bool {
+	skippedResult := false
+	for i := len(msgs) - 1; i >= 0; i-- {
+		switch m := msgs[i].(type) {
+		case *agent.ToolUseMessage:
+			if m.Name == "ExitPlanMode" {
+				return true
+			}
+		case *agent.ResultMessage:
+			if skippedResult {
+				return false
+			}
+			skippedResult = true
+		}
+	}
+	return false
+}
+
 // sub is an SSE subscriber with a once-guarded close to prevent double-close
 // panics when both the fan-out (slow subscriber drop) and context cancellation
 // race to close the channel.
@@ -727,7 +757,7 @@ func (t *Task) SendInput(ctx context.Context, p agent.Prompt) error {
 		}
 	}
 	state := t.state
-	if h != nil && (state == StateWaiting || state == StateAsking) {
+	if h != nil && (state == StateWaiting || state == StateAsking || state == StateHasPlan) {
 		t.setState(StateRunning)
 		// Plan content is preserved — the UI hides naturally while the
 		// task is Running (isWaiting is false). When the agent finishes,
