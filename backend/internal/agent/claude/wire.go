@@ -60,14 +60,15 @@ type systemWire struct {
 	SessionID string `json:"session_id"`
 	UUID      string `json:"uuid"`
 
-	Description    json.RawMessage `json:"description,omitempty"`
-	TaskID         json.RawMessage `json:"task_id,omitempty"`
-	TaskType       json.RawMessage `json:"task_type,omitempty"`
-	ToolUseID      json.RawMessage `json:"tool_use_id,omitempty"`
-	LastToolName   json.RawMessage `json:"last_tool_name,omitempty"`
-	PermissionMode json.RawMessage `json:"permissionMode,omitempty"`
-	Status         json.RawMessage `json:"status,omitempty"`
-	UsageExtra     json.RawMessage `json:"usage,omitempty"`
+	Description     json.RawMessage `json:"description,omitempty"`
+	TaskID          json.RawMessage `json:"task_id,omitempty"`
+	TaskType        json.RawMessage `json:"task_type,omitempty"`
+	ToolUseID       json.RawMessage `json:"tool_use_id,omitempty"`
+	LastToolName    json.RawMessage `json:"last_tool_name,omitempty"`
+	PermissionMode  json.RawMessage `json:"permissionMode,omitempty"`
+	Status          json.RawMessage `json:"status,omitempty"`
+	UsageExtra      json.RawMessage `json:"usage,omitempty"`
+	CompactMetadata json.RawMessage `json:"compact_metadata,omitempty"`
 
 	jsonutil.Overflow
 }
@@ -147,6 +148,7 @@ type userWire struct {
 	Message         json.RawMessage `json:"message"`
 	ParentToolUseID *string         `json:"parent_tool_use_id"`
 	ToolUseResult   json.RawMessage `json:"tool_use_result,omitempty"`
+	IsSynthetic     json.RawMessage `json:"isSynthetic,omitempty"`
 	jsonutil.Overflow
 }
 
