@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -150,6 +151,7 @@ fun TaskDetailScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val task = state.task
+    val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     val photoPicker = rememberLauncherForActivityResult(
@@ -191,11 +193,18 @@ fun TaskDetailScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            val repoURL = task?.repoURL
                             Text(
                                 text = task?.repo ?: taskId,
                                 style = MaterialTheme.typography.titleMedium,
+                                color = if (repoURL != null) MaterialTheme.colorScheme.primary else Color.Unspecified,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = if (repoURL != null) {
+                                    Modifier.clickable { uriHandler.openUri(repoURL) }
+                                } else {
+                                    Modifier
+                                },
                             )
                             if (task?.inPlanMode == true) {
                                 Surface(shape = RoundedCornerShape(4.dp), color = PlanBadgeBg) {
@@ -214,10 +223,21 @@ fun TaskDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                val branchURL = it.repoURL?.takeIf { url -> "github.com" in url }
+                                    ?.let { url -> "$url/compare/${it.branch}?expand=1" }
                                 Text(
                                     text = it.branch,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = if (branchURL != null) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
+                                    modifier = if (branchURL != null) {
+                                        Modifier.clickable { uriHandler.openUri(branchURL) }
+                                    } else {
+                                        Modifier
+                                    },
                                 )
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),

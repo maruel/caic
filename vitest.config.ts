@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [solidPlugin(), solidSVG()],
   resolve: {
     alias: {
-      "@sdk": resolve(__dirname, "sdk/ts"),
+      "@sdk": resolve(__dirname, "sdk/ts/v1"),
     },
   },
   test: {
