@@ -35,15 +35,8 @@ func TestParseMessage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(msgs) != 1 {
-			t.Fatalf("msgs = %d, want 1", len(msgs))
-		}
-		sm, ok := msgs[0].(*agent.SystemMessage)
-		if !ok {
-			t.Fatalf("type = %T, want *agent.SystemMessage", msgs[0])
-		}
-		if sm.Subtype != "turn_started" {
-			t.Errorf("Subtype = %q", sm.Subtype)
+		if len(msgs) != 0 {
+			t.Fatalf("msgs = %d, want 0 (turn/started is suppressed)", len(msgs))
 		}
 	})
 	t.Run("TurnCompleted", func(t *testing.T) {
@@ -146,9 +139,9 @@ func TestParseMessage(t *testing.T) {
 		if len(msgs) != 1 {
 			t.Fatalf("msgs = %d, want 1", len(msgs))
 		}
-		tm, ok := msgs[0].(*agent.TextMessage)
+		tm, ok := msgs[0].(*agent.ThinkingMessage)
 		if !ok {
-			t.Fatalf("type = %T, want *agent.TextMessage", msgs[0])
+			t.Fatalf("type = %T, want *agent.ThinkingMessage", msgs[0])
 		}
 		if tm.Text != "**Scanning...**" {
 			t.Errorf("Text = %q", tm.Text)
@@ -297,7 +290,6 @@ func TestParseMessage(t *testing.T) {
 		// Parse a full example stream of JSON-RPC notifications in v2 format.
 		lines := []string{
 			`{"jsonrpc":"2.0","method":"thread/started","params":{"thread":{"id":"0199a213-81c0-7800-8aa1-bbab2a035a53","cliVersion":"1.0","createdAt":1771690198,"cwd":"/repo","modelProvider":"openai","path":"/repo","preview":"fix","source":"user","status":{"type":"idle"},"updatedAt":1771690200}}}`,
-			`{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn_1","status":"inProgress"}}}`,
 			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_0","type":"reasoning","summary":["**Scanning...**"],"content":[]},"threadId":"t1","turnId":"turn_1"}}`,
 			`{"jsonrpc":"2.0","method":"item/started","params":{"item":{"id":"item_1","type":"commandExecution","command":"bash -lc ls","status":"inProgress"},"threadId":"t1","turnId":"turn_1"}}`,
 			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_1","type":"commandExecution","command":"bash -lc ls","aggregatedOutput":"docs\nsrc\n","exitCode":0,"status":"completed"},"threadId":"t1","turnId":"turn_1"}}`,
@@ -308,8 +300,7 @@ func TestParseMessage(t *testing.T) {
 		}
 		wantTypes := []string{
 			"init",        // thread/started → InitMessage
-			"system",      // turn/started → SystemMessage
-			"text",        // reasoning → TextMessage
+			"thinking",    // reasoning → ThinkingMessage
 			"tool_use",    // item/started commandExecution → ToolUseMessage
 			"tool_result", // item/completed commandExecution → ToolResultMessage
 			"text_delta",  // item/agentMessage/delta → TextDeltaMessage

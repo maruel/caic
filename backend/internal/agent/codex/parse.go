@@ -59,10 +59,7 @@ func ParseMessage(line []byte) ([]agent.Message, error) {
 		}}, nil
 
 	case MethodTurnStarted:
-		return []agent.Message{&agent.SystemMessage{
-			MessageType: "system",
-			Subtype:     "turn_started",
-		}}, nil
+		return nil, nil
 
 	case MethodTurnCompleted:
 		var p TurnCompletedParams
@@ -172,7 +169,7 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 			return nil, fmt.Errorf("item/completed reasoning: %w", err)
 		}
 		text := strings.Join(item.Summary, "\n")
-		return []agent.Message{&agent.TextMessage{Text: text}}, nil
+		return []agent.Message{&agent.ThinkingMessage{Text: text}}, nil
 
 	case ItemTypePlan:
 		var item PlanItem
