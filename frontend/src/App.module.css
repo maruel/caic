@@ -34,13 +34,22 @@
   color: var(--color-text-muted);
 }
 
-.reconnecting {
-  background: var(--color-warning-bg);
-  color: var(--color-warning-text);
-  padding: 0.4rem 0.75rem;
-  border-radius: var(--radius-md);
-  font-size: 0.85rem;
-  margin-bottom: 0.75rem;
+.dotConnected,
+.dotDisconnected {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+
+.dotConnected {
+  background: #4caf50;
+}
+
+.dotDisconnected {
+  background: #f44336;
 }
 
 .submitForm {

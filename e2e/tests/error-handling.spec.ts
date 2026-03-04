@@ -49,17 +49,14 @@ test("network failure shows reconnect banner", async ({ page }) => {
   // then reload the page so it tries to reconnect through the blocked route.
   await page.reload();
 
-  // The reconnecting banner has a 2s delay before appearing.
-  await expect(page.getByTestId("reconnect-banner")).toBeVisible({
-    timeout: 15_000,
-  });
+  // The connection dot should turn red (dotDisconnected class).
+  const dot = page.getByTestId("connection-dot");
+  await expect(dot).toHaveClass(/dotDisconnected/, { timeout: 15_000 });
 
   // Restore network and reload to verify recovery.
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.reload();
-  await expect(page.getByTestId("reconnect-banner")).not.toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(dot).toHaveClass(/dotConnected/, { timeout: 15_000 });
 });
 
 test("creating a task with special characters in prompt", async ({ api }) => {

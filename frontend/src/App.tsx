@@ -50,6 +50,16 @@ function isDiffPath(pathname: string): boolean {
   return pathname.startsWith("/task/@") && pathname.endsWith("/diff");
 }
 
+function ConnectionDot(props: { connected: boolean }) {
+  return (
+    <span
+      class={props.connected ? styles.dotConnected : styles.dotDisconnected}
+      title={props.connected ? "Connected" : "Disconnected"}
+      data-testid="connection-dot"
+    />
+  );
+}
+
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -220,13 +230,11 @@ export default function App() {
     let usageES: EventSource | null = null;
     let taskTimer: ReturnType<typeof setTimeout> | null = null;
     let usageTimer: ReturnType<typeof setTimeout> | null = null;
-    let bannerTimer: ReturnType<typeof setTimeout> | null = null;
     let taskDelay = 500;
     let usageDelay = 500;
     const initialScriptSrc = document.querySelector<HTMLScriptElement>("script[src^='/assets/']")?.src ?? "";
 
     function onOpen() {
-      if (bannerTimer !== null) { clearTimeout(bannerTimer); bannerTimer = null; }
       setConnected(true);
     }
 
@@ -266,9 +274,7 @@ export default function App() {
       taskES.onerror = () => {
         taskES?.close();
         taskES = null;
-        if (bannerTimer === null) {
-          bannerTimer = setTimeout(() => { bannerTimer = null; setConnected(false); }, 2000);
-        }
+        setConnected(false);
         taskTimer = setTimeout(connectTasks, taskDelay);
         taskDelay = Math.min(taskDelay * 1.5, 4000);
       };
@@ -303,7 +309,6 @@ export default function App() {
       usageES?.close();
       if (taskTimer !== null) clearTimeout(taskTimer);
       if (usageTimer !== null) clearTimeout(usageTimer);
-      if (bannerTimer !== null) clearTimeout(bannerTimer);
     });
   }
 
@@ -384,11 +389,8 @@ export default function App() {
         <h1 class={styles.title}>caic</h1>
         <span class={styles.subtitle}>Coding Agents in Containers</span>
         <UsageBadges usage={usage} now={now} />
+        <ConnectionDot connected={connected()} />
       </div>
-
-      <Show when={!connected()}>
-        <div class={styles.reconnecting} data-testid="reconnect-banner">Reconnecting to server...</div>
-      </Show>
 
       <form onSubmit={(e) => { e.preventDefault(); submitTask(); }} class={`${styles.submitForm} ${selectedId() ? styles.hidden : ""}`}>
         <select
@@ -596,6 +598,7 @@ export default function App() {
                   onInputDraft={(v) => setInputDrafts((prev) => { const next = new Map(prev); next.set(id, v); return next; })}
                 >
                   <UsageBadges usage={usage} now={now} />
+                  <ConnectionDot connected={connected()} />
                 </TaskView>
               </div>
             )}
