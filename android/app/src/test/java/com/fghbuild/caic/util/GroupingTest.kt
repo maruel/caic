@@ -278,11 +278,11 @@ class GroupingTest {
         t.run("thinking and subagent events are skipped and don't split tool groups") {
             val groups = groupMessages(listOf(
                 toolUseEvent("t1", "Read"),
-                ClaudeEventMessage(kind = EventKinds.Thinking, ts = 0),
-                ClaudeEventMessage(kind = EventKinds.ThinkingDelta, ts = 0),
-                ClaudeEventMessage(kind = EventKinds.SubagentStart, ts = 0),
+                EventMessage(kind = EventKinds.Thinking, ts = 0),
+                EventMessage(kind = EventKinds.ThinkingDelta, ts = 0),
+                EventMessage(kind = EventKinds.SubagentStart, ts = 0),
                 toolUseEvent("t2", "Bash"),
-                ClaudeEventMessage(kind = EventKinds.SubagentEnd, ts = 0),
+                EventMessage(kind = EventKinds.SubagentEnd, ts = 0),
             ))
             assertEquals(1, groups.size)
             assertEquals(2, groups[0].toolCalls.size)
