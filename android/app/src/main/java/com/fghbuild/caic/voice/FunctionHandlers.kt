@@ -40,7 +40,6 @@ class FunctionHandlers(
                 "task_push_branch_to_remote" -> handleSyncTask(args)
                 "task_terminate" -> handleTerminateTask(args)
                 "get_usage" -> handleGetUsage()
-                "list_repos" -> handleListRepos()
                 "clone_repo" -> handleCloneRepo(args)
                 "task_get_last_message_from_assistant" -> handleGetLastMessage(args)
                 else -> errorResult("Unknown function: $name")
@@ -192,15 +191,6 @@ class FunctionHandlers(
             "Last message from task #$num: $t"
         } ?: "No messages from task #$num yet."
         return textResult(message)
-    }
-
-    private suspend fun handleListRepos(): JsonElement {
-        val repos = apiClient.listRepos()
-        if (repos.isEmpty()) return textResult("No repositories available.")
-        val lines = repos.joinToString("\n") { r ->
-            "- **${r.path}** (base: ${r.baseBranch})"
-        }
-        return textResult("## Repositories\n\n$lines")
     }
 
     private suspend fun handleCloneRepo(args: JsonObject): JsonElement {

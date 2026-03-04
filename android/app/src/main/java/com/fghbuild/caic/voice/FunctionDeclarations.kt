@@ -182,13 +182,6 @@ fun buildFunctionDeclarations(harnesses: List<String>, repos: List<String> = emp
         scheduling = "INTERRUPT",
     ),
     FunctionDeclaration(
-        name = "list_repos",
-        description = "List available git repositories.",
-        parameters = emptyObjectSchema,
-        behavior = "NON_BLOCKING",
-        scheduling = "WHEN_IDLE",
-    ),
-    FunctionDeclaration(
         name = "clone_repo",
         description = "Clone a git repository by URL. Optionally specify a local path.",
         parameters = objectSchema(
