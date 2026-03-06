@@ -1,5 +1,5 @@
 // TaskView renders the real-time agent output stream for a single task.
-import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor, type JSX } from "solid-js";
+import { createSignal, createMemo, For, Index, Show, onCleanup, createEffect, Switch, Match, type Accessor } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import { sendInput as apiSendInput, restartTask as apiRestartTask, syncTask as apiSyncTask, taskEvents, getTaskToolInput } from "@sdk/api.gen";
 import type { EventMessage, AskQuestion, EventTextDelta, SafetyIssue, ImageData as APIImageData, SyncTarget, DiffFileStat } from "@sdk/types.gen";
@@ -39,7 +39,6 @@ interface Props {
   onClose: () => void;
   inputDraft: string;
   onInputDraft: (value: string) => void;
-  children?: JSX.Element;
 }
 
 export default function TaskView(props: Props) {
@@ -249,7 +248,6 @@ export default function TaskView(props: Props) {
         <Show when={props.inPlanMode}>
           <span class={styles.planIndicator} title="Agent is in plan mode">Plan Mode</span>
         </Show>
-        {props.children}
       </div>
       <div class={styles.messageArea} ref={messageAreaRef} onScroll={handleScroll}>
         {(() => {

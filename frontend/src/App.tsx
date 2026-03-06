@@ -422,7 +422,7 @@ export default function App() {
 
   return (
     <div class={styles.app}>
-      <div class={`${styles.titleRow} ${selectedId() ? styles.hidden : ""}`}>
+      <div class={styles.navbar}>
         <h1 class={styles.title}>caic</h1>
         <span class={styles.subtitle}>Coding Agents in Containers</span>
         <UsageBadges usage={usage} now={now} />
@@ -623,10 +623,7 @@ export default function App() {
                   onClose={() => navigate("/")}
                   inputDraft={inputDrafts().get(id) ?? ""}
                   onInputDraft={(v) => setInputDrafts((prev) => { const next = new Map(prev); next.set(id, v); return next; })}
-                >
-                  <UsageBadges usage={usage} now={now} />
-                  <ConnectionDot connected={connected()} />
-                </TaskView>
+                />
               </div>
             )}
           </Match>
