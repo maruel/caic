@@ -23,11 +23,13 @@
   margin: 0;
   font-size: 1.5rem;
   line-height: 1;
+  align-self: baseline;
 }
 
 .subtitle {
   font-size: 0.85rem;
   color: var(--color-text-muted);
+  align-self: baseline;
 }
 
 .dotConnected,
