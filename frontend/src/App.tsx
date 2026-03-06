@@ -409,8 +409,11 @@ export default function App() {
     setCloneError("");
     try {
       const repo = await cloneRepo({ url, ...(path ? { path } : {}) });
-      setRepos((prev) => [repo, ...prev]);
-      setRecentCount((c) => c + 1);
+      // Insert at the start of "All repositories" (after recent repos) without
+      // incrementing recentCount. The repo becomes "recent" when the first task
+      // is created for it via submitTask's optimistic reorder.
+      const rc = recentCount();
+      setRepos((prev) => [...prev.slice(0, rc), repo, ...prev.slice(rc)]);
       setSelectedRepo(repo.path);
       setCloneOpen(false);
     } catch (e: unknown) {
