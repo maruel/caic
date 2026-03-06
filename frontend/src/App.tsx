@@ -15,6 +15,7 @@ import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
 import DisplayIcon from "@material-symbols/svg-400/outlined/desktop_windows.svg?solid";
 import TailscaleIcon from "./tailscale.svg?solid";
 import CloneRepoDialog from "./CloneRepoDialog";
+import VoiceOverlay from "./VoiceOverlay";
 import styles from "./App.module.css";
 
 /** Max slug length in the URL (characters after the "+"). */
@@ -632,6 +633,7 @@ export default function App() {
           </Match>
         </Switch>
       </div>
+      <VoiceOverlay tasks={tasks} recentRepo={() => repos()[0]?.path ?? ""} />
     </div>
   );
 }

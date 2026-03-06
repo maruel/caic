@@ -1,0 +1,251 @@
+/* Styles for the VoiceOverlay component: mic button and voice panel. */
+
+/* ---- Inline mic button ---- */
+
+.idleLabel {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.micButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  vertical-align: middle;
+  transition: color 0.15s, background 0.15s;
+}
+
+.micButton:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.micButton:focus-visible {
+  outline: 2px solid var(--color-primary-ring);
+}
+
+.micButtonActive {
+  color: var(--color-primary);
+}
+
+.micButtonError {
+  color: var(--color-danger);
+}
+
+/* ---- Bottom panel (flex child of .app) ---- */
+
+.panel {
+  background: var(--color-bg-surface);
+  border-top: 1px solid #ddd;
+  padding: 0.5rem 1rem;
+  font-family: system-ui;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+/* ---- Row layouts within the panel ---- */
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.rowSpaced {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.rowLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+/* ---- Status text ---- */
+
+.statusText {
+  flex: 1;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.statusConnecting {
+  animation: pulse 1s ease-in-out infinite alternate;
+}
+
+.statusTool {
+  color: var(--color-plan);
+}
+
+.statusError {
+  flex: 1;
+  color: var(--color-danger);
+}
+
+@keyframes pulse {
+  from { opacity: 0.5; }
+  to { opacity: 1; }
+}
+
+/* ---- Panel icon buttons ---- */
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.iconButton:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.iconButtonMuted {
+  color: var(--color-text-muted);
+}
+
+.iconButtonEnd {
+  color: var(--color-danger);
+}
+
+.iconButtonEnd:hover {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+}
+
+/* ---- Panel action buttons ---- */
+
+.actionButton {
+  padding: 0.3rem 0.75rem;
+  font: inherit;
+  font-size: 0.85rem;
+  border: 1px solid #ccc;
+  border-radius: var(--radius-md);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.actionButton:hover {
+  background: var(--color-bg-hover);
+}
+
+.actionButtonPrimary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.actionButtonPrimary:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+/* ---- Mic level bars ---- */
+
+.micBars {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex-shrink: 0;
+}
+
+.micBar {
+  width: 3px;
+  background: var(--color-primary);
+  border-radius: 1px;
+  transition-property: height;
+  transition-timing-function: ease-out;
+  min-height: 3px;
+}
+
+/* ---- Transcript ---- */
+
+.transcriptLabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  flex: 1;
+}
+
+.clearButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  transition: background 0.15s;
+}
+
+.clearButton:hover {
+  background: var(--color-bg-hover);
+}
+
+.transcriptList {
+  max-height: 8rem;
+  overflow-y: auto;
+  margin-top: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.transcriptEntry {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  line-height: 1.4;
+}
+
+.transcriptLabelUser {
+  color: var(--color-primary);
+  font-weight: 600;
+  margin-right: 0.2rem;
+}
+
+.transcriptLabelAssistant {
+  color: var(--color-success);
+  font-weight: 600;
+  margin-right: 0.2rem;
+}
+
+.transcriptPlaceholder {
+  font-size: 0.8rem;
+  color: var(--color-text-faint);
+  margin-top: 0.35rem;
+}
