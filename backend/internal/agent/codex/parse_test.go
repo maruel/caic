@@ -423,9 +423,9 @@ func TestWireFormat(t *testing.T) {
 			t.Errorf("threadID = %q, want captured-id", w.threadID)
 		}
 	})
-	t.Run("TokenUsageUpdatedStoresUsage", func(t *testing.T) {
+	t.Run("TokenUsageUpdatedEmitsUsageMessage", func(t *testing.T) {
 		w := &wireFormat{}
-		const input = `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"t1","turnId":"turn_1","tokenUsage":{"total":{"totalTokens":1000,"inputTokens":800,"cachedInputTokens":500,"outputTokens":200,"reasoningOutputTokens":0},"last":{"totalTokens":100,"inputTokens":80,"cachedInputTokens":50,"outputTokens":20,"reasoningOutputTokens":0}}}}`
+		const input = `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"t1","turnId":"turn_1","tokenUsage":{"total":{"totalTokens":1000,"inputTokens":800,"cachedInputTokens":500,"outputTokens":200,"reasoningOutputTokens":0},"last":{"totalTokens":100,"inputTokens":80,"cachedInputTokens":50,"outputTokens":20,"reasoningOutputTokens":5}}}}`
 		msgs, err := w.ParseMessage([]byte(input))
 		if err != nil {
 			t.Fatal(err)
@@ -433,28 +433,54 @@ func TestWireFormat(t *testing.T) {
 		if len(msgs) != 1 {
 			t.Fatalf("msgs = %d, want 1", len(msgs))
 		}
-		raw, ok := msgs[0].(*agent.RawMessage)
+		um, ok := msgs[0].(*agent.UsageMessage)
 		if !ok {
-			t.Fatalf("type = %T, want *agent.RawMessage", msgs[0])
+			t.Fatalf("type = %T, want *agent.UsageMessage", msgs[0])
 		}
-		if raw.Type() != MethodTokenUsageUpdated {
-			t.Errorf("Type() = %q", raw.Type())
+		if um.Usage.InputTokens != 80 {
+			t.Errorf("InputTokens = %d, want 80", um.Usage.InputTokens)
 		}
+		if um.Usage.OutputTokens != 20 {
+			t.Errorf("OutputTokens = %d, want 20", um.Usage.OutputTokens)
+		}
+		if um.Usage.CacheReadInputTokens != 50 {
+			t.Errorf("CacheReadInputTokens = %d, want 50", um.Usage.CacheReadInputTokens)
+		}
+		if um.Usage.ReasoningOutputTokens != 5 {
+			t.Errorf("ReasoningOutputTokens = %d, want 5", um.Usage.ReasoningOutputTokens)
+		}
+		// incremental is accumulated into totalUsage
 		w.mu.Lock()
-		usage := w.lastUsage
+		total := w.totalUsage
 		w.mu.Unlock()
-		if usage.InputTokens != 80 {
-			t.Errorf("InputTokens = %d, want 80", usage.InputTokens)
-		}
-		if usage.OutputTokens != 20 {
-			t.Errorf("OutputTokens = %d, want 20", usage.OutputTokens)
-		}
-		if usage.CacheReadInputTokens != 50 {
-			t.Errorf("CacheReadInputTokens = %d, want 50", usage.CacheReadInputTokens)
+		if total.InputTokens != 80 {
+			t.Errorf("totalUsage.InputTokens = %d, want 80", total.InputTokens)
 		}
 	})
-	t.Run("TurnCompletedInjectsUsage", func(t *testing.T) {
-		w := &wireFormat{lastUsage: agent.Usage{InputTokens: 42, OutputTokens: 7}}
+	t.Run("TokenUsageAccumulates", func(t *testing.T) {
+		w := &wireFormat{}
+		usage1 := `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"t1","turnId":"turn_1","tokenUsage":{"total":{},"last":{"totalTokens":100,"inputTokens":80,"cachedInputTokens":0,"outputTokens":20,"reasoningOutputTokens":0}}}}`
+		usage2 := `{"jsonrpc":"2.0","method":"thread/tokenUsage/updated","params":{"threadId":"t1","turnId":"turn_1","tokenUsage":{"total":{},"last":{"totalTokens":50,"inputTokens":30,"cachedInputTokens":10,"outputTokens":20,"reasoningOutputTokens":0}}}}`
+		for _, line := range []string{usage1, usage2} {
+			if _, err := w.ParseMessage([]byte(line)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		w.mu.Lock()
+		total := w.totalUsage
+		w.mu.Unlock()
+		if total.InputTokens != 110 {
+			t.Errorf("totalUsage.InputTokens = %d, want 110", total.InputTokens)
+		}
+		if total.OutputTokens != 40 {
+			t.Errorf("totalUsage.OutputTokens = %d, want 40", total.OutputTokens)
+		}
+		if total.CacheReadInputTokens != 10 {
+			t.Errorf("totalUsage.CacheReadInputTokens = %d, want 10", total.CacheReadInputTokens)
+		}
+	})
+	t.Run("TurnCompletedInjectsAndResetsUsage", func(t *testing.T) {
+		w := &wireFormat{totalUsage: agent.Usage{InputTokens: 42, OutputTokens: 7}}
 		const input = `{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn_1","status":"completed"}}}`
 		msgs, err := w.ParseMessage([]byte(input))
 		if err != nil {
@@ -472,6 +498,13 @@ func TestWireFormat(t *testing.T) {
 		}
 		if rm.Usage.OutputTokens != 7 {
 			t.Errorf("Usage.OutputTokens = %d, want 7", rm.Usage.OutputTokens)
+		}
+		// totalUsage must be reset for the next turn
+		w.mu.Lock()
+		reset := w.totalUsage
+		w.mu.Unlock()
+		if reset != (agent.Usage{}) {
+			t.Errorf("totalUsage not reset after ResultMessage: %+v", reset)
 		}
 	})
 }

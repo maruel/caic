@@ -121,12 +121,12 @@ func (b *Backend) AttachRelay(ctx context.Context, container string, offset int6
 
 // wireFormat implements agent.WireFormat for the codex app-server JSON-RPC
 // protocol. It holds per-session state: the thread ID, a request ID counter,
-// and the most recent token usage from thread/tokenUsage/updated.
+// and accumulated token usage from thread/tokenUsage/updated.
 type wireFormat struct {
-	threadID  string
-	nextID    atomic.Int64
-	mu        sync.Mutex
-	lastUsage agent.Usage // accumulated from thread/tokenUsage/updated
+	threadID   string
+	nextID     atomic.Int64
+	mu         sync.Mutex
+	totalUsage agent.Usage // accumulated per-turn from thread/tokenUsage/updated
 }
 
 // WritePrompt sends a turn/start JSON-RPC request to begin a new turn with
@@ -160,29 +160,36 @@ func (w *wireFormat) WritePrompt(wr io.Writer, p agent.Prompt, logW io.Writer) e
 }
 
 // ParseMessage wraps the package-level ParseMessage, intercepting
-// thread/tokenUsage/updated to accumulate usage and injecting it into
-// ResultMessage. It also captures the thread ID from thread/started.
+// thread/tokenUsage/updated to emit UsageMessages and accumulate per-turn
+// totals for injection into ResultMessage. It also captures the thread ID
+// from thread/started.
 func (w *wireFormat) ParseMessage(line []byte) ([]agent.Message, error) {
-	// Intercept thread/tokenUsage/updated before general parsing so we can
-	// accumulate usage without adding a new agent.Message type.
+	// Intercept thread/tokenUsage/updated: emit a UsageMessage with the
+	// incremental (Last) usage and accumulate into totalUsage.
 	var probe methodProbe
 	_ = json.Unmarshal(line, &probe)
 	if probe.Method == MethodTokenUsageUpdated {
 		var msg JSONRPCMessage
-		if err := json.Unmarshal(line, &msg); err == nil {
-			var p TokenUsageUpdatedParams
-			if err := json.Unmarshal(msg.Params, &p); err == nil {
-				w.mu.Lock()
-				w.lastUsage = agent.Usage{
-					InputTokens:           int(p.TokenUsage.Last.InputTokens),
-					CacheReadInputTokens:  int(p.TokenUsage.Last.CachedInputTokens),
-					OutputTokens:          int(p.TokenUsage.Last.OutputTokens),
-					ReasoningOutputTokens: int(p.TokenUsage.Last.ReasoningOutputTokens),
-				}
-				w.mu.Unlock()
-			}
+		if err := json.Unmarshal(line, &msg); err != nil {
+			return nil, fmt.Errorf("tokenUsage/updated: %w", err)
 		}
-		return []agent.Message{&agent.RawMessage{MessageType: MethodTokenUsageUpdated, Raw: append([]byte(nil), line...)}}, nil
+		var p TokenUsageUpdatedParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			return nil, fmt.Errorf("tokenUsage/updated params: %w", err)
+		}
+		incremental := agent.Usage{
+			InputTokens:           int(p.TokenUsage.Last.InputTokens),
+			CacheReadInputTokens:  int(p.TokenUsage.Last.CachedInputTokens),
+			OutputTokens:          int(p.TokenUsage.Last.OutputTokens),
+			ReasoningOutputTokens: int(p.TokenUsage.Last.ReasoningOutputTokens),
+		}
+		w.mu.Lock()
+		w.totalUsage.InputTokens += incremental.InputTokens
+		w.totalUsage.CacheReadInputTokens += incremental.CacheReadInputTokens
+		w.totalUsage.OutputTokens += incremental.OutputTokens
+		w.totalUsage.ReasoningOutputTokens += incremental.ReasoningOutputTokens
+		w.mu.Unlock()
+		return []agent.Message{&agent.UsageMessage{Usage: incremental}}, nil
 	}
 
 	msgs, err := ParseMessage(line)
@@ -196,10 +203,11 @@ func (w *wireFormat) ParseMessage(line []byte) ([]agent.Message, error) {
 			w.threadID = init.SessionID
 			w.mu.Unlock()
 		}
-		// Inject accumulated usage into ResultMessage (turn/completed has no usage in v2).
+		// Inject accumulated usage into ResultMessage and reset for next turn.
 		if rm, ok := msg.(*agent.ResultMessage); ok {
 			w.mu.Lock()
-			rm.Usage = w.lastUsage
+			rm.Usage = w.totalUsage
+			w.totalUsage = agent.Usage{}
 			w.mu.Unlock()
 		}
 	}
