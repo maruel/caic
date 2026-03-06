@@ -268,6 +268,7 @@ All errors return:
 | `outputTokens` | `number` | yes |
 | `cacheCreationInputTokens` | `number` | yes |
 | `cacheReadInputTokens` | `number` | yes |
+| `reasoningOutputTokens` | `number` |  |
 | `model` | `string` | yes |
 
 ### EventResult

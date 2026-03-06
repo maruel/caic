@@ -56,6 +56,7 @@ func ParseMessage(line []byte) ([]agent.Message, error) {
 		return []agent.Message{&agent.InitMessage{
 			SessionID: p.Thread.ID,
 			Cwd:       p.Thread.CWD,
+			Version:   p.Thread.CLIVersion,
 		}}, nil
 
 	case MethodTurnStarted:
@@ -194,11 +195,10 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 			}
 		}
 		input, _ := json.Marshal(item.Changes)
-		return []agent.Message{&agent.ToolUseMessage{
-			ToolUseID: item.ID,
-			Name:      toolName,
-			Input:     input,
-		}}, nil
+		return []agent.Message{
+			&agent.ToolUseMessage{ToolUseID: item.ID, Name: toolName, Input: input},
+			&agent.ToolResultMessage{ToolUseID: item.ID},
+		}, nil
 
 	case ItemTypeMCPToolCall:
 		var item McpToolCallItem
@@ -217,11 +217,10 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 			return nil, fmt.Errorf("item/completed webSearch: %w", err)
 		}
 		input, _ := json.Marshal(map[string]string{"query": item.Query})
-		return []agent.Message{&agent.ToolUseMessage{
-			ToolUseID: item.ID,
-			Name:      "WebSearch",
-			Input:     input,
-		}}, nil
+		return []agent.Message{
+			&agent.ToolUseMessage{ToolUseID: item.ID, Name: "WebSearch", Input: input},
+			&agent.ToolResultMessage{ToolUseID: item.ID},
+		}, nil
 
 	default:
 		return []agent.Message{&agent.RawMessage{MessageType: msg.Method, Raw: append(msg.Params[:0:0], msg.Params...)}}, nil

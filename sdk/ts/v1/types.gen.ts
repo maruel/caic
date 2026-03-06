@@ -177,12 +177,15 @@ export interface EventAsk {
 }
 /**
  * EventUsage reports per-turn token usage.
+ * ReasoningOutputTokens is a subset of OutputTokens for extended thinking (Claude)
+ * or reasoning summaries (Codex). Zero when the harness does not report it.
  */
 export interface EventUsage {
   inputTokens: number /* int */;
   outputTokens: number /* int */;
   cacheCreationInputTokens: number /* int */;
   cacheReadInputTokens: number /* int */;
+  reasoningOutputTokens?: number /* int */;
   model: string;
 }
 /**

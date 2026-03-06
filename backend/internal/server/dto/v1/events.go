@@ -116,11 +116,14 @@ type EventAsk struct {
 }
 
 // EventUsage reports per-turn token usage.
+// ReasoningOutputTokens is a subset of OutputTokens for extended thinking (Claude)
+// or reasoning summaries (Codex). Zero when the harness does not report it.
 type EventUsage struct {
 	InputTokens              int    `json:"inputTokens"`
 	OutputTokens             int    `json:"outputTokens"`
 	CacheCreationInputTokens int    `json:"cacheCreationInputTokens"`
 	CacheReadInputTokens     int    `json:"cacheReadInputTokens"`
+	ReasoningOutputTokens    int    `json:"reasoningOutputTokens,omitempty"`
 	Model                    string `json:"model"`
 }
 

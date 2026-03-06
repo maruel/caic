@@ -208,6 +208,7 @@ data class EventUsage(
     val outputTokens: Int,
     val cacheCreationInputTokens: Int,
     val cacheReadInputTokens: Int,
+    val reasoningOutputTokens: Int? = null,
     val model: String,
 )
 

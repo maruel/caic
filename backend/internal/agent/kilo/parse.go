@@ -98,7 +98,7 @@ func parsePartUpdated(rec *Record) ([]agent.Message, error) {
 		return parseStepFinish(part)
 
 	case PartTypeReasoning:
-		return []agent.Message{&agent.TextMessage{Text: part.Text}}, nil
+		return []agent.Message{&agent.ThinkingMessage{Text: part.Text}}, nil
 
 	case PartTypeStepStart:
 		return []agent.Message{&agent.SystemMessage{

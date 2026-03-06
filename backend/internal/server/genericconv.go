@@ -137,6 +137,7 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 				OutputTokens:             m.Usage.OutputTokens,
 				CacheCreationInputTokens: m.Usage.CacheCreationInputTokens,
 				CacheReadInputTokens:     m.Usage.CacheReadInputTokens,
+				ReasoningOutputTokens:    m.Usage.ReasoningOutputTokens,
 				Model:                    m.Model,
 			},
 		}}
@@ -158,6 +159,7 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 					OutputTokens:             m.Usage.OutputTokens,
 					CacheCreationInputTokens: m.Usage.CacheCreationInputTokens,
 					CacheReadInputTokens:     m.Usage.CacheReadInputTokens,
+					ReasoningOutputTokens:    m.Usage.ReasoningOutputTokens,
 				},
 			},
 		}}

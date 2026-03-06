@@ -151,9 +151,9 @@ func TestParseMessage(t *testing.T) {
 		if len(msgs) != 1 {
 			t.Fatalf("msgs = %d, want 1", len(msgs))
 		}
-		tm, ok := msgs[0].(*agent.TextMessage)
+		tm, ok := msgs[0].(*agent.ThinkingMessage)
 		if !ok {
-			t.Fatalf("type = %T, want *agent.TextMessage", msgs[0])
+			t.Fatalf("type = %T, want *agent.ThinkingMessage", msgs[0])
 		}
 		if tm.Text != "Let me think..." {
 			t.Errorf("Text = %q", tm.Text)

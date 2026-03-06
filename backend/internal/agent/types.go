@@ -156,11 +156,15 @@ type TodoItem struct {
 //
 // In ResultMessage these values are per-query (sum of all API calls in the turn).
 // Task.liveUsage sums them across all queries for cumulative totals.
+//
+// ReasoningOutputTokens is a subset of OutputTokens used for extended thinking
+// (Claude) or reasoning summaries (Codex). Zero when the harness does not report it.
 type Usage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	ReasoningOutputTokens    int `json:"reasoning_output_tokens,omitempty"`
 }
 
 // ResultMessage is the terminal message for a query.

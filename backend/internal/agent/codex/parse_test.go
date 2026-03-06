@@ -28,6 +28,9 @@ func TestParseMessage(t *testing.T) {
 		if init.Cwd != "/repo" {
 			t.Errorf("Cwd = %q", init.Cwd)
 		}
+		if init.Version != "1.0" {
+			t.Errorf("Version = %q, want 1.0", init.Version)
+		}
 	})
 	t.Run("TurnStarted", func(t *testing.T) {
 		const input = `{"jsonrpc":"2.0","method":"turn/started","params":{"threadId":"t1","turn":{"id":"turn_1","status":"inProgress"}}}`
@@ -153,15 +156,22 @@ func TestParseMessage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(msgs) != 1 {
-			t.Fatalf("msgs = %d, want 1", len(msgs))
+		if len(msgs) != 2 {
+			t.Fatalf("msgs = %d, want 2 (ToolUseMessage + ToolResultMessage)", len(msgs))
 		}
 		tu, ok := msgs[0].(*agent.ToolUseMessage)
 		if !ok {
-			t.Fatalf("type = %T, want *agent.ToolUseMessage", msgs[0])
+			t.Fatalf("msgs[0] type = %T, want *agent.ToolUseMessage", msgs[0])
 		}
 		if tu.Name != "Write" {
 			t.Errorf("Name = %q, want Write (file add)", tu.Name)
+		}
+		tr, ok := msgs[1].(*agent.ToolResultMessage)
+		if !ok {
+			t.Fatalf("msgs[1] type = %T, want *agent.ToolResultMessage", msgs[1])
+		}
+		if tr.ToolUseID != "item_4" {
+			t.Errorf("ToolResultMessage.ToolUseID = %q, want item_4", tr.ToolUseID)
 		}
 	})
 	t.Run("ItemCompletedFileChangeUpdate", func(t *testing.T) {
@@ -170,15 +180,22 @@ func TestParseMessage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(msgs) != 1 {
-			t.Fatalf("msgs = %d, want 1", len(msgs))
+		if len(msgs) != 2 {
+			t.Fatalf("msgs = %d, want 2 (ToolUseMessage + ToolResultMessage)", len(msgs))
 		}
 		tu, ok := msgs[0].(*agent.ToolUseMessage)
 		if !ok {
-			t.Fatalf("type = %T, want *agent.ToolUseMessage", msgs[0])
+			t.Fatalf("msgs[0] type = %T, want *agent.ToolUseMessage", msgs[0])
 		}
 		if tu.Name != "Edit" {
 			t.Errorf("Name = %q, want Edit (file update)", tu.Name)
+		}
+		tr, ok := msgs[1].(*agent.ToolResultMessage)
+		if !ok {
+			t.Fatalf("msgs[1] type = %T, want *agent.ToolResultMessage", msgs[1])
+		}
+		if tr.ToolUseID != "item_5" {
+			t.Errorf("ToolResultMessage.ToolUseID = %q, want item_5", tr.ToolUseID)
 		}
 	})
 	t.Run("ItemCompletedWebSearch", func(t *testing.T) {
@@ -187,15 +204,22 @@ func TestParseMessage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(msgs) != 1 {
-			t.Fatalf("msgs = %d, want 1", len(msgs))
+		if len(msgs) != 2 {
+			t.Fatalf("msgs = %d, want 2 (ToolUseMessage + ToolResultMessage)", len(msgs))
 		}
 		tu, ok := msgs[0].(*agent.ToolUseMessage)
 		if !ok {
-			t.Fatalf("type = %T, want *agent.ToolUseMessage", msgs[0])
+			t.Fatalf("msgs[0] type = %T, want *agent.ToolUseMessage", msgs[0])
 		}
 		if tu.Name != "WebSearch" {
 			t.Errorf("Name = %q, want WebSearch", tu.Name)
+		}
+		tr, ok := msgs[1].(*agent.ToolResultMessage)
+		if !ok {
+			t.Fatalf("msgs[1] type = %T, want *agent.ToolResultMessage", msgs[1])
+		}
+		if tr.ToolUseID != "item_6" {
+			t.Errorf("ToolResultMessage.ToolUseID = %q, want item_6", tr.ToolUseID)
 		}
 	})
 	t.Run("ItemUpdated", func(t *testing.T) {
@@ -298,6 +322,7 @@ func TestParseMessage(t *testing.T) {
 			`{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_3","type":"agentMessage","text":"Done.","status":"completed"},"threadId":"t1","turnId":"turn_1"}}`,
 			`{"jsonrpc":"2.0","method":"turn/completed","params":{"threadId":"t1","turn":{"id":"turn_1","status":"completed"}}}`,
 		}
+		// Flatten all messages across all lines; fileChange emits two (ToolUse + ToolResult).
 		wantTypes := []string{
 			"init",        // thread/started → InitMessage
 			"thinking",    // reasoning → ThinkingMessage
@@ -305,19 +330,24 @@ func TestParseMessage(t *testing.T) {
 			"tool_result", // item/completed commandExecution → ToolResultMessage
 			"text_delta",  // item/agentMessage/delta → TextDeltaMessage
 			"tool_use",    // fileChange → ToolUseMessage
+			"tool_result", // fileChange synthetic completion → ToolResultMessage
 			"text",        // agentMessage → TextMessage
 			"result",      // turn/completed → ResultMessage
 		}
+		got := make([]agent.Message, 0, len(wantTypes))
 		for i, line := range lines {
 			msgs, err := ParseMessage([]byte(line))
 			if err != nil {
 				t.Fatalf("line %d: %v", i, err)
 			}
-			if len(msgs) != 1 {
-				t.Fatalf("line %d: msgs = %d, want 1", i, len(msgs))
-			}
-			if msgs[0].Type() != wantTypes[i] {
-				t.Errorf("line %d: Type() = %q, want %q", i, msgs[0].Type(), wantTypes[i])
+			got = append(got, msgs...)
+		}
+		if len(got) != len(wantTypes) {
+			t.Fatalf("got %d messages, want %d", len(got), len(wantTypes))
+		}
+		for i, msg := range got {
+			if msg.Type() != wantTypes[i] {
+				t.Errorf("msg[%d]: Type() = %q, want %q", i, msg.Type(), wantTypes[i])
 			}
 		}
 	})

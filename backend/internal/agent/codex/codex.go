@@ -174,9 +174,10 @@ func (w *wireFormat) ParseMessage(line []byte) ([]agent.Message, error) {
 			if err := json.Unmarshal(msg.Params, &p); err == nil {
 				w.mu.Lock()
 				w.lastUsage = agent.Usage{
-					InputTokens:          int(p.TokenUsage.Last.InputTokens),
-					CacheReadInputTokens: int(p.TokenUsage.Last.CachedInputTokens),
-					OutputTokens:         int(p.TokenUsage.Last.OutputTokens),
+					InputTokens:           int(p.TokenUsage.Last.InputTokens),
+					CacheReadInputTokens:  int(p.TokenUsage.Last.CachedInputTokens),
+					OutputTokens:          int(p.TokenUsage.Last.OutputTokens),
+					ReasoningOutputTokens: int(p.TokenUsage.Last.ReasoningOutputTokens),
 				}
 				w.mu.Unlock()
 			}
