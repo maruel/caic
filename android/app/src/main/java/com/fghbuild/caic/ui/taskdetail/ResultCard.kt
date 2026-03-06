@@ -4,6 +4,7 @@ package com.fghbuild.caic.ui.taskdetail
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -11,13 +12,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.caic.sdk.v1.DiffFileStat
 import com.caic.sdk.v1.EventResult
-import com.fghbuild.caic.util.formatCost
-import com.fghbuild.caic.util.formatDuration
 import com.fghbuild.caic.ui.theme.markdownTypography
 import com.mikepenz.markdown.m3.Markdown
+import java.util.Locale
+
+private val DiffAddedColor = Color(0xFF22C55E)
+private val DiffDeletedColor = Color(0xFFEF4444)
+private val DiffBinaryColor = Color(0xFF6B7280)
 
 @Composable
 fun ResultCard(result: EventResult, onNavigateToDiff: (() -> Unit)? = null) {
@@ -32,6 +38,11 @@ fun ResultCard(result: EventResult, onNavigateToDiff: (() -> Unit)? = null) {
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
+            Text(
+                text = if (isError) "Error" else "Done",
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+            )
             if (result.result.isNotBlank()) {
                 Markdown(
                     content = result.result,
@@ -42,30 +53,64 @@ fun ResultCard(result: EventResult, onNavigateToDiff: (() -> Unit)? = null) {
 
             result.diffStat?.let { stats ->
                 if (stats.isNotEmpty()) {
-                    Text(
-                        text = stats.joinToString(", ") { "${it.path} +${it.added}/-${it.deleted}" },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        textDecoration = if (onNavigateToDiff != null) {
-                            TextDecoration.Underline
-                        } else {
-                            TextDecoration.None
-                        },
-                        modifier = if (onNavigateToDiff != null) {
-                            Modifier.clickable { onNavigateToDiff() }
-                        } else {
-                            Modifier
-                        },
-                    )
+                    val clickModifier = if (onNavigateToDiff != null) {
+                        Modifier.fillMaxWidth().clickable { onNavigateToDiff() }
+                    } else {
+                        Modifier.fillMaxWidth()
+                    }
+                    Column(modifier = clickModifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        stats.forEach { f -> DiffFileRow(f) }
+                    }
                 }
             }
 
+            val costStr = if (result.totalCostUSD != 0.0) {
+                String.format(Locale.US, "\$%.4f \u00b7 ", result.totalCostUSD)
+            } else {
+                ""
+            }
+            val durationStr = String.format(Locale.US, "%.1fs", result.duration)
             Text(
-                text = "${formatCost(result.totalCostUSD)} \u00b7 ${formatDuration(result.duration)}" +
-                    " \u00b7 ${result.numTurns} turns",
+                text = "$costStr$durationStr \u00b7 ${result.numTurns} turns",
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+@Composable
+private fun DiffFileRow(f: DiffFileStat) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            text = f.path,
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.weight(1f),
+        )
+        if (f.binary == true) {
+            Text(
+                text = "binary",
+                style = MaterialTheme.typography.bodySmall,
+                color = DiffBinaryColor,
+            )
+        } else {
+            if (f.added > 0) {
+                Text(
+                    text = "+${f.added}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DiffAddedColor,
+                )
+            }
+            if (f.deleted > 0) {
+                Text(
+                    text = "\u2212${f.deleted}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DiffDeletedColor,
+                )
+            }
         }
     }
 }
