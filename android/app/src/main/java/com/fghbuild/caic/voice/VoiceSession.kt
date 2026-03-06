@@ -87,6 +87,8 @@ class VoiceSession @Inject constructor(
     private var functionHandlers: FunctionHandlers? = null
     private var availableHarnesses: List<String> = emptyList()
     private var availableRepos: List<String> = emptyList()
+    private var defaultHarness: String = ""
+    private var defaultModel: String = ""
     private var deviceCallback: AudioDeviceCallback? = null
     private var scoReceiver: BroadcastReceiver? = null
     private var audioFocusRequest: AudioFocusRequest? = null
@@ -147,11 +149,16 @@ class VoiceSession @Inject constructor(
                 }
 
                 val apiClient = ApiClient(settings.serverURL)
-                functionHandlers = FunctionHandlers(
-                    apiClient, taskRepository, settings.serverURL, taskNumberMap,
-                ) { excludedTaskIds }
                 availableHarnesses = apiClient.listHarnesses().map { it.name }
                 availableRepos = apiClient.listRepos().map { it.path }
+                val prefs = settingsRepository.serverPreferences.value
+                defaultHarness = prefs?.harness?.ifBlank { null }
+                    ?: availableHarnesses.firstOrNull() ?: ""
+                defaultModel = prefs?.harness?.let { h -> prefs.models?.get(h) }?.ifBlank { null } ?: ""
+                functionHandlers = FunctionHandlers(
+                    apiClient, taskRepository, settings.serverURL, taskNumberMap,
+                    { excludedTaskIds }, defaultHarness, defaultModel,
+                )
 
                 val tokenResp = apiClient.getVoiceToken()
                 setStatus("Connecting…")
@@ -309,7 +316,9 @@ class VoiceSession @Inject constructor(
             ),
             tools = listOf(
                 Tool(
-                    functionDeclarations = buildFunctionDeclarations(harnesses, repos).map { fd ->
+                    functionDeclarations = buildFunctionDeclarations(
+                        harnesses, repos, defaultHarness.ifBlank { null },
+                    ).map { fd ->
                         LiveFunctionDeclaration(
                             name = fd.name,
                             description = fd.description,
@@ -840,8 +849,8 @@ class VoiceSession @Inject constructor(
                 "Only mention elapsed time or cost when the user specifically asks.\n" +
                 "- When an agent is asking, read the question and options clearly, wait for " +
                 "the verbal answer, then call task_answer_question.\n" +
-                "- When creating a task, use the default repo if one is provided in the " +
-                "session context and the user doesn't specify a different one. " +
+                "- When creating a task, use the default repo, harness, and model from the " +
+                "session context unless the user specifies otherwise. " +
                 "Confirm repo and prompt before creating.\n" +
                 "- Refer to tasks by its title.\n" +
                 "- Proactively notify the user when tasks finish or need input.\n" +

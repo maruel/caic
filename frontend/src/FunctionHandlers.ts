@@ -71,6 +71,8 @@ export class FunctionHandlers {
   constructor(
     private readonly taskNumberMap: TaskNumberMap,
     private readonly excludedTaskIds: () => Set<string>,
+    private readonly defaultHarness = "",
+    private readonly defaultModel = "",
   ) {}
 
   async handle(name: string, args: FunctionArgs): Promise<Record<string, unknown>> {
@@ -115,8 +117,8 @@ export class FunctionHandlers {
   private async handleCreateTask(args: FunctionArgs): Promise<Record<string, unknown>> {
     const prompt = requireString(args, "prompt");
     const repo = requireString(args, "repo");
-    const model = optString(args, "model");
-    const harness = optString(args, "harness") ?? "claude";
+    const model = optString(args, "model") ?? (this.defaultModel || undefined);
+    const harness = optString(args, "harness") ?? this.defaultHarness;
     const resp = await createTask({
       initialPrompt: { text: prompt },
       repo,

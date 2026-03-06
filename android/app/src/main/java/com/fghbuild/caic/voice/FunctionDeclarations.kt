@@ -81,11 +81,16 @@ private fun objectSchema(
     }
 )
 
-fun buildFunctionDeclarations(harnesses: List<String>, repos: List<String> = emptyList()): List<FunctionDeclaration> {
-    val harnessDesc = if (harnesses.isEmpty()) {
-        "Agent harness to use (optional)"
+fun buildFunctionDeclarations(
+    harnesses: List<String>,
+    repos: List<String> = emptyList(),
+    defaultHarness: String? = null,
+): List<FunctionDeclaration> {
+    val effectiveDefault = defaultHarness ?: harnesses.firstOrNull()
+    val harnessDesc = if (effectiveDefault != null) {
+        "Agent harness (default: $effectiveDefault)"
     } else {
-        "Agent harness (default: ${harnesses.first()})"
+        "Agent harness to use (optional)"
     }
     return listOf(
     FunctionDeclaration(

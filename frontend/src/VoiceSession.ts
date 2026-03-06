@@ -58,8 +58,8 @@ const SYSTEM_INSTRUCTION =
   "Only mention elapsed time or cost when the user specifically asks.\n" +
   "- When an agent is asking, read the question and options clearly, wait for " +
   "the verbal answer, then call task_answer_question.\n" +
-  "- When creating a task, use the default repo if one is provided in the " +
-  "session context and the user doesn't specify a different one. " +
+  "- When creating a task, use the default repo, harness, and model from the " +
+  "session context unless the user specifies otherwise. " +
   "Confirm repo and prompt before creating.\n" +
   "- Refer to tasks by its title.\n" +
   "- Proactively notify the user when tasks finish or need input.\n" +
@@ -167,7 +167,7 @@ export class VoiceSession {
   // -----------------------------------------------------------------------
 
   /** Start a new voice session with current task context. */
-  async connect(tasks: Task[], recentRepo: string): Promise<void> {
+  async connect(tasks: Task[], recentRepo: string, defaultHarness = "", defaultModel = ""): Promise<void> {
     this._ws?.close(1000, "Reconnecting");
     this._ws = null;
     // Release audio before any await so we can recreate AudioContext while still
@@ -199,9 +199,9 @@ export class VoiceSession {
       const active = tasks.filter((t) => !preTerminated.has(t.id));
       this.taskNumberMap.reset();
       this.taskNumberMap.update(active);
-      this._pendingSnapshot = buildSnapshot(active, recentRepo, this.taskNumberMap);
+      this._pendingSnapshot = buildSnapshot(active, recentRepo, this.taskNumberMap, defaultHarness, defaultModel);
 
-      this._functions = new FunctionHandlers(this.taskNumberMap, () => this.excludedTaskIds);
+      this._functions = new FunctionHandlers(this.taskNumberMap, () => this.excludedTaskIds, defaultHarness, defaultModel);
 
       const wsUrl = tokenResp.ephemeral
         ? `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(tokenResp.token)}`
@@ -214,7 +214,7 @@ export class VoiceSession {
       ws.onopen = () => {
         if (ws !== this._ws) return;
         this._setStatus("Waiting for server…");
-        this._sendSetup(harnessNames, repoPaths);
+        this._sendSetup(harnessNames, repoPaths, defaultHarness);
       };
 
       // Set binaryType so binary frames arrive as ArrayBuffer, not opaque Blob.
@@ -334,9 +334,9 @@ export class VoiceSession {
   // WebSocket setup
   // -----------------------------------------------------------------------
 
-  private _sendSetup(harnesses: string[], repos: string[]): void {
+  private _sendSetup(harnesses: string[], repos: string[], defaultHarness: string): void {
     if (!this._ws) return;
-    const decls = buildFunctionDeclarations(harnesses, repos);
+    const decls = buildFunctionDeclarations(harnesses, repos, defaultHarness || undefined);
     const setup = {
       setup: {
         model: MODEL_NAME,
@@ -618,9 +618,11 @@ export class VoiceSession {
 
 // Snapshot builder (mirrors VoiceViewModel.buildSnapshot)
 
-function buildSnapshot(tasks: Task[], recentRepo: string, map: TaskNumberMap): string {
+function buildSnapshot(tasks: Task[], recentRepo: string, map: TaskNumberMap, defaultHarness?: string, defaultModel?: string): string {
   const parts: string[] = [];
   if (recentRepo) parts.push(`[Default repo: ${recentRepo}]`);
+  if (defaultHarness) parts.push(`[Default harness: ${defaultHarness}]`);
+  if (defaultModel) parts.push(`[Default model: ${defaultModel}]`);
   if (tasks.length > 0) {
     const lines = tasks.map((t) => {
       const num = map.toNumber(t.id) ?? 0;
@@ -628,7 +630,7 @@ function buildSnapshot(tasks: Task[], recentRepo: string, map: TaskNumberMap): s
       return `- Task #${num}: ${shortName} (${t.state}, ${formatElapsed(t.duration * 1000)}, ${formatCost(t.costUSD)}, ${t.harness})`;
     });
     parts.push(`[Current tasks at session start]\n${lines.join("\n")}`);
-  } else if (!recentRepo) {
+  } else if (parts.length === 0) {
     return "[No active tasks]";
   }
   return parts.join("\n");

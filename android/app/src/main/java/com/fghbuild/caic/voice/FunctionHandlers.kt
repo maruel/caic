@@ -27,6 +27,8 @@ class FunctionHandlers(
     private val baseURL: String,
     private val taskNumberMap: TaskNumberMap,
     private val excludedTaskIds: () -> Set<String>,
+    private val defaultHarness: String = "",
+    private val defaultModel: String = "",
 ) {
 
     suspend fun handle(name: String, args: JsonObject): JsonElement {
@@ -64,8 +66,8 @@ class FunctionHandlers(
         val prompt = args.requireString("prompt")
         val repo = args.requireString("repo")
             ?: return errorResult("Unknown repo: ${args.requireString("repo")}")
-        val model = args.optString("model")
-        val harness = args.optString("harness") ?: "claude"
+        val model = args.optString("model") ?: defaultModel.ifBlank { null }
+        val harness = args.optString("harness") ?: defaultHarness
         val resp = apiClient.createTask(
             CreateTaskReq(
                 initialPrompt = Prompt(text = prompt),

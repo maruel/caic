@@ -12,6 +12,8 @@ import CloseIcon from "@material-symbols/svg-400/outlined/close.svg?solid";
 interface Props {
   tasks: () => Task[];
   recentRepo: () => string;
+  selectedHarness: () => string;
+  selectedModel: () => string;
 }
 
 /** Bar transition durations (ms): center reacts fastest, outer bars lag. */
@@ -82,7 +84,7 @@ export default function VoiceOverlay(props: Props) {
     if (session.state.connected || session.state.connectStatus !== null) {
       session.disconnect();
     } else {
-      void session.connect(untrack(() => props.tasks()), untrack(() => props.recentRepo()));
+      void session.connect(untrack(() => props.tasks()), untrack(() => props.recentRepo()), untrack(() => props.selectedHarness()), untrack(() => props.selectedModel()));
     }
   };
 

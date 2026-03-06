@@ -38,11 +38,12 @@ export interface FunctionDeclaration {
 export function buildFunctionDeclarations(
   harnesses: string[],
   repos: string[] = [],
+  defaultHarness?: string,
 ): FunctionDeclaration[] {
-  const harnessDesc =
-    harnesses.length > 0
-      ? `Agent harness (default: ${harnesses[0]})`
-      : "Agent harness to use (optional)";
+  const effectiveDefault = defaultHarness ?? harnesses[0];
+  const harnessDesc = effectiveDefault
+    ? `Agent harness (default: ${effectiveDefault})`
+    : "Agent harness to use (optional)";
   return [
     {
       name: "tasks_list",

@@ -634,7 +634,7 @@ export default function App() {
           </Match>
         </Switch>
       </div>
-      <VoiceOverlay tasks={tasks} recentRepo={() => repos()[0]?.path ?? ""} />
+      <VoiceOverlay tasks={tasks} recentRepo={() => repos()[0]?.path ?? ""} selectedHarness={selectedHarness} selectedModel={selectedModel} />
     </div>
   );
 }

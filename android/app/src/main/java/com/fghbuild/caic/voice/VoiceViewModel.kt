@@ -53,7 +53,9 @@ class VoiceViewModel @Inject constructor(
                         taskNumberMap.update(active)
                         val prefs = settingsRepository.serverPreferences.value
                         val recentRepo = prefs?.repositories?.firstOrNull()?.path
-                        voiceSessionManager.injectText(buildSnapshot(active, recentRepo))
+                        val defaultHarness = prefs?.harness?.ifBlank { null }
+                        val defaultModel = prefs?.harness?.let { h -> prefs.models?.get(h) }?.ifBlank { null }
+                        voiceSessionManager.injectText(buildSnapshot(active, recentRepo, defaultHarness, defaultModel))
                         previousTaskStates = tasks.associate { it.id to it.state }
                     }
                 }
@@ -104,11 +106,16 @@ class VoiceViewModel @Inject constructor(
             }
     }
 
-    private fun buildSnapshot(tasks: List<Task>, recentRepo: String?): String {
+    private fun buildSnapshot(
+        tasks: List<Task>,
+        recentRepo: String?,
+        defaultHarness: String? = null,
+        defaultModel: String? = null,
+    ): String {
         val parts = mutableListOf<String>()
-        if (recentRepo != null) {
-            parts.add("[Default repo: $recentRepo]")
-        }
+        if (recentRepo != null) parts.add("[Default repo: $recentRepo]")
+        if (!defaultHarness.isNullOrBlank()) parts.add("[Default harness: $defaultHarness]")
+        if (!defaultModel.isNullOrBlank()) parts.add("[Default model: $defaultModel]")
         if (tasks.isNotEmpty()) {
             val lines = tasks.joinToString("\n") { task ->
                 val num = taskNumberMap.toNumber(task.id) ?: 0
@@ -117,7 +124,7 @@ class VoiceViewModel @Inject constructor(
                     ", ${formatCost(task.costUSD)}, ${task.harness})"
             }
             parts.add("[Current tasks at session start]\n$lines")
-        } else if (recentRepo == null) {
+        } else if (parts.isEmpty()) {
             return "[No active tasks]"
         }
         return parts.joinToString("\n")
