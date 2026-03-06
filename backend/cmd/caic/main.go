@@ -247,6 +247,16 @@ func serveFake(ctx context.Context, addr, rootDir string, cfg *server.Config) er
 		rootDir = filepath.Dir(clone)
 	}
 
+	// Use a temp dir for XDG_CONFIG_HOME so md can write its keys without
+	// hitting the read-only ~/.config/md mount in the dev container.
+	mdConfigDir, err := os.MkdirTemp("", "caic-e2e-md-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(mdConfigDir) }()
+	if err := os.Setenv("XDG_CONFIG_HOME", mdConfigDir); err != nil {
+		return fmt.Errorf("set XDG_CONFIG_HOME: %w", err)
+	}
 	logDir := filepath.Join(os.TempDir(), "caic-e2e-logs")
 	srv, err := server.New(ctx, rootDir, 1, logDir, cfg)
 	if err != nil {
