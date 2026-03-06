@@ -312,6 +312,162 @@ func TestParseMessage(t *testing.T) {
 	})
 }
 
+func TestKiloWireFormat(t *testing.T) {
+	// step-finish JSON for a single step.
+	stepFinish := []byte(`{"type":"message.part.updated","properties":{"part":{"id":"prt_1","sessionID":"ses_abc","messageID":"msg_1","type":"step-finish","cost":0.002,"tokens":{"total":300,"input":100,"output":200,"reasoning":10,"cache":{"read":20,"write":5}}}}}`)
+	turnCloseCompleted := []byte(`{"type":"session.turn.close","properties":{"sessionID":"ses_abc","reason":"completed"}}`)
+	turnCloseError := []byte(`{"type":"session.turn.close","properties":{"sessionID":"ses_abc","reason":"error"}}`)
+	turnCloseInterrupted := []byte(`{"type":"session.turn.close","properties":{"sessionID":"ses_abc","reason":"interrupted"}}`)
+	sessionError := []byte(`{"type":"session.error","properties":{"sessionID":"ses_abc","error":{"name":"SomeError","data":{"message":"oops"}}}}`)
+
+	parse := func(t *testing.T, w *kiloWireFormat, line []byte) []agent.Message {
+		t.Helper()
+		msgs, err := w.ParseMessage(line)
+		if err != nil {
+			t.Fatalf("ParseMessage error: %v", err)
+		}
+		return msgs
+	}
+
+	t.Run("SingleStepCompletion", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		// step-finish → UsageMessage (not a terminal result)
+		msgs := parse(t, w, stepFinish)
+		if len(msgs) != 1 {
+			t.Fatalf("step-finish: got %d msgs, want 1", len(msgs))
+		}
+		if _, ok := msgs[0].(*agent.UsageMessage); !ok {
+			t.Fatalf("step-finish: got %T, want *agent.UsageMessage", msgs[0])
+		}
+
+		// turn.close(completed) → ResultMessage with accumulated totals
+		msgs = parse(t, w, turnCloseCompleted)
+		if len(msgs) != 1 {
+			t.Fatalf("turn.close: got %d msgs, want 1", len(msgs))
+		}
+		rm, ok := msgs[0].(*agent.ResultMessage)
+		if !ok {
+			t.Fatalf("turn.close: got %T, want *agent.ResultMessage", msgs[0])
+		}
+		if rm.IsError {
+			t.Error("IsError should be false")
+		}
+		if rm.TotalCostUSD != 0.002 {
+			t.Errorf("TotalCostUSD = %v, want 0.002", rm.TotalCostUSD)
+		}
+		if rm.Usage.InputTokens != 100 {
+			t.Errorf("InputTokens = %d, want 100", rm.Usage.InputTokens)
+		}
+		if rm.Usage.OutputTokens != 200 {
+			t.Errorf("OutputTokens = %d, want 200", rm.Usage.OutputTokens)
+		}
+		if rm.Usage.CacheReadInputTokens != 20 {
+			t.Errorf("CacheReadInputTokens = %d, want 20", rm.Usage.CacheReadInputTokens)
+		}
+		if rm.Usage.CacheCreationInputTokens != 5 {
+			t.Errorf("CacheCreationInputTokens = %d, want 5", rm.Usage.CacheCreationInputTokens)
+		}
+	})
+
+	t.Run("MultiStepAccumulation", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		stepFinish2 := []byte(`{"type":"message.part.updated","properties":{"part":{"id":"prt_2","sessionID":"ses_abc","messageID":"msg_2","type":"step-finish","cost":0.001,"tokens":{"total":150,"input":50,"output":100,"reasoning":0,"cache":{"read":0,"write":0}}}}}`)
+
+		parse(t, w, stepFinish)
+		parse(t, w, stepFinish2)
+
+		msgs := parse(t, w, turnCloseCompleted)
+		if len(msgs) != 1 {
+			t.Fatalf("got %d msgs, want 1", len(msgs))
+		}
+		rm, ok := msgs[0].(*agent.ResultMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.ResultMessage", msgs[0])
+		}
+		// cost: 0.002 + 0.001
+		if rm.TotalCostUSD != 0.003 {
+			t.Errorf("TotalCostUSD = %v, want 0.003", rm.TotalCostUSD)
+		}
+		// input tokens: 100 + 50
+		if rm.Usage.InputTokens != 150 {
+			t.Errorf("InputTokens = %d, want 150", rm.Usage.InputTokens)
+		}
+		// output tokens: 200 + 100
+		if rm.Usage.OutputTokens != 300 {
+			t.Errorf("OutputTokens = %d, want 300", rm.Usage.OutputTokens)
+		}
+	})
+
+	t.Run("ErrorSuppressesTurnClose", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		// session.error → ResultMessage{IsError: true}, sets errorSeen
+		msgs := parse(t, w, sessionError)
+		if len(msgs) != 1 {
+			t.Fatalf("session.error: got %d msgs, want 1", len(msgs))
+		}
+		if rm, ok := msgs[0].(*agent.ResultMessage); !ok || !rm.IsError {
+			t.Fatalf("session.error: expected error ResultMessage, got %T", msgs[0])
+		}
+
+		// turn.close(error) → suppressed (no extra ResultMessage)
+		msgs = parse(t, w, turnCloseError)
+		if len(msgs) != 0 {
+			t.Fatalf("turn.close(error) after session.error: got %d msgs, want 0", len(msgs))
+		}
+	})
+
+	t.Run("Interrupted", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		parse(t, w, stepFinish)
+
+		msgs := parse(t, w, turnCloseInterrupted)
+		if len(msgs) != 1 {
+			t.Fatalf("got %d msgs, want 1", len(msgs))
+		}
+		rm, ok := msgs[0].(*agent.ResultMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.ResultMessage", msgs[0])
+		}
+		if !rm.IsError {
+			t.Error("IsError should be true for interrupted")
+		}
+		if rm.Subtype != "interrupted" {
+			t.Errorf("Subtype = %q, want interrupted", rm.Subtype)
+		}
+		if rm.TotalCostUSD != 0.002 {
+			t.Errorf("TotalCostUSD = %v, want 0.002", rm.TotalCostUSD)
+		}
+	})
+
+	t.Run("StateResetsAfterTurnClose", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		// First turn
+		parse(t, w, stepFinish)
+		parse(t, w, turnCloseCompleted)
+
+		// Second turn: only step-finish from second turn should count
+		stepFinish3 := []byte(`{"type":"message.part.updated","properties":{"part":{"id":"prt_3","sessionID":"ses_abc","messageID":"msg_3","type":"step-finish","cost":0.005,"tokens":{"total":500,"input":200,"output":300,"reasoning":0,"cache":{"read":0,"write":0}}}}}`)
+		parse(t, w, stepFinish3)
+
+		msgs := parse(t, w, turnCloseCompleted)
+		if len(msgs) != 1 {
+			t.Fatalf("got %d msgs, want 1", len(msgs))
+		}
+		rm, ok := msgs[0].(*agent.ResultMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.ResultMessage", msgs[0])
+		}
+		if rm.TotalCostUSD != 0.005 {
+			t.Errorf("TotalCostUSD = %v, want 0.005 (first turn cost should not bleed in)", rm.TotalCostUSD)
+		}
+	})
+}
+
 func TestNormalizeToolName(t *testing.T) {
 	tests := []struct {
 		kilo string

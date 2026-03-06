@@ -73,10 +73,10 @@ func (b *Base) ParseMessage(line []byte) ([]Message, error) { return b.Parse(lin
 
 // ReadRelayOutput implements Backend.
 func (b *Base) ReadRelayOutput(ctx context.Context, container string) ([]Message, int64, error) {
-	return readRelayOutput(ctx, container, b.Parse)
+	return ReadRelayOutput(ctx, container, b.Parse)
 }
 
 // AttachRelay implements Backend.
 func (b *Base) AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer) (*Session, error) {
-	return attachRelaySession(ctx, container, offset, msgCh, logW, b.Wire)
+	return AttachRelaySession(ctx, container, offset, msgCh, logW, b.Wire)
 }

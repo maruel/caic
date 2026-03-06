@@ -378,9 +378,9 @@ func StartRelay(ctx context.Context, opts *Options, agentArgs []string, msgCh ch
 	return s, nil
 }
 
-// readRelayOutput reads the complete output.jsonl from the container's relay
-// and parses each line using parseFn. Called by Base.ReadRelayOutput.
-func readRelayOutput(ctx context.Context, container string, parseFn func([]byte) ([]Message, error)) (msgs []Message, size int64, err error) {
+// ReadRelayOutput reads the complete output.jsonl from the container's relay
+// and parses each line using parseFn.
+func ReadRelayOutput(ctx context.Context, container string, parseFn func([]byte) ([]Message, error)) (msgs []Message, size int64, err error) {
 	cmd := exec.CommandContext(ctx, "ssh", container, "cat", RelayOutputPath) //nolint:gosec // args are not user-controlled.
 	out, err := cmd.Output()
 	if err != nil {
@@ -405,10 +405,9 @@ func readRelayOutput(ctx context.Context, container string, parseFn func([]byte)
 	return msgs, size, scanner.Err()
 }
 
-// attachRelaySession connects to an already-running relay in the container
-// and returns a new Session. Called by Base.AttachRelay for backends whose
-// attach path needs no per-session wire state (claude, gemini, kilo).
-func attachRelaySession(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer, wire WireFormat) (*Session, error) {
+// AttachRelaySession connects to an already-running relay in the container
+// and returns a new Session.
+func AttachRelaySession(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer, wire WireFormat) (*Session, error) {
 	sshArgs := []string{
 		container, "python3", RelayScriptPath, "attach",
 		"--offset", strconv.FormatInt(offset, 10),
