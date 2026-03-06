@@ -45,6 +45,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 private val PlanBorderColor = Color(0xFFDDD6FE)
 private val PlanBgColor = Color(0xFFF5F3FF)
+private val ToolErrorBgColor = Color(0xFFFFF0F0)
 
 @Composable
 fun ToolCallCard(
@@ -118,12 +119,19 @@ fun ToolCallCard(
                             ToolInputDisplay(input = loadedInput ?: call.use.input)
                         }
                         call.result?.error?.let { error ->
-                            Text(
-                                text = error,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.padding(top = 4.dp),
-                            )
+                            Surface(
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                shape = MaterialTheme.shapes.small,
+                                color = ToolErrorBgColor,
+                            ) {
+                                Text(
+                                    text = error,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                )
+                            }
                         }
                     }
                 }

@@ -5,14 +5,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.fghbuild.caic.util.ToolCall
 import com.fghbuild.caic.util.toolCountSummary
 import kotlinx.serialization.json.JsonElement
+
+private val ToolGroupBgColor = Color(0xFFE8E8E8)
 
 // Used by MessageGroupContent for single-call TOOL groups only (size 0 or 1).
 // Multi-call groups are split into ToolGroupHeaderItem + individual ToolCallCard lazy items.
@@ -45,13 +49,19 @@ fun ToolGroupHeaderItem(
         val doneCount = toolCalls.count { it.done }
         "$doneCount/${toolCalls.size} tools: ${toolCountSummary(toolCalls)}"
     }
-    Text(
-        text = "${if (isExpanded) "▼" else "▶"} $baseSummary",
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onToggle() }
-            .padding(vertical = 4.dp),
-    )
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.small,
+        color = ToolGroupBgColor,
+    ) {
+        Text(
+            text = "${if (isExpanded) "▼" else "▶"} $baseSummary",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onToggle() }
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
 }
