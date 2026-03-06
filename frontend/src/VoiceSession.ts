@@ -2,7 +2,9 @@
 import { createStore, produce } from "solid-js/store";
 import { getVoiceToken, listHarnesses, listRepos } from "@sdk/api.gen";
 import type { Task } from "@sdk/types.gen";
-import { VoiceFunctions, TaskNumberMap, buildFunctionDeclarations } from "./VoiceFunctions";
+import { FunctionHandlers } from "./FunctionHandlers";
+import { TaskNumberMap } from "./TaskNumberMap";
+import { buildFunctionDeclarations } from "./FunctionDeclarations";
 import { formatElapsed, formatCost } from "./formatting";
 
 // Constants
@@ -139,7 +141,7 @@ export class VoiceSession {
   private _nextPlayTime = 0;
   /** True while the model is speaking — mic audio is discarded to prevent echo. */
   private _speakerActive = false;
-  private _functions: VoiceFunctions | null = null;
+  private _functions: FunctionHandlers | null = null;
   /** Snapshot to inject after setupComplete. */
   private _pendingSnapshot: string | null = null;
 
@@ -199,7 +201,7 @@ export class VoiceSession {
       this.taskNumberMap.update(active);
       this._pendingSnapshot = buildSnapshot(active, recentRepo, this.taskNumberMap);
 
-      this._functions = new VoiceFunctions(this.taskNumberMap, () => this.excludedTaskIds);
+      this._functions = new FunctionHandlers(this.taskNumberMap, () => this.excludedTaskIds);
 
       const wsUrl = tokenResp.ephemeral
         ? `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(tokenResp.token)}`

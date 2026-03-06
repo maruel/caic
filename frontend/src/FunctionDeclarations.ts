@@ -1,0 +1,173 @@
+// Gemini function schema declarations for voice mode,
+// parallel to android/voice/FunctionDeclarations.kt.
+
+type JsonSchema = Record<string, unknown>;
+
+function stringProp(description: string): JsonSchema {
+  return { type: "string", description };
+}
+
+function enumProp(description: string, values: string[]): JsonSchema {
+  return { type: "string", description, enum: values };
+}
+
+function intProp(description: string): JsonSchema {
+  return { type: "integer", description };
+}
+
+function boolProp(description: string): JsonSchema {
+  return { type: "boolean", description };
+}
+
+function objectSchema(properties: Record<string, JsonSchema>, required?: string[]): JsonSchema {
+  const schema: JsonSchema = { type: "object", properties };
+  if (required?.length) schema.required = required;
+  return schema;
+}
+
+const emptyObjectSchema: JsonSchema = { type: "object", properties: {} };
+
+export interface FunctionDeclaration {
+  name: string;
+  description: string;
+  parameters: JsonSchema;
+  behavior?: string;
+  scheduling?: string;
+}
+
+export function buildFunctionDeclarations(
+  harnesses: string[],
+  repos: string[] = [],
+): FunctionDeclaration[] {
+  const harnessDesc =
+    harnesses.length > 0
+      ? `Agent harness (default: ${harnesses[0]})`
+      : "Agent harness to use (optional)";
+  return [
+    {
+      name: "tasks_list",
+      description: "List all current coding tasks with their status, cost, and duration.",
+      parameters: emptyObjectSchema,
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "task_create",
+      description:
+        "Create a new coding task. Confirm repo and prompt with the user before calling.",
+      parameters: objectSchema(
+        {
+          prompt: stringProp("The task description/prompt for the coding agent"),
+          repo:
+            repos.length > 0
+              ? enumProp("Repository to work in", repos)
+              : stringProp("Repository path to work in"),
+          model: stringProp("Model to use (optional)"),
+          harness:
+            harnesses.length > 0
+              ? enumProp(harnessDesc, harnesses)
+              : stringProp(harnessDesc),
+        },
+        ["prompt", "repo"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "task_get_detail",
+      description: "Get recent activity and status details for a task by its number.",
+      parameters: objectSchema(
+        { task_number: intProp("The task number, e.g. 1 for task #1") },
+        ["task_number"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "task_send_message",
+      description: "Send a text message to a waiting or asking agent by task number.",
+      parameters: objectSchema(
+        {
+          task_number: intProp("The task number, e.g. 1 for task #1"),
+          message: stringProp("The message to send to the agent"),
+        },
+        ["task_number", "message"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "task_answer_question",
+      description: "Answer an agent's question by task number. The agent is in 'asking' state.",
+      parameters: objectSchema(
+        {
+          task_number: intProp("The task number, e.g. 1 for task #1"),
+          answer: stringProp("The answer to the agent's question"),
+        },
+        ["task_number", "answer"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "task_push_branch_to_remote",
+      description:
+        "Sync or push a task's changes to GitHub. Push to task branch (default) or squash-push to main.",
+      parameters: objectSchema(
+        {
+          task_number: intProp("The task number, e.g. 1 for task #1"),
+          force: boolProp("Force sync even with safety issues"),
+          target: enumProp("Where to push: branch (default) or main", [
+            "branch",
+            "default",
+            "main",
+            "master",
+          ]),
+        },
+        ["task_number"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "task_terminate",
+      description: "Stop a running coding task by its number.",
+      parameters: objectSchema(
+        { task_number: intProp("The task number, e.g. 1 for task #1") },
+        ["task_number"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "get_usage",
+      description: "Check current API quota utilization and limits.",
+      parameters: emptyObjectSchema,
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "clone_repo",
+      description: "Clone a git repository by URL. Optionally specify a local path.",
+      parameters: objectSchema(
+        {
+          url: stringProp("The git repository URL to clone"),
+          path: stringProp("Local directory name (optional, derived from URL if omitted)"),
+        },
+        ["url"],
+      ),
+      behavior: "BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "task_get_last_message_from_assistant",
+      description: "Get the last text message or question from a task by its number.",
+      parameters: objectSchema(
+        { task_number: intProp("The task number, e.g. 1 for task #1") },
+        ["task_number"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+  ];
+}
