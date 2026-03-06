@@ -148,6 +148,17 @@ func parseItemStarted(msg *JSONRPCMessage) ([]agent.Message, error) {
 			Input:     item.Arguments,
 		}}, nil
 
+	case ItemTypeDynamicToolCall:
+		var item DynamicToolCallItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/started dynamicToolCall: %w", err)
+		}
+		return []agent.Message{&agent.ToolUseMessage{
+			ToolUseID: item.ID,
+			Name:      item.Tool,
+			Input:     item.Arguments,
+		}}, nil
+
 	default:
 		return []agent.Message{&agent.RawMessage{MessageType: msg.Method, Raw: append(msg.Params[:0:0], msg.Params...)}}, nil
 	}
@@ -217,6 +228,23 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 			m.Error = item.Error.Message
 		}
 		return []agent.Message{m}, nil
+
+	case ItemTypeDynamicToolCall:
+		var item DynamicToolCallItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed dynamicToolCall: %w", err)
+		}
+		m := &agent.ToolResultMessage{ToolUseID: item.ID}
+		if item.Success != nil && !*item.Success {
+			m.Error = "tool call failed"
+		}
+		return []agent.Message{m}, nil
+
+	case ItemTypeContextCompaction:
+		return []agent.Message{&agent.SystemMessage{
+			MessageType: "system",
+			Subtype:     "context_compaction",
+		}}, nil
 
 	case ItemTypeWebSearch:
 		var item WebSearchItem

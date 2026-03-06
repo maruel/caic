@@ -198,6 +198,82 @@ func TestParseMessage(t *testing.T) {
 			t.Errorf("ToolResultMessage.ToolUseID = %q, want item_5", tr.ToolUseID)
 		}
 	})
+	t.Run("ItemStartedDynamicToolCall", func(t *testing.T) {
+		const input = `{"jsonrpc":"2.0","method":"item/started","params":{"item":{"id":"dyn_1","type":"dynamicToolCall","tool":"my_tool","arguments":{"key":"val"},"status":"inProgress"},"threadId":"t1","turnId":"turn_1"}}`
+		msgs, err := ParseMessage([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("msgs = %d, want 1", len(msgs))
+		}
+		tu, ok := msgs[0].(*agent.ToolUseMessage)
+		if !ok {
+			t.Fatalf("type = %T, want *agent.ToolUseMessage", msgs[0])
+		}
+		if tu.Name != "my_tool" {
+			t.Errorf("Name = %q, want my_tool", tu.Name)
+		}
+		if tu.ToolUseID != "dyn_1" {
+			t.Errorf("ToolUseID = %q, want dyn_1", tu.ToolUseID)
+		}
+	})
+	t.Run("ItemCompletedDynamicToolCallSuccess", func(t *testing.T) {
+		success := true
+		_ = success // used inline in JSON
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"dyn_1","type":"dynamicToolCall","tool":"my_tool","status":"completed","success":true},"threadId":"t1","turnId":"turn_1"}}`
+		msgs, err := ParseMessage([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("msgs = %d, want 1", len(msgs))
+		}
+		tr, ok := msgs[0].(*agent.ToolResultMessage)
+		if !ok {
+			t.Fatalf("type = %T, want *agent.ToolResultMessage", msgs[0])
+		}
+		if tr.ToolUseID != "dyn_1" {
+			t.Errorf("ToolUseID = %q, want dyn_1", tr.ToolUseID)
+		}
+		if tr.Error != "" {
+			t.Errorf("Error = %q, want empty", tr.Error)
+		}
+	})
+	t.Run("ItemCompletedDynamicToolCallFailure", func(t *testing.T) {
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"dyn_2","type":"dynamicToolCall","tool":"my_tool","status":"failed","success":false},"threadId":"t1","turnId":"turn_1"}}`
+		msgs, err := ParseMessage([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("msgs = %d, want 1", len(msgs))
+		}
+		tr, ok := msgs[0].(*agent.ToolResultMessage)
+		if !ok {
+			t.Fatalf("type = %T, want *agent.ToolResultMessage", msgs[0])
+		}
+		if tr.Error == "" {
+			t.Error("Error should be set for failed dynamic tool call")
+		}
+	})
+	t.Run("ItemCompletedContextCompaction", func(t *testing.T) {
+		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"cc_1","type":"contextCompaction"},"threadId":"t1","turnId":"turn_1"}}`
+		msgs, err := ParseMessage([]byte(input))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("msgs = %d, want 1", len(msgs))
+		}
+		sm, ok := msgs[0].(*agent.SystemMessage)
+		if !ok {
+			t.Fatalf("type = %T, want *agent.SystemMessage", msgs[0])
+		}
+		if sm.Subtype != "context_compaction" {
+			t.Errorf("Subtype = %q, want context_compaction", sm.Subtype)
+		}
+	})
 	t.Run("ItemCompletedWebSearch", func(t *testing.T) {
 		const input = `{"jsonrpc":"2.0","method":"item/completed","params":{"item":{"id":"item_6","type":"webSearch","query":"golang generics","status":"completed"},"threadId":"t1","turnId":"turn_1"}}`
 		msgs, err := ParseMessage([]byte(input))
