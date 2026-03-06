@@ -210,7 +210,7 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 		}
 		msgs, err := parseFn(line)
 		if err != nil {
-			slog.Warn("unparseable message", "err", err, "line", string(line)) //nolint:gosec // structured logging, no injection
+			slog.Warn("unparseable message", "err", err, "line", string(line))
 			if msgCh != nil {
 				msgCh <- &ParseErrorMessage{Err: err.Error(), Line: string(line)}
 			}
@@ -228,7 +228,7 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 			}
 		}
 	}
-	slog.Debug("readMessages: loop exited", "linesRead", n, "hasResult", result != nil, "scanErr", scanner.Err()) //nolint:gosec // structured logging, no injection
+	slog.Debug("readMessages: loop exited", "linesRead", n, "hasResult", result != nil, "scanErr", scanner.Err())
 	return result, scanner.Err()
 }
 

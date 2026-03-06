@@ -117,7 +117,7 @@ See contrib/caic.env for a template with all variables and documentation.
 		if len(suffix) > 4 {
 			suffix = suffix[len(suffix)-4:]
 		}
-		slog.Info("GEMINI_API_KEY configured", "suffix", suffix)
+		slog.Info("GEMINI_API_KEY configured", "suffix", suffix) //nolint:gosec // G706: logging last 4 chars of key, not a secret
 	} else {
 		slog.Warn("GEMINI_API_KEY not set")
 	}
@@ -126,11 +126,11 @@ See contrib/caic.env for a template with all variables and documentation.
 		if len(suffix) > 4 {
 			suffix = suffix[len(suffix)-4:]
 		}
-		slog.Info("TAILSCALE_API_KEY configured", "suffix", suffix)
+		slog.Info("TAILSCALE_API_KEY configured", "suffix", suffix) //nolint:gosec // G706: logging last 4 chars of key, not a secret
 	} else {
 		slog.Warn("TAILSCALE_API_KEY not set")
 	}
-	slog.Info("LLM", "provider", cfg.LLMProvider, "model", cfg.LLMModel)
+	slog.Info("LLM", "provider", cfg.LLMProvider, "model", cfg.LLMModel) //nolint:gosec // G706: config values, not user input
 
 	if *fakeMode {
 		return serveFake(ctx, *addr, *root, cfg)

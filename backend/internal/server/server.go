@@ -381,7 +381,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 		},
 	}
 	shutdownDone := make(chan struct{})
-	go func() {
+	go func() { //nolint:gosec // G118: goroutine intentionally uses Background; parent ctx is already cancelled at shutdown
 		defer close(shutdownDone)
 		<-ctx.Done()
 		// Use Background because the parent ctx is already cancelled.
@@ -637,7 +637,7 @@ func (s *Server) handleTaskEvents(w http.ResponseWriter, r *http.Request) {
 				slog.Warn("marshal SSE event", "err", err)
 				continue
 			}
-			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\nid: %d\n\n", data, idx) //nolint:gosec // SSE stream, data is json.Marshal output
+			_, _ = fmt.Fprintf(w, "event: message\ndata: %s\nid: %d\n\n", data, idx)
 			idx++
 		}
 	}
@@ -1126,7 +1126,7 @@ func (s *Server) getVoiceTokenEphemeral(ctx context.Context, _ *dto.EmptyReq) (*
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-goog-api-key", apiKey)
 
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL is a hardcoded constant
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, dto.InternalError("failed to fetch ephemeral token").Wrap(err)
 	}

@@ -187,7 +187,7 @@ func (f *usageFetcher) fetch() (*v1.UsageResp, error) {
 	req.Header.Set("Authorization", "Bearer "+f.token)
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 
-	resp, err := f.client.Do(req) //nolint:gosec // URL is a hardcoded constant
+	resp, err := f.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +254,6 @@ func readCredentialsToken(credPath string) string {
 
 type claudeCreds struct {
 	ClaudeAiOauth struct {
-		AccessToken string `json:"accessToken"` //nolint:gosec // struct field for JSON unmarshaling, not an exposed secret
+		AccessToken string `json:"accessToken"`
 	} `json:"claudeAiOauth"`
 }
