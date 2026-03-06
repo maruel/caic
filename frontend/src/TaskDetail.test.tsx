@@ -1,4 +1,4 @@
-// Tests for the TaskView diff link navigation.
+// Tests for the TaskDetail diff link navigation.
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "@solidjs/testing-library";
 import userEvent from "@testing-library/user-event";
@@ -35,13 +35,13 @@ vi.mock("@sdk/api.gen", () => ({
 }));
 
 // Import after mocks are set up.
-import TaskView from "./TaskView";
+import TaskDetail from "./TaskDetail";
 
 afterEach(() => {
   navigateMock.mockClear();
 });
 
-describe("TaskView", () => {
+describe("TaskDetail", () => {
   const baseProps = {
     taskId: "abc",
     taskState: "running",
@@ -56,28 +56,28 @@ describe("TaskView", () => {
 
   it("shows Diff link when diffStat has items", () => {
     const { getByText } = render(() => (
-      <TaskView {...baseProps} diffStat={[{ path: "file.ts", added: 10, deleted: 2 }]} />
+      <TaskDetail {...baseProps} diffStat={[{ path: "file.ts", added: 10, deleted: 2 }]} />
     ));
     expect(getByText("Diff")).toBeInTheDocument();
   });
 
   it("hides Diff link when diffStat is empty", () => {
     const { queryByText } = render(() => (
-      <TaskView {...baseProps} diffStat={[]} />
+      <TaskDetail {...baseProps} diffStat={[]} />
     ));
     expect(queryByText("Diff")).not.toBeInTheDocument();
   });
 
   it("hides Diff link when diffStat is undefined", () => {
     const { queryByText } = render(() => (
-      <TaskView {...baseProps} diffStat={undefined} />
+      <TaskDetail {...baseProps} diffStat={undefined} />
     ));
     expect(queryByText("Diff")).not.toBeInTheDocument();
   });
 
   it("diff link href ends with /diff", () => {
     const { getByText } = render(() => (
-      <TaskView {...baseProps} diffStat={[{ path: "file.ts", added: 5, deleted: 1 }]} />
+      <TaskDetail {...baseProps} diffStat={[{ path: "file.ts", added: 5, deleted: 1 }]} />
     ));
     const link = getByText("Diff");
     expect(link.getAttribute("href")).toBe("/task/@abc+test-task/diff");
@@ -86,7 +86,7 @@ describe("TaskView", () => {
   it("clicking diff link calls navigate with path/diff", async () => {
     const user = userEvent.setup();
     const { getByText } = render(() => (
-      <TaskView {...baseProps} diffStat={[{ path: "file.ts", added: 5, deleted: 1 }]} />
+      <TaskDetail {...baseProps} diffStat={[{ path: "file.ts", added: 5, deleted: 1 }]} />
     ));
     await user.click(getByText("Diff"));
     expect(navigateMock).toHaveBeenCalledWith("/task/@abc+test-task/diff");

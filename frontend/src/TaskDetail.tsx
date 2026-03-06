@@ -1,4 +1,4 @@
-// TaskView renders the real-time agent output stream for a single task.
+// TaskDetail renders the real-time agent output stream for a single task.
 import { createSignal, createMemo, For, Index, Show, onCleanup, onMount, createEffect, Switch, Match, type Accessor } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import { sendInput as apiSendInput, restartTask as apiRestartTask, syncTask as apiSyncTask, taskEvents, getTaskToolInput } from "@sdk/api.gen";
@@ -16,7 +16,7 @@ import CloseIcon from "@material-symbols/svg-400/outlined/close.svg?solid";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
 import SyncIcon from "@material-symbols/svg-400/outlined/sync.svg?solid";
 import GitHubIcon from "./github.svg?solid";
-import styles from "./TaskView.module.css";
+import styles from "./TaskDetail.module.css";
 
 // Module-level store for <details> open/closed state so it survives
 // component remounts (task switching, memo re-evaluation).
@@ -43,7 +43,7 @@ interface Props {
   onInputDraft: (value: string) => void;
 }
 
-export default function TaskView(props: Props) {
+export default function TaskDetail(props: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const [messages, setMessages] = createSignal<EventMessage[]>([]);

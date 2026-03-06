@@ -1,7 +1,7 @@
 // TodoPanel renders the agent's current todo list from TodoWrite events.
 import { For, Show, createEffect, createMemo } from "solid-js";
 import type { EventMessage } from "@sdk/types.gen";
-import { detailsOpenState } from "./TaskView";
+import { detailsOpenState } from "./TaskDetail";
 import styles from "./TodoPanel.module.css";
 
 function statusIcon(status: string): string {

@@ -3,7 +3,7 @@ import { createEffect, createSignal, For, Show, Switch, Match, onMount, onCleanu
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { HarnessInfo, Repo, Task, TaskListEvent, UsageResp, ImageData as APIImageData } from "@sdk/types.gen";
 import { getConfig, getPreferences, listHarnesses, listRepos, createTask, cloneRepo, getUsage, terminateTask } from "@sdk/api.gen";
-import TaskView from "./TaskView";
+import TaskDetail from "./TaskDetail";
 import DiffView from "./DiffView";
 import TaskList, { sortTasks } from "./TaskList";
 import PromptInput from "./PromptInput";
@@ -613,7 +613,7 @@ export default function App() {
           <Match when={selectedId()} keyed>
             {(id) => (
               <div class={styles.detailPane}>
-                <TaskView
+                <TaskDetail
                   taskId={id}
                   taskState={selectedTask()?.state ?? "pending"}
                   initialPrompt={selectedTask()?.initialPrompt}

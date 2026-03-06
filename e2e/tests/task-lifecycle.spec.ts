@@ -14,7 +14,7 @@ test("create task, verify streaming text and result, then terminate", async ({ p
   await page.getByTestId("prompt-input").fill(prompt);
   await page.getByTestId("submit-task").click();
 
-  // Click the task card to open TaskView.
+  // Click the task card to open TaskDetail.
   await page.getByText(prompt).first().click();
 
   // Wait for the assistant message from the fake agent. The fake backend emits
