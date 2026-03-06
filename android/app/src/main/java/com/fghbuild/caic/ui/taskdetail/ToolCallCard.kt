@@ -46,6 +46,7 @@ import kotlinx.serialization.json.jsonPrimitive
 private val PlanBorderColor = Color(0xFFDDD6FE)
 private val PlanBgColor = Color(0xFFF5F3FF)
 private val ToolErrorBgColor = Color(0xFFFFF0F0)
+private val ToolBlockBgColor = Color(0xFFF0F0F0)
 
 @Composable
 fun ToolCallCard(
@@ -63,8 +64,8 @@ fun ToolCallCard(
     Column(modifier = modifier.fillMaxWidth()) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            tonalElevation = 1.dp,
             shape = MaterialTheme.shapes.small,
+            color = ToolBlockBgColor,
         ) {
             Column {
                 Row(

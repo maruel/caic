@@ -46,6 +46,8 @@ private val DiffAddedColor = Color(0xFF22863A)
 private val DiffDeletedColor = Color(0xFFCB2431)
 private val PlanBadgeBg = Color(0xFFEDE9FE)
 private val PlanBadgeFg = Color(0xFF7C3AED)
+private val FeatureBadgeBg = Color(0xFFDFEEFA)
+private val FeatureBadgeFg = Color(0xFF2563EB)
 private val TerminalStates = setOf("terminated", "failed")
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
@@ -88,6 +90,9 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                             )
                         }
                     }
+                    if (task.tailscale != null) FeatureBadge("TS")
+                    if (task.usb == true) FeatureBadge("USB")
+                    if (task.display == true) FeatureBadge("D")
                     Surface(shape = RoundedCornerShape(4.dp), color = stateColor(task.state)) {
                         Text(
                             text = task.state,
@@ -208,6 +213,19 @@ private fun MetaText(text: String) {
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+@Composable
+private fun FeatureBadge(label: String) {
+    Surface(shape = RoundedCornerShape(4.dp), color = FeatureBadgeBg) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = FeatureBadgeFg,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+        )
+    }
 }
 
 @Composable

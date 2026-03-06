@@ -79,6 +79,14 @@ fun AskQuestionCard(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             ask.questions.forEachIndexed { qIdx, q ->
+                q.header?.let { header ->
+                    Text(
+                        text = header,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+                }
                 Text(
                     text = q.question,
                     style = MaterialTheme.typography.bodyMedium,
@@ -93,7 +101,18 @@ fun AskQuestionCard(
                                     toggleOption(selections, qIdx, option.label, q.multiSelect == true)
                                 }
                             },
-                            label = { Text(option.label) },
+                            label = {
+                                Column {
+                                    Text(option.label)
+                                    option.description?.let { desc ->
+                                        Text(
+                                            text = desc,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            },
                             enabled = interactive,
                         )
                     }
