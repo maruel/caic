@@ -18,6 +18,12 @@ private data class TextState(val text: String, val isStreaming: Boolean)
 
 @Composable
 fun TextMessageGroup(events: List<EventMessage>) {
+    val thinkingEvents = remember(events) {
+        events.filter { it.kind == EventKinds.Thinking || it.kind == EventKinds.ThinkingDelta }
+    }
+    if (thinkingEvents.isNotEmpty()) {
+        ThinkingCard(events = thinkingEvents)
+    }
     val state = remember(events) {
         val finalEv = events.lastOrNull { it.kind == EventKinds.Text }
         if (finalEv?.text != null) {

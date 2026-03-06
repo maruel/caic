@@ -442,6 +442,30 @@ a.headerBranch:hover {
   margin-top: 0.25rem;
 }
 
+.thinkingBlock {
+  margin-bottom: 0.25rem;
+  background: var(--color-bg-code);
+  border-radius: var(--radius-md);
+  padding: 0.25rem 0.5rem;
+  border-left: 2px solid #9b8fd4;
+}
+
+.thinkingBlock summary {
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.thinkingText {
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  color: var(--color-text-secondary);
+  margin: 0.15rem 0;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
 .toolBlock {
   margin-bottom: 0.25rem;
   background: var(--color-bg-input);

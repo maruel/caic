@@ -38,7 +38,7 @@ describe("groupMessages", () => {
   it("consecutive tool uses form one group", () => {
     const groups = groupMessages([toolUseEvent("t1", "Read"), toolUseEvent("t2", "Bash")]);
     expect(groups).toHaveLength(1);
-    expect(groups[0].kind).toBe("tool");
+    expect(groups[0].kind).toBe("action");
     expect(groups[0].toolCalls).toHaveLength(2);
   });
 
@@ -67,7 +67,7 @@ describe("groupMessages", () => {
       toolResultEvent("t1"),
     ]);
     expect(groups).toHaveLength(2);
-    expect(groups[0].kind).toBe("tool");
+    expect(groups[0].kind).toBe("action");
     expect(groups[0].toolCalls[0].done).toBe(true);
     expect(groups[0].toolCalls[0].result?.toolUseID).toBe("t1");
   });
@@ -96,22 +96,70 @@ describe("groupMessages", () => {
       toolUseEvent("t3", "Edit"),
     ]);
     expect(groups).toHaveLength(3); // [TOOL(t1+t2+t3), TEXT, TEXT]
-    expect(groups[0].kind).toBe("tool");
+    expect(groups[0].kind).toBe("action");
     expect(groups[0].toolCalls).toHaveLength(3);
   });
 
-  it("thinking and subagent events are skipped and don't split tool groups", () => {
+  it("thinking events are absorbed into an adjacent tool group", () => {
+    // Realistic pattern: usage ends the first assistant message, then thinking
+    // precedes the next tool call in a new assistant message.
     const groups = groupMessages([
       toolUseEvent("t1", "Read"),
+      usageEvent(),
       { kind: "thinking", ts: 0, thinking: { text: "hmm" } },
-      { kind: "thinkingDelta", ts: 0, thinkingDelta: { text: "partial" } },
       { kind: "subagentStart", ts: 0, subagentStart: { taskID: "sa1", description: "explore" } },
       toolUseEvent("t2", "Bash"),
       { kind: "subagentEnd", ts: 0, subagentEnd: { taskID: "sa1", status: "completed" } },
     ]);
+    // Thinking is absorbed into the merged tool group; no standalone thinking group.
+    const toolGroup = groups.find((g) => g.kind === "action");
+    expect(toolGroup?.toolCalls).toHaveLength(2);
+    expect(toolGroup?.events.some((e) => e.kind === "thinking")).toBe(true);
+    // Subagent events don't create groups.
+    expect(groups.some((g) => g.kind === "other")).toBe(false);
+  });
+
+  it("thinking followed by usage does not create a barrier before tool use", () => {
+    // usage after a thinking-only group must not create an OTHER barrier that
+    // prevents the merge pass from absorbing thinking into the tool group.
+    const groups = groupMessages([
+      { kind: "thinkingDelta", ts: 0, thinkingDelta: { text: "thinking..." } },
+      usageEvent(),
+      toolUseEvent("t1", "Read"),
+    ]);
+    expect(groups.some((g) => g.kind === "other")).toBe(false);
     expect(groups).toHaveLength(1);
-    expect(groups[0].kind).toBe("tool");
-    expect(groups[0].toolCalls).toHaveLength(2);
+    const toolGroup = groups[0];
+    expect(toolGroup.kind).toBe("action");
+    expect(toolGroup.toolCalls).toHaveLength(1);
+    expect(toolGroup.events.some((e) => e.kind === "thinkingDelta")).toBe(true);
+  });
+
+  it("thinking immediately after a tool group is absorbed into it", () => {
+    // The agent may start a new thinking block right after tool calls complete,
+    // before any text commentary. It should merge into the preceding tool group.
+    const groups = groupMessages([
+      toolUseEvent("t1", "Read"),
+      usageEvent(),
+      { kind: "thinkingDelta", ts: 0, thinkingDelta: { text: "analyzing..." } },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("action");
+    expect(groups[0].toolCalls).toHaveLength(1);
+    expect(groups[0].events.some((e) => e.kind === "thinkingDelta")).toBe(true);
+  });
+
+  it("thinking followed by text is absorbed into the text group", () => {
+    // Standalone thinking before text commentary (no tools) must not produce a
+    // separate Thinking block; it should be inside the text group instead.
+    const groups = groupMessages([
+      { kind: "thinkingDelta", ts: 0, thinkingDelta: { text: "thinking..." } },
+      textDeltaEvent("hello"),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("text");
+    expect(groups[0].events.some((e) => e.kind === "thinkingDelta")).toBe(true);
+    expect(groups[0].events.some((e) => e.kind === "textDelta")).toBe(true);
   });
 });
 

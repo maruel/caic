@@ -98,6 +98,8 @@ private sealed interface MsgItem {
     ) : MsgItem
     /** One tool call within an expanded multi-call tool group. */
     data class ToolCallItem(val call: ToolCall, override val key: String) : MsgItem
+    /** Thinking block inside an expanded multi-call tool group. */
+    data class ThinkingItem(val events: List<com.caic.sdk.v1.EventMessage>, override val key: String) : MsgItem
 }
 
 /**
@@ -126,11 +128,18 @@ private fun buildItems(
         }
         turn.groups.forEachIndexed { j, group ->
             val base = if (isLive) "g:$j" else "e${turnKey}g$j"
-            if (group.kind == GroupKind.TOOL && group.toolCalls.size > 1) {
+            if (group.kind == GroupKind.ACTION && group.toolCalls.size > 1) {
                 // Multi-call tool group: header + optional per-call items.
                 val toolGroupKey = group.toolCalls.first().use.toolUseID
                 result.add(MsgItem.ToolGroupHeader(group.toolCalls, toolGroupKey, "${base}h"))
                 if (toolGroupKey in expandedToolGroups) {
+                    val thinkingEvents = group.events.filter {
+                        it.kind == com.caic.sdk.v1.EventKinds.Thinking ||
+                            it.kind == com.caic.sdk.v1.EventKinds.ThinkingDelta
+                    }
+                    if (thinkingEvents.isNotEmpty()) {
+                        result.add(MsgItem.ThinkingItem(thinkingEvents, "${base}thinking"))
+                    }
                     group.toolCalls.forEachIndexed { k, call ->
                         result.add(MsgItem.ToolCallItem(call, "$base:$k"))
                     }
@@ -426,6 +435,7 @@ private fun MessageList(
                                     expandedToolGroups + item.groupKey
                             },
                         )
+                        is MsgItem.ThinkingItem -> ThinkingCard(events = item.events)
                         is MsgItem.ToolCallItem -> ToolCallCard(
                             call = item.call,
                             onLoadInput = onLoadToolInput?.takeIf { item.call.use.inputTruncated == true }

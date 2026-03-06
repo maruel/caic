@@ -9,7 +9,7 @@ import com.caic.sdk.v1.EventToolUse
 import com.caic.sdk.v1.TodoItem
 import com.caic.sdk.v1.EventKinds
 
-enum class GroupKind { TEXT, TOOL, ASK, USER_INPUT, OTHER }
+enum class GroupKind { TEXT, ACTION, ASK, USER_INPUT, OTHER }
 
 @Immutable
 data class ToolCall(
@@ -84,6 +84,14 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                     last.events.any { it.kind == EventKinds.TextDelta }
                 ) {
                     last.events.add(ev)
+                } else if (last != null && last.kind == GroupKind.ACTION && last.toolCalls.isEmpty()) {
+                    // Text immediately after a thinking-only group: absorb thinking into this text group
+                    // so it renders as a collapsed block inside the text rather than a separate top-level item.
+                    val thinkingGroup = groups.removeAt(groups.lastIndex)
+                    groups.add(MutableGroup(
+                        kind = GroupKind.TEXT,
+                        events = (thinkingGroup.events + ev).toMutableList(),
+                    ))
                 } else {
                     groups.add(MutableGroup(kind = GroupKind.TEXT, events = mutableListOf(ev)))
                 }
@@ -92,6 +100,13 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                 val last = lastGroup()
                 if (last != null && last.kind == GroupKind.TEXT) {
                     last.events.add(ev)
+                } else if (last != null && last.kind == GroupKind.ACTION && last.toolCalls.isEmpty()) {
+                    // Text immediately after a thinking-only group: absorb thinking into this text group.
+                    val thinkingGroup = groups.removeAt(groups.lastIndex)
+                    groups.add(MutableGroup(
+                        kind = GroupKind.TEXT,
+                        events = (thinkingGroup.events + ev).toMutableList(),
+                    ))
                 } else {
                     groups.add(MutableGroup(kind = GroupKind.TEXT, events = mutableListOf(ev)))
                 }
@@ -100,23 +115,25 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                 val toolUse = ev.toolUse ?: continue
                 val call = MutableToolCall(use = toolUse, done = toolUse.name.lowercase() !in ASYNC_TOOLS)
                 val last = lastGroup()
-                if (last != null && last.kind == GroupKind.TOOL && !usageSinceLastTool) {
+                if (last != null && last.kind == GroupKind.ACTION &&
+                    last.toolCalls.isNotEmpty() && !usageSinceLastTool
+                ) {
                     // Consecutive toolUse in the same AssistantMessage — merge.
                     last.events.add(ev)
                     last.toolCalls.add(call)
                 } else if (!usageSinceLastTool) {
                     // Same AssistantMessage but intervening text; find the most
-                    // recent tool group to coalesce into.
-                    val anchor = groups.lastOrNull { it.kind == GroupKind.TOOL }
+                    // recent action group with tool calls to coalesce into.
+                    val anchor = groups.lastOrNull { it.kind == GroupKind.ACTION && it.toolCalls.isNotEmpty() }
                     if (anchor != null) {
                         anchor.events.add(ev)
                         anchor.toolCalls.add(call)
                     } else {
-                        groups.add(newToolGroup(ev, call))
+                        groups.add(newActionGroup(ev, call))
                     }
                 } else {
-                    // New AssistantMessage — start a new tool group.
-                    groups.add(newToolGroup(ev, call))
+                    // New AssistantMessage — start a new action group.
+                    groups.add(newActionGroup(ev, call))
                     usageSinceLastTool = false
                 }
             }
@@ -125,7 +142,7 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                 var matched = false
                 for (i in groups.indices.reversed()) {
                     val g = groups[i]
-                    if (g.kind != GroupKind.TOOL) continue
+                    if (g.kind != GroupKind.ACTION) continue
                     val tc = g.toolCalls.firstOrNull { it.use.toolUseID == tr.toolUseID && it.result == null }
                     if (tc != null) {
                         tc.result = tr
@@ -136,7 +153,7 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                     }
                 }
                 if (!matched) {
-                    groups.add(MutableGroup(kind = GroupKind.TOOL, events = mutableListOf(ev)))
+                    groups.add(MutableGroup(kind = GroupKind.ACTION, events = mutableListOf(ev)))
                 }
             }
             EventKinds.Ask -> {
@@ -155,7 +172,7 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
             EventKinds.Usage -> {
                 usageSinceLastTool = true
                 val last = lastGroup()
-                if (last != null && (last.kind == GroupKind.TEXT || last.kind == GroupKind.TOOL)) {
+                if (last != null && (last.kind == GroupKind.TEXT || last.kind == GroupKind.ACTION)) {
                     last.events.add(ev)
                 } else {
                     groups.add(MutableGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
@@ -163,10 +180,26 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
             }
             EventKinds.Todo -> { /* Rendered by TodoPanel directly; skip to avoid splitting tool groups. */ }
             EventKinds.DiffStat -> { /* Metadata-only; skip. */ }
-            // Thinking blocks and subagent lifecycle events are not rendered yet.
-            // Explicitly listed to avoid creating OTHER groups that would act as
-            // hard boundaries for tool group merging.
-            EventKinds.Thinking, EventKinds.ThinkingDelta,
+            EventKinds.Thinking -> {
+                val last = lastGroup()
+                if (last != null && last.kind == GroupKind.ACTION && last.toolCalls.isEmpty() &&
+                    last.events.any { it.kind == EventKinds.ThinkingDelta }
+                ) {
+                    last.events.add(ev)
+                } else {
+                    groups.add(MutableGroup(kind = GroupKind.ACTION, events = mutableListOf(ev)))
+                }
+            }
+            EventKinds.ThinkingDelta -> {
+                val last = lastGroup()
+                if (last != null && last.kind == GroupKind.ACTION && last.toolCalls.isEmpty()) {
+                    last.events.add(ev)
+                } else {
+                    groups.add(MutableGroup(kind = GroupKind.ACTION, events = mutableListOf(ev)))
+                }
+            }
+            // Subagent lifecycle events are not rendered. Explicitly listed to
+            // avoid creating OTHER groups that act as hard barriers.
             EventKinds.SubagentStart, EventKinds.SubagentEnd -> {}
             else -> {
                 groups.add(MutableGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
@@ -174,17 +207,46 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
         }
     }
 
-    // Merge tool groups separated only by text groups. The agent often emits
+    // Merge action groups separated only by text groups. The agent often emits
     // short commentary between tool calls ("Let me read...", "Now let me edit...").
     // Without merging, each appears as a separate 1-tool block. ask, userInput,
     // and other groups act as hard boundaries that prevent merging.
+    // Thinking-only action groups adjacent to tool-call action groups are absorbed
+    // so their events can be rendered alongside the tool calls.
     val merged = mutableListOf<MutableGroup>()
     for (g in groups) {
-        if (g.kind == GroupKind.TOOL) {
-            val anchor = merged.lastOrNull { it.kind != GroupKind.TEXT }
-            if (anchor != null && anchor.kind == GroupKind.TOOL) {
+        if (g.kind == GroupKind.ACTION && g.toolCalls.isNotEmpty()) {
+            // Find the nearest non-text, non-thinking-only anchor action group.
+            val anchor = merged.lastOrNull {
+                it.kind != GroupKind.TEXT && !(it.kind == GroupKind.ACTION && it.toolCalls.isEmpty())
+            }
+            // Absorb any trailing thinking-only action groups from the merged list.
+            val thinkingEvents = mutableListOf<EventMessage>()
+            while (merged.isNotEmpty() && merged.last().kind == GroupKind.ACTION &&
+                merged.last().toolCalls.isEmpty()
+            ) {
+                thinkingEvents.addAll(0, merged.removeAt(merged.lastIndex).events)
+            }
+            if (anchor != null && anchor.kind == GroupKind.ACTION) {
+                anchor.events.addAll(thinkingEvents)
                 anchor.events.addAll(g.events)
                 anchor.toolCalls.addAll(g.toolCalls)
+                continue
+            }
+            if (thinkingEvents.isNotEmpty()) {
+                val combined = MutableGroup(
+                    kind = GroupKind.ACTION,
+                    events = (thinkingEvents + g.events).toMutableList(),
+                    toolCalls = g.toolCalls,
+                )
+                merged.add(combined)
+                continue
+            }
+        } else if (g.kind == GroupKind.ACTION && g.toolCalls.isEmpty()) {
+            // Thinking-only group immediately following a tool-call group: absorb into it.
+            val last = merged.lastOrNull()
+            if (last != null && last.kind == GroupKind.ACTION && last.toolCalls.isNotEmpty()) {
+                last.events.addAll(g.events)
                 continue
             }
         }
@@ -192,10 +254,10 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
     }
 
     // Mark tool calls as implicitly done when later events exist.
-    val lastToolIdx = merged.indexOfLast { it.kind == GroupKind.TOOL }
+    val lastToolIdx = merged.indexOfLast { it.kind == GroupKind.ACTION && it.toolCalls.isNotEmpty() }
     for (i in merged.indices) {
         val g = merged[i]
-        if (g.kind != GroupKind.TOOL) continue
+        if (g.kind != GroupKind.ACTION || g.toolCalls.isEmpty()) continue
         if (i < lastToolIdx || i < merged.size - 1) {
             for (tc in g.toolCalls) tc.done = true
         }
@@ -204,8 +266,8 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
     return merged.map { it.freeze() }
 }
 
-private fun newToolGroup(ev: EventMessage, call: MutableToolCall) = MutableGroup(
-    kind = GroupKind.TOOL,
+private fun newActionGroup(ev: EventMessage, call: MutableToolCall) = MutableGroup(
+    kind = GroupKind.ACTION,
     events = mutableListOf(ev),
     toolCalls = mutableListOf(call),
 )
@@ -229,7 +291,7 @@ fun groupTurns(groups: List<MessageGroup>): List<Turn> {
     for (g in groups) {
         current.add(g)
         when (g.kind) {
-            GroupKind.TOOL -> toolCount += g.toolCalls.size
+            GroupKind.ACTION -> toolCount += g.toolCalls.size
             GroupKind.TEXT -> textCount++
             else -> {}
         }

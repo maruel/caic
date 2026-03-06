@@ -2,9 +2,9 @@
 import type { EventMessage, EventToolUse, EventToolResult, EventAsk } from "@sdk/types.gen";
 
 export interface MessageGroup {
-  kind: "text" | "tool" | "ask" | "userInput" | "other";
+  kind: "text" | "action" | "ask" | "userInput" | "other";
   events: EventMessage[];
-  // For "tool" groups: paired tool_use and tool_result events.
+  // For "action" groups: paired tool_use and tool_result events (empty for thinking-only).
   toolCalls: ToolCall[];
   // For "ask" groups: the ask payload.
   ask?: EventAsk;
@@ -50,6 +50,11 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
         const last = lastGroup();
         if (last && last.kind === "text" && last.events.some((e) => e.kind === "textDelta")) {
           last.events.push(ev);
+        } else if (last && last.kind === "action" && last.toolCalls.length === 0) {
+          // Text immediately after a thinking-only group: absorb thinking into this text group
+          // so it renders as a collapsed block inside the text rather than a separate top-level item.
+          const thinkingGroup = groups.pop();
+          groups.push({ kind: "text", events: [...(thinkingGroup?.events ?? []), ev], toolCalls: [] });
         } else {
           groups.push({ kind: "text", events: [ev], toolCalls: [] });
         }
@@ -59,6 +64,10 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
         const last = lastGroup();
         if (last && last.kind === "text") {
           last.events.push(ev);
+        } else if (last && last.kind === "action" && last.toolCalls.length === 0) {
+          // Text immediately after a thinking-only group: absorb thinking into this text group.
+          const thinkingGroup = groups.pop();
+          groups.push({ kind: "text", events: [...(thinkingGroup?.events ?? []), ev], toolCalls: [] });
         } else {
           groups.push({ kind: "text", events: [ev], toolCalls: [] });
         }
@@ -70,16 +79,16 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
           // (Bash, Task) emit an explicit toolResult later.
           const call: ToolCall = { use: ev.toolUse, done: !ASYNC_TOOLS.has(ev.toolUse.name.toLowerCase()) };
           const last = lastGroup();
-          if (last && last.kind === "tool" && !usageSinceLastTool) {
+          if (last && last.kind === "action" && last.toolCalls.length > 0 && !usageSinceLastTool) {
             // Consecutive toolUse in the same AssistantMessage — merge.
             last.events.push(ev);
             last.toolCalls.push(call);
           } else if (!usageSinceLastTool) {
             // Same AssistantMessage but intervening text; find the most
-            // recent tool group to coalesce into.
+            // recent action group with tool calls to coalesce into.
             let coalesced = false;
             for (let i = groups.length - 1; i >= 0; i--) {
-              if (groups[i].kind === "tool") {
+              if (groups[i].kind === "action" && groups[i].toolCalls.length > 0) {
                 groups[i].events.push(ev);
                 groups[i].toolCalls.push(call);
                 coalesced = true;
@@ -87,11 +96,11 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
               }
             }
             if (!coalesced) {
-              groups.push({ kind: "tool", events: [ev], toolCalls: [call] });
+              groups.push({ kind: "action", events: [ev], toolCalls: [call] });
             }
           } else {
-            // New AssistantMessage — start a new tool group.
-            groups.push({ kind: "tool", events: [ev], toolCalls: [call] });
+            // New AssistantMessage — start a new action group.
+            groups.push({ kind: "action", events: [ev], toolCalls: [call] });
             usageSinceLastTool = false;
           }
         }
@@ -105,7 +114,7 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
           let matched = false;
           for (let i = groups.length - 1; i >= 0; i--) {
             const g = groups[i];
-            if (g.kind !== "tool") continue;
+            if (g.kind !== "action") continue;
             const tc = g.toolCalls.find((c) => c.use.toolUseID === tr.toolUseID && !c.result);
             if (tc) {
               tc.result = tr;
@@ -116,7 +125,7 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
             }
           }
           if (!matched) {
-            groups.push({ kind: "tool", events: [ev], toolCalls: [] });
+            groups.push({ kind: "action", events: [ev], toolCalls: [] });
           }
         }
         break;
@@ -140,7 +149,7 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
         {
           usageSinceLastTool = true;
           const last = lastGroup();
-          if (last && (last.kind === "text" || last.kind === "tool")) {
+          if (last && (last.kind === "text" || last.kind === "action")) {
             last.events.push(ev);
           } else {
             groups.push({ kind: "other", events: [ev], toolCalls: [] });
@@ -154,13 +163,30 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
       case "diffStat":
         // Metadata-only; live diff stat shown in the task list via Task.diffStat.
         break;
-      case "thinking":
-      case "thinkingDelta":
+      case "thinking": {
+        // A final thinking event replaces any preceding thinkingDelta in the same action group.
+        const last = lastGroup();
+        if (last && last.kind === "action" && last.toolCalls.length === 0 &&
+            last.events.some((e) => e.kind === "thinkingDelta")) {
+          last.events.push(ev);
+        } else {
+          groups.push({ kind: "action", events: [ev], toolCalls: [] });
+        }
+        break;
+      }
+      case "thinkingDelta": {
+        const last = lastGroup();
+        if (last && last.kind === "action" && last.toolCalls.length === 0) {
+          last.events.push(ev);
+        } else {
+          groups.push({ kind: "action", events: [ev], toolCalls: [] });
+        }
+        break;
+      }
       case "subagentStart":
       case "subagentEnd":
-        // Skip: thinking blocks and subagent lifecycle events are not rendered
-        // yet. Explicitly listed to avoid creating OTHER groups that would act
-        // as hard boundaries for tool group merging.
+        // Skip: subagent lifecycle events are not rendered yet. Explicitly
+        // listed to avoid creating OTHER groups that act as hard barriers.
         break;
       default:
         groups.push({ kind: "other", events: [ev], toolCalls: [] });
@@ -168,27 +194,47 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
     }
   }
 
-  // Merge tool groups separated only by text/usage groups.  The agent often
-  // emits short commentary between tool turns ("Let me read...", "Now let me
-  // edit...").  Without merging, each turn shows as a separate 1-tool block.
-  // ask, userInput, and other groups act as hard boundaries that prevent
-  // merging.  Text groups between tool groups are kept for display; tool
-  // calls are consolidated into the first tool group of each run.
+  // Merge action groups separated only by text groups.  The agent often emits
+  // short commentary between tool turns ("Let me read...", "Now let me edit...").
+  // Without merging, each turn shows as a separate 1-tool block.  ask, userInput,
+  // and other groups act as hard boundaries that prevent merging.  Text groups
+  // between action groups are kept for display; tool calls are consolidated into
+  // the first action group of each run.  Thinking-only action groups adjacent to
+  // tool-call action groups are absorbed into them.
   const merged: MessageGroup[] = [];
   for (const g of groups) {
-    if (g.kind === "tool") {
-      // Find the nearest non-text group in merged to check for a tool anchor.
+    if (g.kind === "action" && g.toolCalls.length > 0) {
+      // Find the nearest non-text, non-thinking-only anchor action group.
       let anchor: MessageGroup | undefined;
       for (let i = merged.length - 1; i >= 0; i--) {
-        if (merged[i].kind !== "text") {
-          anchor = merged[i];
-          break;
-        }
+        const m = merged[i];
+        if (m.kind === "text" || (m.kind === "action" && m.toolCalls.length === 0)) continue;
+        anchor = m;
+        break;
       }
-      if (anchor && anchor.kind === "tool") {
-        // Merge tool calls into the earlier tool group.
-        anchor.events.push(...g.events);
+      // Absorb any trailing thinking-only action groups from the merged list.
+      const thinkingEvents: EventMessage[] = [];
+      while (merged.length > 0) {
+        const last = merged[merged.length - 1];
+        if (last.kind !== "action" || last.toolCalls.length > 0) break;
+        thinkingEvents.unshift(...(merged.pop()?.events ?? []));
+      }
+      if (anchor && anchor.kind === "action") {
+        // Merge tool calls into the existing anchor; prepend absorbed thinking events.
+        anchor.events.push(...thinkingEvents, ...g.events);
         anchor.toolCalls.push(...g.toolCalls);
+        continue;
+      }
+      if (thinkingEvents.length > 0) {
+        // New action group with absorbed thinking events prepended.
+        merged.push({ kind: "action", events: [...thinkingEvents, ...g.events], toolCalls: g.toolCalls });
+        continue;
+      }
+    } else if (g.kind === "action" && g.toolCalls.length === 0) {
+      // Thinking-only group immediately following a tool-call group: absorb into it.
+      const last = merged[merged.length - 1];
+      if (last && last.kind === "action" && last.toolCalls.length > 0) {
+        last.events.push(...g.events);
         continue;
       }
     }
@@ -200,11 +246,11 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
   // tools (Read, Edit, Grep, etc.), so any tool call followed by a later
   // group is implicitly complete — only the very last tool group may have
   // genuinely pending calls.
-  const lastToolGroupIdx = merged.findLastIndex((g) => g.kind === "tool");
+  const lastActionGroupIdx = merged.findLastIndex((g) => g.kind === "action" && g.toolCalls.length > 0);
   for (let i = 0; i < merged.length; i++) {
     const g = merged[i];
-    if (g.kind !== "tool") continue;
-    if (i < lastToolGroupIdx || i < merged.length - 1) {
+    if (g.kind !== "action" || g.toolCalls.length === 0) continue;
+    if (i < lastActionGroupIdx || i < merged.length - 1) {
       for (const tc of g.toolCalls) tc.done = true;
     }
   }
@@ -229,7 +275,7 @@ export function groupTurns(groups: MessageGroup[]): Turn[] {
 
   for (const g of groups) {
     current.push(g);
-    if (g.kind === "tool") {
+    if (g.kind === "action") {
       toolCount += g.toolCalls.length;
     } else if (g.kind === "text") {
       textCount++;

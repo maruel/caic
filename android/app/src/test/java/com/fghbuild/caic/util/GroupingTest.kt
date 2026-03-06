@@ -12,6 +12,8 @@ import com.caic.sdk.v1.EventResult
 import com.caic.sdk.v1.EventUsage
 import com.caic.sdk.v1.EventUserInput
 import com.caic.sdk.v1.EventKinds
+import com.caic.sdk.v1.EventThinking
+import com.caic.sdk.v1.EventThinkingDelta
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -86,7 +88,7 @@ class GroupingTest {
                 toolUseEvent("t2", "Bash"),
             ))
             assertEquals(1, groups.size)
-            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(GroupKind.ACTION, groups[0].kind)
             assertEquals(2, groups[0].toolCalls.size)
         }
 
@@ -97,7 +99,7 @@ class GroupingTest {
                 toolResultEvent("t1"),
             ))
             assertEquals(2, groups.size)
-            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(GroupKind.ACTION, groups[0].kind)
             assertTrue(groups[0].toolCalls[0].done)
             assertEquals("t1", groups[0].toolCalls[0].result?.toolUseID)
         }
@@ -127,7 +129,7 @@ class GroupingTest {
                 toolUseEvent("t2", "Bash"),
             ))
             assertEquals(2, groups.size) // [TOOL(t1+t2), TEXT]
-            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(GroupKind.ACTION, groups[0].kind)
             assertEquals(2, groups[0].toolCalls.size)
         }
 
@@ -237,7 +239,7 @@ class GroupingTest {
             ))
             // Three tool groups separated by text → merge pass consolidates into one.
             assertEquals(3, groups.size) // [TOOL(t1+t2+t3), TEXT, TEXT]
-            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(GroupKind.ACTION, groups[0].kind)
             assertEquals(3, groups[0].toolCalls.size)
         }
 
@@ -260,9 +262,9 @@ class GroupingTest {
             ))
             // Ask is a hard boundary — merge pass won't merge tool groups across it.
             assertEquals(3, groups.size)
-            assertEquals(GroupKind.TOOL, groups[0].kind)
+            assertEquals(GroupKind.ACTION, groups[0].kind)
             assertEquals(GroupKind.ASK, groups[1].kind)
-            assertEquals(GroupKind.TOOL, groups[2].kind)
+            assertEquals(GroupKind.ACTION, groups[2].kind)
         }
 
         t.run("todo events are skipped and don't split tool groups") {
@@ -275,17 +277,92 @@ class GroupingTest {
             assertEquals(2, groups[0].toolCalls.size)
         }
 
-        t.run("thinking and subagent events are skipped and don't split tool groups") {
+        t.run("thinking followed by usage does not create a barrier before tool use") {
+            // usage after a thinking-only group must not create an OTHER barrier that
+            // prevents the merge pass from absorbing thinking into the tool group.
+            val groups = groupMessages(listOf(
+                EventMessage(
+                    kind = EventKinds.ThinkingDelta, ts = 0,
+                    thinkingDelta = EventThinkingDelta(text = "thinking..."),
+                ),
+                EventMessage(
+                    kind = EventKinds.Usage, ts = 0,
+                    usage = EventUsage(
+                        inputTokens = 100, outputTokens = 50,
+                        cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                    ),
+                ),
+                toolUseEvent("t1", "Read"),
+            ))
+            assertTrue(groups.none { it.kind == GroupKind.OTHER })
+            assertEquals(1, groups.size)
+            assertEquals(GroupKind.ACTION, groups[0].kind)
+            assertEquals(1, groups[0].toolCalls.size)
+            assertTrue(groups[0].events.any { it.kind == EventKinds.ThinkingDelta })
+        }
+
+        t.run("thinking events are absorbed into an adjacent tool group") {
+            // Realistic pattern: usage ends the first assistant message, then
+            // thinking precedes the next tool call in a new assistant message.
             val groups = groupMessages(listOf(
                 toolUseEvent("t1", "Read"),
-                EventMessage(kind = EventKinds.Thinking, ts = 0),
-                EventMessage(kind = EventKinds.ThinkingDelta, ts = 0),
+                EventMessage(
+                    kind = EventKinds.Usage, ts = 0,
+                    usage = EventUsage(
+                        inputTokens = 100, outputTokens = 50,
+                        cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                    ),
+                ),
+                EventMessage(kind = EventKinds.Thinking, ts = 0, thinking = EventThinking("hmm")),
                 EventMessage(kind = EventKinds.SubagentStart, ts = 0),
                 toolUseEvent("t2", "Bash"),
                 EventMessage(kind = EventKinds.SubagentEnd, ts = 0),
             ))
+            // Thinking is absorbed into the merged action group; no standalone thinking group.
+            val toolGroup = groups.first { it.kind == GroupKind.ACTION }
+            assertEquals(2, toolGroup.toolCalls.size)
+            assertTrue(toolGroup.events.any { it.kind == EventKinds.Thinking })
+            // Subagent events don't create groups.
+            assertTrue(groups.none { it.kind == GroupKind.OTHER })
+        }
+
+        t.run("thinking immediately after a tool group is absorbed into it") {
+            // The agent may start a new thinking block right after tool calls complete,
+            // before any text commentary. It should merge into the preceding tool group.
+            val groups = groupMessages(listOf(
+                toolUseEvent("t1", "Read"),
+                EventMessage(
+                    kind = EventKinds.Usage, ts = 0,
+                    usage = EventUsage(
+                        inputTokens = 100, outputTokens = 50,
+                        cacheCreationInputTokens = 0, cacheReadInputTokens = 0, model = "test",
+                    ),
+                ),
+                EventMessage(
+                    kind = EventKinds.ThinkingDelta, ts = 0,
+                    thinkingDelta = EventThinkingDelta(text = "analyzing..."),
+                ),
+            ))
             assertEquals(1, groups.size)
-            assertEquals(2, groups[0].toolCalls.size)
+            assertEquals(GroupKind.ACTION, groups[0].kind)
+            assertEquals(1, groups[0].toolCalls.size)
+            assertTrue(groups[0].events.any { it.kind == EventKinds.ThinkingDelta })
+        }
+
+        t.run("thinking followed by text is absorbed into the text group") {
+            // Standalone thinking before text commentary must not produce a separate
+            // Thinking block; it should be embedded inside the text group instead.
+            val groups = groupMessages(listOf(
+                EventMessage(
+                    kind = EventKinds.ThinkingDelta, ts = 0,
+                    thinkingDelta = EventThinkingDelta(text = "thinking..."),
+                ),
+                textDeltaEvent("hello"),
+            ))
+            assertEquals(1, groups.size)
+            assertEquals(GroupKind.TEXT, groups[0].kind)
+            assertTrue(groups[0].events.any { it.kind == EventKinds.ThinkingDelta })
+            assertTrue(groups[0].events.any { it.kind == EventKinds.TextDelta })
         }
     }
 

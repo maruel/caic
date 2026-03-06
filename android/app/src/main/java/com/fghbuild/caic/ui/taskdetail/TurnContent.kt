@@ -45,8 +45,20 @@ fun MessageGroupContent(
     onLoadToolInput: (suspend (String) -> JsonElement?)? = null,
 ) {
     when (group.kind) {
+        GroupKind.ACTION -> {
+            if (group.toolCalls.isEmpty()) {
+                ThinkingCard(events = group.events)
+            } else {
+                val thinkingEvents = group.events.filter {
+                    it.kind == EventKinds.Thinking || it.kind == EventKinds.ThinkingDelta
+                }
+                if (thinkingEvents.isNotEmpty()) {
+                    ThinkingCard(events = thinkingEvents)
+                }
+                ToolMessageGroup(toolCalls = group.toolCalls, onLoadInput = onLoadToolInput)
+            }
+        }
         GroupKind.TEXT -> TextMessageGroup(events = group.events)
-        GroupKind.TOOL -> ToolMessageGroup(toolCalls = group.toolCalls, onLoadInput = onLoadToolInput)
         GroupKind.ASK -> {
             group.ask?.let { ask ->
                 AskQuestionCard(ask = ask, answerText = group.answerText, onAnswer = onAnswer)
