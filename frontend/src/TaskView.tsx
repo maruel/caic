@@ -360,7 +360,6 @@ export default function TaskView(props: Props) {
             onInput={props.onInputDraft}
             onSubmit={sendInput}
             placeholder="Send message to agent..."
-            disabled={sending()}
             class={styles.textInput}
             tabIndex={0}
             supportsImages={props.supportsImages}

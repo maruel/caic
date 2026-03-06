@@ -67,6 +67,7 @@ export default function App() {
   const [prompt, setPrompt] = createSignal("");
   const [tasks, setTasks] = createSignal<Task[]>([]);
   const [submitting, setSubmitting] = createSignal(false);
+  const [initializing, setInitializing] = createSignal(true);
   const [repos, setRepos] = createSignal<Repo[]>([]);
   const [selectedRepo, setSelectedRepo] = createSignal("");
   const [selectedModel, setSelectedModel] = createSignal("");
@@ -170,48 +171,52 @@ export default function App() {
   let prefModels: Record<string, string> = {};
 
   onMount(async () => {
-    requestNotificationPermission();
-    const [data, prefs, h, config, usageData] = await Promise.all([
-      listRepos(),
-      getPreferences().catch(() => null),
-      listHarnesses().catch(() => [] as HarnessInfo[]),
-      getConfig().catch(() => null),
-      getUsage().catch(() => null),
-    ]);
-    const recentPaths = prefs?.repositories.map((r) => r.path) ?? [];
-    const recentSet = new Set(recentPaths);
-    const recentRepos = recentPaths.reduce<Repo[]>((acc, r) => {
-      const repo = data.find((d) => d.path === r);
-      if (repo) acc.push(repo);
-      return acc;
-    }, []);
-    const rest = data.filter((d) => !recentSet.has(d.path));
-    const ordered = [...recentRepos, ...rest];
-    setRepos(ordered);
-    setRecentCount(recentRepos.length);
-    if (ordered.length > 0) {
-      const first = recentRepos[0]?.path ?? ordered[0].path;
-      setSelectedRepo(first);
+    try {
+      requestNotificationPermission();
+      const [data, prefs, h, config, usageData] = await Promise.all([
+        listRepos(),
+        getPreferences().catch(() => null),
+        listHarnesses().catch(() => [] as HarnessInfo[]),
+        getConfig().catch(() => null),
+        getUsage().catch(() => null),
+      ]);
+      const recentPaths = prefs?.repositories.map((r) => r.path) ?? [];
+      const recentSet = new Set(recentPaths);
+      const recentRepos = recentPaths.reduce<Repo[]>((acc, r) => {
+        const repo = data.find((d) => d.path === r);
+        if (repo) acc.push(repo);
+        return acc;
+      }, []);
+      const rest = data.filter((d) => !recentSet.has(d.path));
+      const ordered = [...recentRepos, ...rest];
+      setRepos(ordered);
+      setRecentCount(recentRepos.length);
+      if (ordered.length > 0) {
+        const first = recentRepos[0]?.path ?? ordered[0].path;
+        setSelectedRepo(first);
+      }
+      {
+        setHarnesses(h);
+        prefModels = prefs?.models ?? {};
+        const prefHarness = prefs?.harness ?? "";
+        const harness = prefHarness && h.find((x) => x.name === prefHarness)
+          ? prefHarness
+          : h[0]?.name ?? "";
+        setSelectedHarness(harness);
+        const models = h.find((x) => x.name === harness)?.models ?? [];
+        const lastModel = prefModels[harness];
+        if (lastModel && models.includes(lastModel)) setSelectedModel(lastModel);
+      }
+      if (prefs?.baseImage) setSelectedImage(prefs.baseImage);
+      if (config) {
+        setTailscaleAvailable(config.tailscaleAvailable);
+        setUSBAvailable(config.usbAvailable);
+        setDisplayAvailable(config.displayAvailable);
+      }
+      if (usageData) setUsage(usageData);
+    } finally {
+      setInitializing(false);
     }
-    {
-      setHarnesses(h);
-      prefModels = prefs?.models ?? {};
-      const prefHarness = prefs?.harness ?? "";
-      const harness = prefHarness && h.find((x) => x.name === prefHarness)
-        ? prefHarness
-        : h[0]?.name ?? "";
-      setSelectedHarness(harness);
-      const models = h.find((x) => x.name === harness)?.models ?? [];
-      const lastModel = prefModels[harness];
-      if (lastModel && models.includes(lastModel)) setSelectedModel(lastModel);
-    }
-    if (prefs?.baseImage) setSelectedImage(prefs.baseImage);
-    if (config) {
-      setTailscaleAvailable(config.tailscaleAvailable);
-      setUSBAvailable(config.usbAvailable);
-      setDisplayAvailable(config.displayAvailable);
-    }
-    if (usageData) setUsage(usageData);
   });
 
   // Subscribe to task list updates via SSE with automatic reconnection.
@@ -428,7 +433,6 @@ export default function App() {
         <select
           value={selectedRepo()}
           onChange={(e) => setSelectedRepo(e.currentTarget.value)}
-          disabled={submitting()}
           class={styles.repoSelect}
           data-testid="repo-select"
         >
@@ -453,7 +457,6 @@ export default function App() {
           type="button"
           class={styles.cloneButton}
           onClick={() => { setCloneOpen(true); setCloneError(""); }}
-          disabled={submitting()}
           title="Clone a repository"
           data-testid="clone-toggle"
         >+</button>
@@ -462,7 +465,6 @@ export default function App() {
           value={selectedBranch()}
           onInput={(e) => setSelectedBranch(e.currentTarget.value)}
           placeholder={repos().find((r) => r.path === selectedRepo())?.baseBranch ?? "branch"}
-          disabled={submitting()}
           class={styles.branchInput}
           data-testid="branch-input"
           title="Base branch to fork from (leave empty for default)"
@@ -477,7 +479,6 @@ export default function App() {
               const lastModel = prefModels[h];
               setSelectedModel(lastModel && models.includes(lastModel) ? lastModel : "");
             }}
-            disabled={submitting()}
             class={styles.modelSelect}
           >
             <For each={harnesses()}>
@@ -494,7 +495,6 @@ export default function App() {
               if (m) prefModels[selectedHarness()] = m;
               else delete prefModels[selectedHarness()];
             }}
-            disabled={submitting()}
             class={styles.modelSelect}
           >
             <option value="">Default model</option>
@@ -508,7 +508,6 @@ export default function App() {
           value={selectedImage()}
           onInput={(e) => setSelectedImage(e.currentTarget.value)}
           placeholder="ghcr.io/maruel/md:latest (Docker image)"
-          disabled={submitting()}
           class={styles.imageInput}
         />
         <Show when={tailscaleAvailable()}>
@@ -517,7 +516,6 @@ export default function App() {
               type="checkbox"
               checked={tailscaleEnabled()}
               onChange={(e) => setTailscaleEnabled(e.currentTarget.checked)}
-              disabled={submitting()}
             />
             <TailscaleIcon width="1.2em" height="1.2em" />
           </label>
@@ -528,7 +526,6 @@ export default function App() {
               type="checkbox"
               checked={usbEnabled()}
               onChange={(e) => setUSBEnabled(e.currentTarget.checked)}
-              disabled={submitting()}
             />
             <USBIcon width="1.2em" height="1.2em" />
           </label>
@@ -539,7 +536,6 @@ export default function App() {
               type="checkbox"
               checked={displayEnabled()}
               onChange={(e) => setDisplayEnabled(e.currentTarget.checked)}
-              disabled={submitting()}
             />
             <DisplayIcon width="1.2em" height="1.2em" />
           </label>
@@ -549,7 +545,6 @@ export default function App() {
           onInput={setPrompt}
           onSubmit={submitTask}
           placeholder="Describe a task..."
-          disabled={submitting()}
           class={styles.promptInput}
           ref={(el) => { promptRef = el; }}
           data-testid="prompt-input"
@@ -557,7 +552,7 @@ export default function App() {
           images={pendingImages()}
           onImagesChange={setPendingImages}
         >
-          <Button type="submit" disabled={submitting() || (!prompt().trim() && pendingImages().length === 0) || !selectedRepo()} loading={submitting()} title="Start a new container with this prompt" data-testid="submit-task">
+          <Button type="submit" disabled={initializing() || submitting() || (!prompt().trim() && pendingImages().length === 0) || !selectedRepo()} loading={initializing() || submitting()} title="Start a new container with this prompt" data-testid="submit-task">
             <SendIcon width="1.2em" height="1.2em" />
           </Button>
         </PromptInput>
