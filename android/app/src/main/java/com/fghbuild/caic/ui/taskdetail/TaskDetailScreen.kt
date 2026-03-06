@@ -296,10 +296,12 @@ fun TaskDetailScreen(
                         onDraftChange = viewModel::updateInputDraft,
                         onSend = viewModel::sendInput,
                         onSync = { viewModel.syncTask() },
+                        onSyncToBaseBranch = { viewModel.syncTask(target = "default") },
                         onTerminate = viewModel::terminateTask,
                         taskTitle = task?.title ?: "",
                         taskRepo = task?.repo ?: "",
                         taskBranch = task?.branch ?: "",
+                        taskBaseBranch = task?.baseBranch ?: "",
                         sending = state.sending,
                         pendingAction = state.pendingAction,
                         repoURL = task?.repoURL,
@@ -331,11 +333,6 @@ fun TaskDetailScreen(
                         .padding(padding)
                         .padding(12.dp),
                 ) {
-                    Text(
-                        text = "You:",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
                     Markdown(
                         content = prompt,
                         typography = markdownTypography(),

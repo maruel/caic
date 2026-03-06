@@ -167,26 +167,47 @@ private fun ToolStatusIcon(done: Boolean, hasError: Boolean) {
     }
 }
 
+private fun isFlat(obj: JsonObject): Boolean =
+    obj.values.all { it is JsonPrimitive }
+
 @Composable
 private fun ToolInputDisplay(input: JsonElement) {
     val obj = input as? JsonObject ?: return
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        obj.entries.forEach { (key, value) ->
-            val display = formatJsonValue(value)
-            if (display.length <= 200) {
-                Text(
-                    text = "$key: $display",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
+    if (isFlat(obj)) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            obj.entries.forEach { (key, value) ->
+                val display = if (value is JsonPrimitive && value.isString) {
+                    value.jsonPrimitive.content
+                } else {
+                    value.toString()
+                }
+                if (display.contains("\n")) {
+                    Text(
+                        text = "$key:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = display,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    )
+                } else {
+                    Text(
+                        text = "$key: $display",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
         }
+    } else {
+        Text(
+            text = input.toString(),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+        )
     }
-}
-
-private fun formatJsonValue(value: JsonElement): String = when (value) {
-    is JsonPrimitive -> if (value.isString) value.jsonPrimitive.content else value.toString()
-    else -> value.toString()
 }

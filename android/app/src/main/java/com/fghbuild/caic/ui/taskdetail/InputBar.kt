@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.AlertDialog
@@ -64,10 +65,12 @@ fun InputBar(
     onDraftChange: (String) -> Unit,
     onSend: () -> Unit,
     onSync: () -> Unit,
+    onSyncToBaseBranch: () -> Unit = {},
     onTerminate: () -> Unit,
     taskTitle: String = "",
     taskRepo: String = "",
     taskBranch: String = "",
+    taskBaseBranch: String = "",
     sending: Boolean,
     pendingAction: String?,
     repoURL: String? = null,
@@ -130,12 +133,41 @@ fun InputBar(
             if (pendingAction == "sync") {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(8.dp))
             } else {
-                Tip("Sync") {
-                    IconButton(onClick = onSync, enabled = !busy) {
-                        if (repoURL?.contains("github.com") == true) {
-                            Icon(painterResource(R.drawable.ic_github), contentDescription = "Sync")
-                        } else {
-                            Icon(Icons.Default.Sync, contentDescription = "Sync")
+                var syncMenuExpanded by remember { mutableStateOf(false) }
+                Box {
+                    Tip("Sync") {
+                        IconButton(onClick = onSync, enabled = !busy) {
+                            if (repoURL?.contains("github.com") == true) {
+                                Icon(painterResource(R.drawable.ic_github), contentDescription = "Sync")
+                            } else {
+                                Icon(Icons.Default.Sync, contentDescription = "Sync")
+                            }
+                        }
+                    }
+                    if (taskBaseBranch.isNotBlank()) {
+                        IconButton(
+                            onClick = { syncMenuExpanded = true },
+                            enabled = !busy,
+                            modifier = Modifier.size(16.dp).align(Alignment.BottomEnd),
+                        ) {
+                            Icon(
+                                Icons.Default.ArrowDropDown,
+                                contentDescription = "Sync options",
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = syncMenuExpanded,
+                            onDismissRequest = { syncMenuExpanded = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Push to $taskBranch") },
+                                onClick = { syncMenuExpanded = false; onSync() },
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Push to $taskBaseBranch") },
+                                onClick = { syncMenuExpanded = false; onSyncToBaseBranch() },
+                            )
                         }
                     }
                 }

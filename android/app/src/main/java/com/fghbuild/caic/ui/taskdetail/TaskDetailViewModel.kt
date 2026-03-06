@@ -281,12 +281,12 @@ class TaskDetailViewModel @Inject constructor(
     }
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: surface all API failures to UI.
-    fun syncTask(force: Boolean = false) {
+    fun syncTask(force: Boolean = false, target: String? = null) {
         _pendingAction.value = "sync"
         viewModelScope.launch {
             try {
                 val client = ApiClient(taskRepository.serverURL())
-                val resp = client.syncTask(taskId, SyncReq(force = if (force) true else null))
+                val resp = client.syncTask(taskId, SyncReq(force = if (force) true else null, target = target))
                 val issues = resp.safetyIssues.orEmpty()
                 if (issues.isNotEmpty() && !force) {
                     _safetyIssues.value = issues

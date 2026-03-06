@@ -7,15 +7,53 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.caic.sdk.v1.AskQuestion
 import com.caic.sdk.v1.EventAsk
+
+private fun toggleOption(
+    selections: SnapshotStateMap<Int, Set<String>>,
+    qIdx: Int,
+    label: String,
+    multiSelect: Boolean,
+) {
+    val current = selections[qIdx] ?: emptySet()
+    selections[qIdx] = if (current.contains(label)) {
+        current - label
+    } else if (multiSelect) {
+        current + label
+    } else {
+        setOf(label)
+    }
+}
+
+private fun formatAnswer(
+    questions: List<AskQuestion>,
+    selections: Map<Int, Set<String>>,
+    otherTexts: Map<Int, String>,
+): String {
+    val parts = questions.mapIndexed { i, q ->
+        val sel = selections[i] ?: emptySet()
+        val labels = sel.map { label ->
+            if (label == "__other__") otherTexts[i] ?: "" else label
+        }.filter { it.isNotEmpty() }
+        val answer = labels.joinToString(", ")
+        if (questions.size == 1) answer else "${q.header ?: "Q${i + 1}"}: $answer"
+    }
+    return parts.joinToString("\n")
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -24,6 +62,12 @@ fun AskQuestionCard(
     answerText: String?,
     onAnswer: ((String) -> Unit)?,
 ) {
+    val answered = answerText != null
+    val interactive = onAnswer != null && !answered
+
+    val selections = remember(ask.toolUseID) { mutableStateMapOf<Int, Set<String>>() }
+    val otherTexts = remember(ask.toolUseID) { mutableStateMapOf<Int, String>() }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         tonalElevation = 2.dp,
@@ -34,25 +78,60 @@ fun AskQuestionCard(
             modifier = Modifier.padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            ask.questions.forEach { q ->
+            ask.questions.forEachIndexed { qIdx, q ->
                 Text(
                     text = q.question,
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     q.options.forEach { option ->
+                        val selected = selections[qIdx]?.contains(option.label) == true
                         FilterChip(
-                            selected = answerText == option.label,
+                            selected = selected,
                             onClick = {
-                                if (answerText == null) onAnswer?.invoke(option.label)
+                                if (interactive) {
+                                    toggleOption(selections, qIdx, option.label, q.multiSelect == true)
+                                }
                             },
                             label = { Text(option.label) },
-                            enabled = answerText == null,
+                            enabled = interactive,
                         )
                     }
+                    val otherSelected = selections[qIdx]?.contains("__other__") == true
+                    FilterChip(
+                        selected = otherSelected,
+                        onClick = {
+                            if (interactive) {
+                                toggleOption(selections, qIdx, "__other__", q.multiSelect == true)
+                            }
+                        },
+                        label = { Text("Other") },
+                        enabled = interactive,
+                    )
+                }
+                if (selections[qIdx]?.contains("__other__") == true) {
+                    OutlinedTextField(
+                        value = otherTexts[qIdx] ?: "",
+                        onValueChange = { otherTexts[qIdx] = it },
+                        placeholder = { Text("Type your answer...") },
+                        enabled = interactive,
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = false,
+                        maxLines = 4,
+                    )
                 }
             }
-            if (answerText != null) {
+            if (interactive) {
+                Button(
+                    onClick = {
+                        val answer = formatAnswer(ask.questions, selections, otherTexts)
+                        if (answer.isNotBlank()) onAnswer(answer)
+                    },
+                ) {
+                    Text("Submit")
+                }
+            }
+            if (answered) {
                 Text(
                     text = "Answered: $answerText",
                     style = MaterialTheme.typography.bodySmall,
