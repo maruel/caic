@@ -469,6 +469,60 @@ func TestKiloWireFormat(t *testing.T) {
 			t.Errorf("TotalCostUSD = %v, want 0.005 (first turn cost should not bleed in)", rm.TotalCostUSD)
 		}
 	})
+
+	t.Run("ReasoningDeltaRoutedToThinkingDelta", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		// First: a part.updated establishing the part as reasoning type.
+		reasoningPartUpdated := []byte(`{"type":"message.part.updated","properties":{"part":{"id":"prt_r1","sessionID":"ses_abc","messageID":"msg_1","type":"reasoning","text":"","time":{}}}}`)
+		parse(t, w, reasoningPartUpdated)
+
+		// Now a delta for that part → must become ThinkingDeltaMessage.
+		reasoningDelta := []byte(`{"type":"message.part.delta","properties":{"sessionID":"ses_abc","messageID":"msg_1","partID":"prt_r1","field":"text","delta":"Let me think"}}`)
+		msgs := parse(t, w, reasoningDelta)
+		if len(msgs) != 1 {
+			t.Fatalf("got %d msgs, want 1", len(msgs))
+		}
+		td, ok := msgs[0].(*agent.ThinkingDeltaMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.ThinkingDeltaMessage", msgs[0])
+		}
+		if td.Text != "Let me think" {
+			t.Errorf("Text = %q, want %q", td.Text, "Let me think")
+		}
+	})
+
+	t.Run("TextDeltaUnaffectedByPartTracking", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		// text part established
+		textPartUpdated := []byte(`{"type":"message.part.updated","properties":{"part":{"id":"prt_t1","sessionID":"ses_abc","messageID":"msg_1","type":"text","text":"","time":{}}}}`)
+		parse(t, w, textPartUpdated)
+
+		// delta for text part → still TextDeltaMessage
+		textDelta := []byte(`{"type":"message.part.delta","properties":{"sessionID":"ses_abc","messageID":"msg_1","partID":"prt_t1","field":"text","delta":"Hello"}}`)
+		msgs := parse(t, w, textDelta)
+		if len(msgs) != 1 {
+			t.Fatalf("got %d msgs, want 1", len(msgs))
+		}
+		if _, ok := msgs[0].(*agent.TextDeltaMessage); !ok {
+			t.Fatalf("got %T, want *agent.TextDeltaMessage", msgs[0])
+		}
+	})
+
+	t.Run("DeltaForUnknownPartIDRemainsTextDelta", func(t *testing.T) {
+		w := &kiloWireFormat{}
+
+		// delta arrives with no prior part.updated (e.g. mid-stream attach)
+		delta := []byte(`{"type":"message.part.delta","properties":{"sessionID":"ses_abc","messageID":"msg_1","partID":"unknown","field":"text","delta":"Hi"}}`)
+		msgs := parse(t, w, delta)
+		if len(msgs) != 1 {
+			t.Fatalf("got %d msgs, want 1", len(msgs))
+		}
+		if _, ok := msgs[0].(*agent.TextDeltaMessage); !ok {
+			t.Fatalf("got %T, want *agent.TextDeltaMessage", msgs[0])
+		}
+	})
 }
 
 func TestNormalizeToolName(t *testing.T) {

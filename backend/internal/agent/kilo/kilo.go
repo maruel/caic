@@ -118,8 +118,13 @@ func buildBridgeArgs(opts *agent.Options) []string {
 }
 
 // kiloWireFormat is a stateful WireFormat for kilo sessions. It wraps the
-// stateless ParseMessage function, intercepting two event types to produce a
-// coherent terminal event:
+// stateless ParseMessage function, intercepting three event types:
+//
+//   - message.part.updated: records partID → partType so that subsequent deltas
+//     for reasoning parts can be routed to ThinkingDeltaMessage.
+//
+//   - message.part.delta for a known reasoning part: emitted as ThinkingDeltaMessage
+//     instead of TextDeltaMessage so the UI streams thinking blocks correctly.
 //
 //   - step-finish ResultMessage (IsError=false): accumulated into totalCostUSD
 //     and totalUsage, then re-emitted as a UsageMessage so the UI can show
@@ -135,7 +140,8 @@ type kiloWireFormat struct {
 	mu           sync.Mutex
 	totalCostUSD float64
 	totalUsage   agent.Usage
-	errorSeen    bool // true after a session.error ResultMessage
+	errorSeen    bool              // true after a session.error ResultMessage
+	partTypes    map[string]string // partID → partType for delta routing
 }
 
 // WritePrompt implements agent.WireFormat.
@@ -144,8 +150,38 @@ func (w *kiloWireFormat) WritePrompt(wr io.Writer, p agent.Prompt, logW io.Write
 }
 
 // ParseMessage implements agent.WireFormat. It delegates to the stateless
-// ParseMessage function and post-processes step-finish and turn-close events.
+// ParseMessage function and post-processes step-finish, turn-close, and
+// reasoning delta events.
 func (w *kiloWireFormat) ParseMessage(line []byte) ([]agent.Message, error) {
+	// Pre-pass: record part types from message.part.updated so deltas can be
+	// routed correctly. We decode lazily here since most lines aren't part events.
+	var rec Record
+	if jsonErr := json.Unmarshal(line, &rec); jsonErr == nil {
+		switch rec.Type {
+		case TypePartUpdated:
+			if pu, err := rec.AsPartUpdated(); err == nil {
+				id, pt := pu.Properties.Part.ID, pu.Properties.Part.Type
+				if id != "" && pt != "" {
+					w.mu.Lock()
+					if w.partTypes == nil {
+						w.partTypes = make(map[string]string)
+					}
+					w.partTypes[id] = pt
+					w.mu.Unlock()
+				}
+			}
+		case TypePartDelta:
+			if pd, err := rec.AsPartDelta(); err == nil && pd.Properties.Delta != "" {
+				w.mu.Lock()
+				pt := w.partTypes[pd.Properties.PartID]
+				w.mu.Unlock()
+				if pt == PartTypeReasoning {
+					return []agent.Message{&agent.ThinkingDeltaMessage{Text: pd.Properties.Delta}}, nil
+				}
+			}
+		}
+	}
+
 	msgs, err := ParseMessage(line)
 	if err != nil {
 		return nil, err
