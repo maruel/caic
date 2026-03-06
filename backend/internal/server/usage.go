@@ -182,7 +182,7 @@ func (f *usageFetcher) fetch() (*v1.UsageResp, error) {
 	req.Header.Set("User-Agent", "caic")
 	req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 
-	resp, err := f.client.Do(req) //nolint:gosec // G704: URL is a hardcoded constant, not user input
+	resp, err := f.client.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func readCredentialsToken(credPath string) string {
 
 type claudeCreds struct {
 	ClaudeAiOauth struct {
-		AccessToken string `json:"accessToken"` //nolint:gosec // G117: field is part of the credentials schema, not a secret value
+		AccessToken string `json:"accessToken"`
 	} `json:"claudeAiOauth"`
 }
 
