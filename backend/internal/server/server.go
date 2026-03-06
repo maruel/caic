@@ -102,7 +102,7 @@ type mdBackend struct {
 }
 
 func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string, opts task.StartOptions) (name, tailscaleFQDN string, err error) {
-	slog.Info("md start", "dir", dir, "branch", branch, "tailscale", opts.Tailscale, "usb", opts.USB, "display", opts.Display)
+	slog.Info("md start", "dir", dir, "br", branch, "ts", opts.Tailscale, "usb", opts.USB, "dpy", opts.Display)
 	image := opts.DockerImage
 	if image == "" {
 		image = md.DefaultBaseImage + ":latest"
@@ -116,7 +116,7 @@ func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []stri
 }
 
 func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string) (string, error) {
-	slog.Info("md diff", "dir", dir, "branch", branch, "args", args)
+	slog.Info("md diff", "dir", dir, "br", branch, "args", args)
 	var stdout bytes.Buffer
 	if err := b.client.Container(dir, branch).Diff(ctx, &stdout, io.Discard, args); err != nil {
 		return "", err
@@ -125,12 +125,12 @@ func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string
 }
 
 func (b *mdBackend) Fetch(ctx context.Context, dir, branch string) error {
-	slog.Info("md fetch", "dir", dir, "branch", branch)
+	slog.Info("md fetch", "dir", dir, "br", branch)
 	return b.client.Container(dir, branch).Fetch(ctx, b.llmProvider, b.llmModel)
 }
 
 func (b *mdBackend) Kill(ctx context.Context, dir, branch string) error {
-	slog.Info("md kill", "dir", dir, "branch", branch)
+	slog.Info("md kill", "dir", dir, "br", branch)
 	return b.client.Container(dir, branch).Kill(ctx)
 }
 
@@ -234,7 +234,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 	}
 	if cfg.LLMProvider != "" {
 		if c, ok := providers.All[cfg.LLMProvider]; !ok || c.Factory == nil {
-			slog.Warn("unknown LLM provider for title generation", "provider", cfg.LLMProvider)
+			slog.Warn("unknown LLM provider for title generation", "prov", cfg.LLMProvider)
 		} else {
 			var opts []genai.ProviderOption
 			if cfg.LLMModel != "" {
@@ -243,9 +243,9 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 				opts = append(opts, genai.ModelCheap)
 			}
 			if p, err := c.Factory(ctx, opts...); err != nil {
-				slog.Warn("failed to create LLM provider for title generation", "provider", cfg.LLMProvider, "err", err)
+				slog.Warn("LLM provider init failed", "prov", cfg.LLMProvider, "err", err)
 			} else {
-				slog.Info("title generation enabled", "provider", p.Name(), "model", p.ModelID())
+				slog.Info("title generation enabled", "prov", p.Name(), "mdl", p.ModelID())
 				s.provider = p
 			}
 		}
@@ -278,13 +278,13 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 				Container:  backend,
 			}
 			if err := runner.Init(ctx); err != nil {
-				slog.Warn("failed to init runner nextID", "path", abs, "err", err)
+				slog.Warn("runner init failed", "path", abs, "err", err)
 			}
 			results[i] = repoResult{
 				info:   repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch, RepoURL: repoURL},
 				runner: runner,
 			}
-			slog.Info("discovered repo", "path", rel, "branch", branch)
+			slog.Info("discovered repo", "path", rel, "br", branch)
 		})
 	}
 	wg.Wait()
@@ -302,7 +302,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 
 	// Phase 3: Load terminated tasks from pre-loaded logs.
 	if logRes.err != nil {
-		slog.Warn("failed to load logs at startup", "err", logRes.err)
+		slog.Warn("load logs failed", "err", logRes.err)
 	} else {
 		if err := s.loadTerminatedTasksFrom(logRes.logs); err != nil {
 			return nil, fmt.Errorf("load terminated tasks: %w", err)
@@ -311,7 +311,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 
 	// Phase 4: Adopt containers (using pre-fetched list).
 	if contRes.err != nil {
-		slog.Warn("cannot list containers, skipping adoption", "err", contRes.err)
+		slog.Warn("list containers failed, skipping adoption", "err", contRes.err)
 	} else {
 		if err := s.adoptContainers(ctx, contRes.containers, logRes.logs); err != nil {
 			return nil, fmt.Errorf("adopt containers: %w", err)
@@ -495,7 +495,7 @@ func (s *Server) cloneRepo(ctx context.Context, req *v1.CloneRepoReq) (*v1.Repo,
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Clean up partial clone.
 		_ = os.RemoveAll(absTarget)
-		slog.Warn("git clone failed", "url", req.URL, "err", err, "output", string(out))
+		slog.Warn("git clone failed", "url", req.URL, "err", err, "out", string(out))
 		return nil, dto.InternalError("git clone failed: " + err.Error())
 	}
 
@@ -922,10 +922,10 @@ func (s *Server) sendInput(ctx context.Context, entry *taskEntry, req *v1.InputR
 			}
 		}
 		taskState := t.GetState()
-		slog.Warn("sendInput: no active session",
+		slog.Warn("no active session",
 			"task", t.ID,
-			"branch", t.Branch,
-			"container", t.Container,
+			"br", t.Branch,
+			"ctr", t.Container,
 			"state", taskState,
 			"relay", rs,
 		)
@@ -1085,7 +1085,7 @@ func (s *Server) getVoiceToken(_ context.Context, _ *dto.EmptyReq) (*v1.VoiceTok
 	if apiKey == "" {
 		return nil, dto.InternalError("GEMINI_API_KEY not configured")
 	}
-	slog.Info("voice token", "api_key_len", len(apiKey), "mode", "raw_key")
+	slog.Info("voice token", "keylen", len(apiKey), "mode", "raw_key")
 	expireTime := time.Now().UTC().Add(30 * time.Minute).Format(time.RFC3339)
 	return &v1.VoiceTokenResp{
 		Token:     apiKey,
@@ -1108,7 +1108,7 @@ func (s *Server) getVoiceTokenEphemeral(ctx context.Context, _ *dto.EmptyReq) (*
 	if apiKey == "" {
 		return nil, dto.InternalError("GEMINI_API_KEY not configured")
 	}
-	slog.Info("voice token", "api_key_len", len(apiKey), "mode", "ephemeral")
+	slog.Info("voice token", "keylen", len(apiKey), "mode", "ephemeral")
 	now := time.Now().UTC()
 	expireTime := now.Add(30 * time.Minute).Format(time.RFC3339)
 	newSessionExpire := now.Add(2 * time.Minute).Format(time.RFC3339)
@@ -1152,7 +1152,7 @@ func (s *Server) getVoiceTokenEphemeral(ctx context.Context, _ *dto.EmptyReq) (*
 	if len(tokenPrefix) > 16 {
 		tokenPrefix = tokenPrefix[:16]
 	}
-	slog.Info("voice token", "token_prefix", tokenPrefix, "token_len", len(tokenResp.Name))
+	slog.Info("voice token", "prefix", tokenPrefix, "len", len(tokenResp.Name))
 
 	return &v1.VoiceTokenResp{
 		Token:     tokenResp.Name,
@@ -1221,7 +1221,7 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 		}
 		// TODO: Figure out when it was terminated.
 		if err := lt.LoadMessages(); err != nil {
-			slog.Warn("failed to load messages for terminated task", "repo", lt.Repo, "branch", lt.Branch, "err", err)
+			slog.Warn("load messages failed", "repo", lt.Repo, "br", lt.Branch, "err", err)
 		}
 		if lt.Msgs != nil {
 			t.RestoreMessages(lt.Msgs)
@@ -1237,7 +1237,7 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 		s.tasks[t.ID.String()] = entry
 	}
 	s.taskChanged()
-	slog.Info("loaded terminated tasks from logs", "count", len(terminated))
+	slog.Info("loaded terminated tasks from logs", "n", len(terminated))
 	return nil
 }
 
@@ -1308,7 +1308,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		return fmt.Errorf("label check for %s: %w", c.Name, err)
 	}
 	if labelVal == "" {
-		slog.Info("skipping non-caic container", "repo", ri.RelPath, "container", c.Name, "branch", branch)
+		slog.Info("skipping non-caic container", "repo", ri.RelPath, "ctr", c.Name, "br", branch)
 		return nil
 	}
 	taskID, err := ksid.Parse(labelVal)
@@ -1346,7 +1346,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	// Check whether the relay daemon is alive in this container.
 	relayAlive, relayErr := agent.IsRelayRunning(ctx, c.Name)
 	if relayErr != nil {
-		slog.Warn("relay check failed during adopt", "repo", ri.RelPath, "branch", branch, "container", c.Name, "err", relayErr)
+		slog.Warn("relay check failed during adopt", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "err", relayErr)
 	}
 
 	var relayMsgs []agent.Message
@@ -1355,7 +1355,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		// Relay is alive — read authoritative output from container.
 		relayMsgs, relaySize, relayErr = runner.ReadRelayOutput(ctx, c.Name, harnessName)
 		if relayErr != nil {
-			slog.Warn("failed to read relay output", "repo", ri.RelPath, "branch", branch, "container", c.Name, "err", relayErr)
+			slog.Warn("read relay output failed", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "err", relayErr)
 			relayAlive = false
 		}
 	}
@@ -1397,14 +1397,14 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		// Claude Code stdout and user inputs (logged by the relay).
 		t.RestoreMessages(relayMsgs)
 		t.RelayOffset = relaySize
-		slog.Info("restored conversation from relay", "repo", ri.RelPath, "branch", branch, "container", c.Name, "messages", len(relayMsgs))
+		slog.Info("restored from relay", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "msgs", len(relayMsgs))
 	} else if lt != nil {
 		if err := lt.LoadMessages(); err != nil {
-			slog.Warn("failed to load messages from log", "repo", ri.RelPath, "branch", branch, "err", err)
+			slog.Warn("load messages failed", "repo", ri.RelPath, "br", branch, "err", err)
 		}
 		if len(lt.Msgs) > 0 {
 			t.RestoreMessages(lt.Msgs)
-			slog.Info("restored conversation from logs", "repo", ri.RelPath, "branch", branch, "container", c.Name, "messages", len(lt.Msgs))
+			slog.Info("restored from logs", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "msgs", len(lt.Msgs))
 		}
 	}
 
@@ -1416,13 +1416,13 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	if !relayAlive {
 		relayLog := agent.ReadRelayLog(ctx, c.Name, 4096)
 		if relayLog != "" {
-			slog.Warn("relay log from dead relay", "container", c.Name, "branch", branch, "log", relayLog)
+			slog.Warn("relay log from dead relay", "ctr", c.Name, "br", branch, "log", relayLog)
 		}
 		if t.GetState() == task.StateRunning {
 			t.SetState(task.StateWaiting)
-			slog.Warn("adopted container with dead relay, marking as waiting",
-				"repo", ri.RelPath, "branch", branch, "container", c.Name,
-				"sessionID", t.GetSessionID(), "messages", len(t.Messages()))
+			slog.Warn("adopted with dead relay, marking waiting",
+				"repo", ri.RelPath, "br", branch, "ctr", c.Name,
+				"sess", t.GetSessionID(), "msgs", len(t.Messages()))
 		}
 	}
 
@@ -1437,9 +1437,9 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	s.taskChanged()
 	s.mu.Unlock()
 
-	slog.Info("adopted preexisting container",
-		"repo", ri.RelPath, "container", c.Name, "branch", branch,
-		"relay", relayAlive, "state", t.GetState(), "sessionID", t.GetSessionID())
+	slog.Info("adopted container",
+		"repo", ri.RelPath, "ctr", c.Name, "br", branch,
+		"relay", relayAlive, "state", t.GetState(), "sess", t.GetSessionID())
 
 	// Regenerate title async — relay may have new conversation data since the
 	// log was written. The fallback title is already set above.
@@ -1453,17 +1453,17 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		if !relayAlive {
 			strategy = "resume"
 		}
-		slog.Info("auto-reconnect starting", "repo", ri.RelPath, "branch", branch, "container", c.Name, "strategy", strategy)
+		slog.Info("auto-reconnect starting", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "st", strategy)
 		go func() {
 			h, err := runner.Reconnect(ctx, t)
 			if err != nil {
-				slog.Warn("auto-reconnect failed, task is waiting",
-					"repo", t.Repo, "branch", t.Branch, "container", t.Container,
-					"strategy", strategy, "err", err)
+				slog.Warn("auto-reconnect failed",
+					"repo", t.Repo, "br", t.Branch, "ctr", t.Container,
+					"st", strategy, "err", err)
 				s.notifyTaskChange()
 				return
 			}
-			slog.Info("auto-reconnect succeeded", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "strategy", strategy)
+			slog.Info("auto-reconnect succeeded", "repo", t.Repo, "br", t.Branch, "ctr", t.Container, "st", strategy)
 			// Compute host-side diff stat after reconnect. Reconnect
 			// replays relay messages which may include stale
 			// DiffStatMessages (old relay code diffs against HEAD, not
@@ -1475,8 +1475,8 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 			s.watchSession(entry, runner, h)
 		}()
 	} else if !relayAlive {
-		slog.Warn("adopted orphaned task: relay dead and no session ID to resume",
-			"repo", ri.RelPath, "branch", branch, "container", c.Name,
+		slog.Warn("adopted orphaned task",
+			"repo", ri.RelPath, "br", branch, "ctr", c.Name,
 			"state", t.GetState())
 	}
 	return nil
@@ -1514,7 +1514,7 @@ func (s *Server) watchSession(entry *taskEntry, runner *task.Runner, h *task.Ses
 			t := entry.task
 			t.DetachSession()
 			result, sessionErr := h.Session.Wait()
-			attrs := []any{"repo", t.Repo, "branch", t.Branch, "container", t.Container}
+			attrs := []any{"repo", t.Repo, "br", t.Branch, "ctr", t.Container}
 			if result != nil {
 				attrs = append(attrs, "result", result.Subtype)
 			}
@@ -1575,12 +1575,12 @@ func (s *Server) discoverKiloModels() {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Get("https://openrouter.ai/api/v1/models")
 	if err != nil {
-		slog.Warn("kilo: failed to fetch OpenRouter models, keeping defaults", "err", err)
+		slog.Warn("kilo: fetch OpenRouter models failed", "err", err)
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		slog.Warn("kilo: OpenRouter API returned non-200, keeping defaults", "status", resp.StatusCode)
+		slog.Warn("kilo: OpenRouter non-200", "st", resp.StatusCode)
 		return
 	}
 	var body struct {
@@ -1589,7 +1589,7 @@ func (s *Server) discoverKiloModels() {
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		slog.Warn("kilo: failed to decode OpenRouter response, keeping defaults", "err", err)
+		slog.Warn("kilo: decode OpenRouter response failed", "err", err)
 		return
 	}
 	models := make([]string, 0, len(body.Data))
@@ -1599,7 +1599,7 @@ func (s *Server) discoverKiloModels() {
 		}
 	}
 	if len(models) == 0 {
-		slog.Warn("kilo: OpenRouter returned no models, keeping defaults")
+		slog.Warn("kilo: OpenRouter returned no models")
 		return
 	}
 	for _, r := range s.runners {
@@ -1607,7 +1607,7 @@ func (s *Server) discoverKiloModels() {
 			b.SetModels(kilo.SortModels(models))
 		}
 	}
-	slog.Info("kilo: discovered models from OpenRouter", "count", len(models))
+	slog.Info("kilo: models discovered", "n", len(models))
 }
 
 // handleContainerDeath looks up a task by container name and triggers cleanup.
@@ -1626,7 +1626,7 @@ func (s *Server) handleContainerDeath(containerName string) {
 	if found == nil || runner == nil {
 		return
 	}
-	slog.Info("container died, cleaning up task", "container", containerName, "task", found.task.ID, "branch", found.task.Branch)
+	slog.Info("container died, cleaning up task", "ctr", containerName, "task", found.task.ID, "br", found.task.Branch)
 	go s.cleanupTask(found, runner, task.StateFailed)
 }
 

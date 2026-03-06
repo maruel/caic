@@ -66,6 +66,7 @@ type Runner struct {
 	// selects the backend matching Task.Harness.
 	Backends map[agent.Harness]agent.Backend
 
+	log      *slog.Logger
 	initOnce sync.Once
 	branchMu sync.Mutex // Serializes operations that need a specific branch checked out (md commands).
 	nextID   int        // Next branch sequence number (protected by branchMu).
@@ -86,6 +87,7 @@ func (r *Runner) initDefaults() {
 		if r.ContainerStartTimeout == 0 {
 			r.ContainerStartTimeout = time.Hour
 		}
+		r.log = slog.With("repo", filepath.Base(r.Dir))
 	})
 }
 
@@ -159,7 +161,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) (*SessionHandle, error)
 	// Prefer attaching to a live relay (agent process still running).
 	relayAlive, relayErr := agent.IsRelayRunning(ctx, t.Container)
 	if relayErr != nil {
-		slog.Warn("relay check failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", relayErr)
+		r.log.Warn("relay check failed, using --resume", "br", t.Branch, "ctr", t.Container, "err", relayErr)
 	}
 
 	var session *agent.Session
@@ -175,7 +177,7 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) (*SessionHandle, error)
 		if err != nil {
 			// Relay died between the IsRelayRunning check and the attach
 			// attempt. This is a known race; fall back to --resume.
-			slog.Warn("attach relay failed, falling back to --resume", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+			r.log.Warn("attach relay failed, using --resume", "br", t.Branch, "ctr", t.Container, "err", err)
 			relayAlive = false
 		}
 	}
@@ -229,7 +231,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	t.SetState(StateBranching)
 
 	// 1. Create branch + start container (serialized).
-	slog.Info("setting up task", "repo", t.Repo)
+	r.log.Info("setup task")
 	r.branchMu.Lock()
 	sr, err := r.setup(ctx, t, []string{"caic=" + t.ID.String(), "harness=" + string(t.Harness)})
 	r.branchMu.Unlock()
@@ -240,7 +242,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	t.Branch = sr.Branch
 	t.Container = sr.Container
 	t.TailscaleFQDN = sr.TailscaleFQDN
-	slog.Info("container ready", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
+	r.log.Info("container ready", "br", t.Branch, "ctr", t.Container)
 
 	// 2. Start the agent session.
 	t.SetState(StateStarting)
@@ -256,7 +258,8 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 		return nil, err
 	}
 
-	slog.Info("starting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "agent", t.Harness, "maxTurns", maxTurns)
+	tlog := r.log.With("br", t.Branch, "ctr", t.Container)
+	tlog.Info("starting session", "hns", t.Harness, "turns", maxTurns)
 	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
 		Container:     t.Container,
 		Dir:           r.containerDir(),
@@ -268,7 +271,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 		_ = logW.Close()
 		close(msgCh)
 		t.SetState(StateFailed)
-		slog.Error("agent session failed to start", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "err", err)
+		tlog.Error("session start failed", "err", err)
 		return nil, err
 	}
 
@@ -278,7 +281,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 
 	t.addMessage(ctx, syntheticUserInput(t.InitialPrompt))
 	t.SetState(StateRunning)
-	slog.Info("agent running", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
+	tlog.Info("agent running")
 	return h, nil
 }
 
@@ -306,6 +309,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	// Graceful shutdown: close stdin so the agent can emit a final
 	// ResultMessage with accurate cost/turns stats, then force-kill.
 	var result *agent.ResultMessage
+	tlog := r.log.With("br", t.Branch, "ctr", name)
 	if h != nil {
 		h.Session.Close()
 		timer := time.NewTimer(20 * time.Second)
@@ -314,7 +318,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 			timer.Stop()
 			result, _ = h.Session.Wait()
 		case <-timer.C:
-			slog.Warn("agent session did not exit after stdin close, killing container", "repo", t.Repo, "branch", t.Branch)
+			tlog.Warn("session timeout, killing")
 		}
 	}
 
@@ -323,10 +327,10 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 	// Backup container commits before killing, in case they were never pushed.
 	r.backupIfNeeded(ctx, t)
 
-	slog.Info("killing container", "repo", t.Repo, "branch", t.Branch, "container", name)
+	tlog.Info("kill container")
 	if name != "" && r.Container != nil {
 		if err := r.KillContainer(ctx, t.Branch); err != nil {
-			slog.Warn("failed to kill container", "repo", t.Repo, "branch", t.Branch, "container", name, "err", err)
+			tlog.Warn("kill failed", "err", err)
 		}
 	}
 
@@ -414,7 +418,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 		}
 		branch = fmt.Sprintf("caic-%d", r.nextID)
 		r.nextID++
-		slog.Info("creating branch", "repo", t.Repo, "branch", branch, "base", effectiveBase)
+		r.log.Info("creating branch", "br", branch, "base", effectiveBase)
 		err = gitutil.CreateBranch(gitCtx, r.Dir, branch, startPoint)
 		if err == nil {
 			break
@@ -425,7 +429,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 	}
 
 	t.SetState(StateProvisioning)
-	slog.Info("starting container", "repo", t.Repo, "branch", branch, "image", t.DockerImage, "harness", t.Harness, "tailscale", t.Tailscale, "usb", t.USB, "display", t.Display)
+	r.log.Info("starting container", "br", branch, "img", t.DockerImage, "hns", t.Harness, "ts", t.Tailscale, "usb", t.USB, "dpy", t.Display)
 	startCtx, startCancel := context.WithTimeout(detached, r.ContainerStartTimeout)
 	defer startCancel()
 	name, tailscaleFQDN, err := r.Container.Start(startCtx, r.Dir, branch, labels, StartOptions{
@@ -434,7 +438,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 	if err != nil {
 		return setupResult{}, fmt.Errorf("start container: %w", err)
 	}
-	slog.Info("container started", "repo", t.Repo, "branch", branch)
+	r.log.Info("container started", "br", branch)
 
 	// Switch back to the base branch so the next task can create its branch.
 	// Fresh timeout since the previous gitCtx likely expired during container start.
@@ -455,7 +459,7 @@ func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, for
 	defer fetchCancel()
 	r.branchMu.Lock()
 	ds := r.diffStat(fetchCtx, branch)
-	slog.Info("fetching changes", "repo", filepath.Base(r.Dir), "branch", branch)
+	r.log.Info("fetch", "br", branch)
 	if err := r.Container.Fetch(fetchCtx, r.Dir, branch); err != nil {
 		r.branchMu.Unlock()
 		return ds, nil, err
@@ -490,7 +494,7 @@ func (r *Runner) SyncToDefault(ctx context.Context, branch, container, message s
 	defer fetchCancel()
 	r.branchMu.Lock()
 	ds := r.diffStat(fetchCtx, branch)
-	slog.Info("fetching changes for default-branch sync", "repo", filepath.Base(r.Dir), "branch", branch)
+	r.log.Info("fetch for default sync", "br", branch)
 	if err := r.Container.Fetch(fetchCtx, r.Dir, branch); err != nil {
 		r.branchMu.Unlock()
 		return ds, nil, err
@@ -557,7 +561,8 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 	if maxTurns == 0 {
 		maxTurns = r.MaxTurns
 	}
-	slog.Info("restarting agent session", "repo", t.Repo, "branch", t.Branch, "container", t.Container, "agent", t.Harness, "maxTurns", maxTurns)
+	tlog := r.log.With("br", t.Branch, "ctr", t.Container)
+	tlog.Info("restarting session", "hns", t.Harness, "turns", maxTurns)
 	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
 		Container:     t.Container,
 		Dir:           r.containerDir(),
@@ -579,7 +584,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 	t.addMessage(ctx, syntheticUserInput(prompt))
 
 	t.SetState(StateRunning)
-	slog.Info("agent restarted", "repo", t.Repo, "branch", t.Branch, "container", t.Container)
+	tlog.Info("session restarted")
 	return h, nil
 }
 
@@ -641,7 +646,7 @@ func (r *Runner) backupIfNeeded(ctx context.Context, t *Task) {
 	err := r.Container.Fetch(fetchCtx, r.Dir, t.Branch)
 	r.branchMu.Unlock()
 	if err != nil {
-		slog.Warn("backup: fetch from container failed", "branch", t.Branch, "err", err)
+		r.log.Warn("backup: fetch failed", "br", t.Branch, "err", err)
 		return
 	}
 
@@ -649,27 +654,27 @@ func (r *Runner) backupIfNeeded(ctx context.Context, t *Task) {
 	ref := "refs/remotes/" + t.Container + "/" + t.Branch
 	commit, err := gitutil.RevParse(fetchCtx, r.Dir, ref)
 	if err != nil {
-		slog.Warn("backup: cannot resolve container ref", "ref", ref, "err", err)
+		r.log.Warn("backup: resolve ref failed", "ref", ref, "err", err)
 		return
 	}
 
 	// Check if the commit is reachable from any local branch or origin ref.
 	reachable, err := gitutil.IsReachable(fetchCtx, r.Dir, commit)
 	if err != nil {
-		slog.Warn("backup: reachability check failed", "commit", commit, "err", err)
+		r.log.Warn("backup: reachability failed", "cmt", commit, "err", err)
 		return
 	}
 	if reachable {
-		slog.Info("backup: commit already reachable, skipping", "branch", t.Branch, "commit", commit[:min(12, len(commit))])
+		r.log.Info("backup: commit reachable", "br", t.Branch, "cmt", commit[:min(12, len(commit))])
 		return
 	}
 
 	backupBranch := "caic-backup/" + t.Branch
 	if err := gitutil.CreateBranchAt(fetchCtx, r.Dir, backupBranch, commit); err != nil {
-		slog.Warn("backup: create backup branch failed", "backupBranch", backupBranch, "err", err)
+		r.log.Warn("backup: create failed", "bak", backupBranch, "err", err)
 		return
 	}
-	slog.Info("backup: created backup branch", "backupBranch", backupBranch, "commit", commit[:min(12, len(commit))])
+	r.log.Info("backup: created", "bak", backupBranch, "cmt", commit[:min(12, len(commit))])
 }
 
 // startMessageDispatch starts a goroutine that reads from msgCh and dispatches
@@ -700,7 +705,7 @@ func (r *Runner) startMessageDispatch(ctx context.Context, t *Task) chan agent.M
 					fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 					r.branchMu.Lock()
 					if err := r.Container.Fetch(fetchCtx, r.Dir, t.Branch); err != nil {
-						slog.Warn("fetch on result failed", "branch", t.Branch, "err", err)
+						r.log.Warn("fetch on result failed", "br", t.Branch, "err", err)
 					}
 					msg.DiffStat = r.diffStat(fetchCtx, t.Branch)
 					r.branchMu.Unlock()
@@ -722,7 +727,7 @@ func (r *Runner) fetchDiffStat(ctx context.Context, t *Task) {
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 	if err := r.Container.Fetch(fetchCtx, r.Dir, t.Branch); err != nil {
-		slog.Warn("fetch on tool result failed", "branch", t.Branch, "err", err)
+		r.log.Warn("fetch on tool result failed", "br", t.Branch, "err", err)
 		return
 	}
 	ds := r.diffStat(fetchCtx, t.Branch)
@@ -749,7 +754,7 @@ func (r *Runner) BranchDiffStat(ctx context.Context, branch string) agent.DiffSt
 	r.branchMu.Lock()
 	defer r.branchMu.Unlock()
 	if err := r.Container.Fetch(fetchCtx, r.Dir, branch); err != nil {
-		slog.Warn("fetch for branch diff stat failed", "branch", branch, "err", err)
+		r.log.Warn("fetch for branch diff stat failed", "br", branch, "err", err)
 		return nil
 	}
 	return r.diffStat(fetchCtx, branch)
@@ -759,7 +764,7 @@ func (r *Runner) BranchDiffStat(ctx context.Context, branch string) agent.DiffSt
 func (r *Runner) diffStat(ctx context.Context, branch string) agent.DiffStat {
 	numstat, err := r.Container.Diff(ctx, r.Dir, branch, "--numstat")
 	if err != nil {
-		slog.Warn("diff numstat failed", "branch", branch, "err", err)
+		r.log.Warn("diff numstat failed", "br", branch, "err", err)
 		return nil
 	}
 	return ParseDiffNumstat(numstat)

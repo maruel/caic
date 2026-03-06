@@ -122,22 +122,22 @@ func NewSession(cmd *exec.Cmd, stdin io.WriteCloser, stdout io.Reader, msgCh cha
 		s.result = result
 		switch {
 		case result != nil:
-			log.Info("agent session completed", "result", result.Subtype)
+			log.Info("session done", "result", result.Subtype)
 		case parseErr != nil:
 			s.err = fmt.Errorf("parse: %w", parseErr)
-			log.Error("agent session parse error", "err", parseErr)
+			log.Error("session parse error", "err", parseErr)
 		case waitErr != nil:
 			s.err = fmt.Errorf("agent exited: %w", waitErr)
 			// Signal-based exits (SIGKILL, SIGTERM) are expected when
 			// containers are terminated. Log at Info, not Error.
 			if isSignalExit(waitErr) {
-				log.Info("agent session killed by signal", "err", waitErr)
+				log.Info("session killed", "err", waitErr)
 			} else {
-				log.Warn("agent session exited with error", "err", waitErr)
+				log.Warn("session exit error", "err", waitErr)
 			}
 		default:
 			s.err = errors.New("agent exited without a result message")
-			log.Error("agent session exited without result message")
+			log.Error("session no result")
 		}
 	}()
 
@@ -195,7 +195,7 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 	// 32 MiB max line: user input with base64 images can produce very long NDJSON lines.
 	scanner.Buffer(make([]byte, 0, 1<<20), 32<<20)
 
-	slog.Debug("readMessages: started reading agent stdout")
+	slog.Debug("reading agent stdout")
 	var n int
 	var result *ResultMessage
 	for scanner.Scan() {
@@ -218,7 +218,7 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 		}
 		for _, msg := range msgs {
 			if n <= 3 {
-				slog.Debug("readMessages: parsed message", "n", n, "type", fmt.Sprintf("%T", msg))
+				slog.Debug("parsed message", "n", n, "type", fmt.Sprintf("%T", msg))
 			}
 			if msgCh != nil {
 				msgCh <- msg
@@ -228,7 +228,7 @@ func readMessages(r io.Reader, msgCh chan<- Message, logW io.Writer, parseFn fun
 			}
 		}
 	}
-	slog.Debug("readMessages: loop exited", "linesRead", n, "hasResult", result != nil, "scanErr", scanner.Err())
+	slog.Debug("read loop done", "n", n, "result", result != nil, "err", scanner.Err())
 	return result, scanner.Err()
 }
 
@@ -331,7 +331,7 @@ func (w *SlogWriter) Write(p []byte) (int, error) {
 		line := string(bytes.TrimSpace(w.buf[:i]))
 		w.buf = w.buf[i+1:]
 		if line != "" {
-			slog.Warn("stderr", "source", w.Prefix, "container", w.Container, "line", line)
+			slog.Warn("stderr", "src", w.Prefix, "ctr", w.Container, "line", line)
 		}
 	}
 	return len(p), nil
@@ -352,7 +352,7 @@ func StartRelay(ctx context.Context, opts *Options, agentArgs []string, msgCh ch
 	sshArgs = append(sshArgs, opts.Container, "python3", RelayScriptPath, "serve-attach", "--dir", opts.Dir, "--")
 	sshArgs = append(sshArgs, agentArgs...)
 
-	slog.Info("launching via relay", "container", opts.Container, "args", agentArgs)
+	slog.Info("relay launch", "ctr", opts.Container, "args", agentArgs)
 	cmd := exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // args are not user-controlled.
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -367,7 +367,7 @@ func StartRelay(ctx context.Context, opts *Options, agentArgs []string, msgCh ch
 		return nil, fmt.Errorf("start relay: %w", err)
 	}
 
-	log := slog.With("container", opts.Container)
+	log := slog.With("ctr", opts.Container)
 	s := NewSession(cmd, stdin, stdout, msgCh, logW, wire, log)
 	if opts.InitialPrompt.Text != "" || len(opts.InitialPrompt.Images) > 0 {
 		if err := s.Send(opts.InitialPrompt); err != nil {
@@ -397,7 +397,7 @@ func readRelayOutput(ctx context.Context, container string, parseFn func([]byte)
 		}
 		parsed, parseErr := parseFn(line)
 		if parseErr != nil {
-			slog.Warn("skipping unparseable relay output line", "container", container, "err", parseErr)
+			slog.Warn("skipping unparseable relay output line", "ctr", container, "err", parseErr)
 			continue
 		}
 		msgs = append(msgs, parsed...)
@@ -427,7 +427,7 @@ func attachRelaySession(ctx context.Context, container string, offset int64, msg
 		return nil, fmt.Errorf("attach relay: %w", err)
 	}
 
-	log := slog.With("container", container)
+	log := slog.With("ctr", container)
 	return NewSession(cmd, stdin, stdout, msgCh, logW, wire, log), nil
 }
 
