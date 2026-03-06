@@ -51,20 +51,35 @@ test("concurrent tasks run independently", async ({ api }) => {
 test("SSE event stream delivers text deltas", async ({ page, api, baseURL }) => {
   const id = await createTaskAPI(api, "sse stream test");
 
-  // Navigate to the app first so the browser has the right origin.
+  // Wait for the first turn to finish; the agent is now paused waiting for input.
+  await waitForTaskState(api, id, "waiting");
+
+  // Navigate to the app so the browser has the right origin.
   await page.goto("/");
 
-  // Consume SSE events in the browser context using the full URL.
-  const events = await page.evaluate(async ({ taskId, base }) => {
+  // Expose a callback so the browser can signal when SSE history replay ends.
+  let resolveReady!: () => void;
+  const sseReady = new Promise<void>((res) => { resolveReady = res; });
+  await page.exposeFunction("__sseReady", () => resolveReady());
+
+  // Collect only live events (after the server "ready" sentinel).
+  const eventsPromise = page.evaluate(async ({ taskId, base }) => {
     return new Promise<string[]>((resolve) => {
       const collected: string[] = [];
+      let live = false;
       const es = new EventSource(`${base}/api/v1/tasks/${taskId}/events`);
+      es.addEventListener("ready", () => {
+        live = true;
+        (window as any).__sseReady();
+      });
       es.addEventListener("message", (e) => {
         const msg = JSON.parse(e.data);
-        collected.push(msg.kind);
-        if (msg.kind === "result") {
-          es.close();
-          resolve(collected);
+        if (live) {
+          collected.push(msg.kind);
+          if (msg.kind === "result") {
+            es.close();
+            resolve(collected);
+          }
         }
       });
       // Safety timeout.
@@ -72,8 +87,15 @@ test("SSE event stream delivers text deltas", async ({ page, api, baseURL }) => 
     });
   }, { taskId: id, base: baseURL! });
 
-  // The fake agent should emit: init, textDelta(s), text, result.
-  expect(events).toContain("init");
+  // Wait until SSE history replay is done and the stream is live.
+  await sseReady;
+
+  // Trigger a second agent turn — live textDelta events should follow.
+  await api.sendInput(id, { prompt: { text: "tell me another" } });
+
+  const events = await eventsPromise;
+
+  // The live stream from the second turn should include text deltas.
   expect(events).toContain("textDelta");
   expect(events).toContain("text");
   expect(events).toContain("result");
