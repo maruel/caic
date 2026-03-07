@@ -542,11 +542,11 @@ function ToolMessageGroup(props: { toolCalls: ToolCall[]; taskId: string; events
             <Show when={thinkingEvents().length > 0}>
               <ThinkingCard events={thinkingEvents()} />
             </Show>
-            <For each={calls()}>
-              {(call) => <ToolCallCard call={call} taskId={props.taskId}
-                open={detailsOpenState.get(call.use.toolUseID) ?? false}
-                onToggle={(v) => detailsOpenState.set(call.use.toolUseID, v)} />}
-            </For>
+            <Index each={calls()}>
+              {(call) => <ToolCallCard call={call()} taskId={props.taskId}
+                open={detailsOpenState.get(call().use.toolUseID) ?? false}
+                onToggle={(v) => detailsOpenState.set(call().use.toolUseID, v)} />}
+            </Index>
           </div>
         </details>
       </Show>
@@ -618,22 +618,22 @@ function ElidedTurn(props: { turn: Turn; taskId: string }) {
       onToggle={(e) => detailsOpenState.set(turnKey(), e.currentTarget.open)}>
       <summary>{turnSummary(props.turn)}</summary>
       <div class={styles.elidedTurnInner}>
-        <For each={props.turn.groups}>
+        <Index each={props.turn.groups}>
           {(group) => (
             <Switch>
-              <Match when={group.kind === "ask" && group.ask} keyed>
+              <Match when={group().kind === "ask" && group().ask} keyed>
                 {(ask) => (
                   <div class={styles.askGroup}>
                     <div class={styles.askText}>
                       {ask.questions[0]?.question ?? "Question"}
                     </div>
-                    <Show when={group.answerText}>
-                      <div class={styles.askSubmitted}>{group.answerText}</div>
+                    <Show when={group().answerText}>
+                      <div class={styles.askSubmitted}>{group().answerText}</div>
                     </Show>
                   </div>
                 )}
               </Match>
-              <Match when={group.kind === "userInput" && group.events[0]?.userInput} keyed>
+              <Match when={group().kind === "userInput" && group().events[0]?.userInput} keyed>
                 {(ui) => (
                   <div class={styles.userInputMsg}>
                     {ui.text}
@@ -647,23 +647,23 @@ function ElidedTurn(props: { turn: Turn; taskId: string }) {
                   </div>
                 )}
               </Match>
-              <Match when={group.kind === "action"}>
-                <Show when={group.toolCalls.length > 0}
-                  fallback={<ThinkingCard events={group.events} />}>
-                  <ToolMessageGroup toolCalls={group.toolCalls} taskId={props.taskId} events={group.events} />
+              <Match when={group().kind === "action"}>
+                <Show when={group().toolCalls.length > 0}
+                  fallback={<ThinkingCard events={group().events} />}>
+                  <ToolMessageGroup toolCalls={group().toolCalls} taskId={props.taskId} events={group().events} />
                 </Show>
               </Match>
-              <Match when={group.kind === "text"}>
-                <TextMessageGroup events={group.events} />
+              <Match when={group().kind === "text"}>
+                <TextMessageGroup events={group().events} />
               </Match>
-              <Match when={group.kind === "other"}>
-                <For each={group.events}>
+              <Match when={group().kind === "other"}>
+                <For each={group().events}>
                   {(ev) => <MessageItem ev={ev} />}
                 </For>
               </Match>
             </Switch>
           )}
-        </For>
+        </Index>
       </div>
     </details>
   );
