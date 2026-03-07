@@ -175,10 +175,6 @@
   min-height: 0;
 }
 
-.placeholder {
-  color: var(--color-text-muted);
-}
-
 .detailPane {
   flex: 1;
   min-width: 0;

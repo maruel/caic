@@ -87,15 +87,6 @@
   color: var(--color-text-meta);
 }
 
-.repoLink {
-  color: inherit;
-  text-decoration: none;
-}
-
-.repoLink:hover {
-  text-decoration: underline;
-}
-
 .baseBranch {
   opacity: 0.65;
 }
@@ -108,11 +99,6 @@
 
 .branchName {
   font-weight: 600;
-}
-
-.cost {
-  font-size: 0.75rem;
-  color: var(--color-text-muted);
 }
 
 .diffClickable {

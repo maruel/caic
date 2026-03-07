@@ -3,6 +3,13 @@ import styles from "./Button.module.css";
 
 type Variant = "primary" | "gray" | "red" | "green";
 
+const VARIANT_CLASS: Record<Variant, string> = {
+  primary: styles.primary,
+  gray: styles.gray,
+  red: styles.red,
+  green: styles.green,
+};
+
 type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: Variant;
   loading?: boolean;
@@ -13,7 +20,7 @@ export default function Button(props: ButtonProps) {
   const variant = () => local.variant ?? "primary";
   return (
     <button
-      class={`${styles.btn} ${styles[variant()]}${local.class ? ` ${local.class}` : ""}`}
+      class={`${styles.btn} ${VARIANT_CLASS[variant()]}${local.class ? ` ${local.class}` : ""}`}
       disabled={local.disabled || local.loading}
       {...rest}
     >

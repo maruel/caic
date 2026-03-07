@@ -60,6 +60,8 @@
   /* Code / diff dark theme */
   --color-diff-code-bg: #1e1e1e;
   --color-diff-code-fg: #d4d4d4;
+  --color-diff-added: #22863a;
+  --color-diff-deleted: #cb2431;
   --color-diff-added-line: #4ec94e;
   --color-diff-deleted-line: #f44;
   --color-diff-hunk: #b48ead;

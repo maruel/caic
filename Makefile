@@ -55,6 +55,7 @@ lint-go:
 
 lint-frontend: $(FRONTEND_STAMP)
 	@NPM_CONFIG_AUDIT=false NPM_CONFIG_FUND=false pnpm lint
+	@python3 scripts/lint_css_vars.py
 
 lint-python:
 	@ruff check .

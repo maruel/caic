@@ -33,14 +33,6 @@
   outline: 2px solid var(--color-primary-ring);
 }
 
-.micButtonActive {
-  color: var(--color-primary);
-}
-
-.micButtonError {
-  color: var(--color-danger);
-}
-
 /* ---- Bottom panel (flex child of .app) ---- */
 
 .panel {
