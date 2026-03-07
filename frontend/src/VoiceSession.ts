@@ -1,4 +1,4 @@
-// Core Gemini Live voice session manager for the web frontend.
+// Core Gemini Live voice session manager for the web frontend. Keep in sync with android/app/src/main/java/com/fghbuild/caic/voice/VoiceSession.kt
 import { createStore, produce } from "solid-js/store";
 import { getVoiceToken, listHarnesses, listRepos } from "@sdk/api.gen";
 import type { Task } from "@sdk/types.gen";
@@ -49,9 +49,6 @@ const SYSTEM_INSTRUCTION =
   "## On connection\n" +
   "When the session starts, say only \"Ready\" and nothing else. Wait for " +
   "the user to speak first. Speak fast.\n\n" +
-  "## Tools available\n" +
-  "task_create, tasks_list, task_get_detail, task_send_message, task_answer_question, " +
-  "task_push_branch_to_remote, task_terminate.\n\n" +
   "## Behavior guidelines\n" +
   "- Be concise. The user is often away from the screen.\n" +
   "- Summarize task status: state and what the agent is doing. " +

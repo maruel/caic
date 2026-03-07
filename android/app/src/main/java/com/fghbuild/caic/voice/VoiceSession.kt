@@ -1,4 +1,4 @@
-// Manages Gemini Live WebSocket session, audio I/O, and function call dispatch.
+// Manages Gemini Live WebSocket session, audio I/O, and function call dispatch. Keep in sync with frontend/src/VoiceSession.ts
 package com.fghbuild.caic.voice
 
 import android.annotation.SuppressLint
@@ -840,9 +840,6 @@ class VoiceSession @Inject constructor(
                 "## On connection\n" +
                 "When the session starts, say only \"Ready\" and nothing else. Wait for " +
                 "the user to speak first. Speak fast.\n\n" +
-                "## Tools available\n" +
-                "task_create, tasks_list, task_get_detail, task_send_message, task_answer_question, " +
-                "task_push_branch_to_remote, task_terminate.\n\n" +
                 "## Behavior guidelines\n" +
                 "- Be concise. The user is often away from the screen.\n" +
                 "- Summarize task status: state and what the agent is doing. " +
