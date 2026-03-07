@@ -436,6 +436,15 @@ function MessageItem(props: { ev: EventMessage }) {
       <Match when={props.ev.system?.subtype === "context_cleared"}>
         <div class={styles.contextCleared}>Context cleared</div>
       </Match>
+      <Match when={props.ev.system?.subtype === "compact_boundary"}>
+        <div class={styles.contextCleared}>Conversation compacted</div>
+      </Match>
+      <Match when={props.ev.system?.subtype === "api_error"}>
+        <div class={styles.parseError}>API error</div>
+      </Match>
+      <Match when={props.ev.system?.subtype === "step_start"}>
+        {/* suppress: no useful content */}
+      </Match>
       <Match when={props.ev.system} keyed>
         {(sys) => (
           <div class={styles.systemMsg}>

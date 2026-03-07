@@ -2,6 +2,7 @@
 package com.fghbuild.caic.ui.taskdetail
 
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -112,6 +113,36 @@ fun MessageGroupContent(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         )
                     }
+                }
+                event?.kind == EventKinds.System && event.system?.subtype == "compact_boundary" -> {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    ) {
+                        HorizontalDivider()
+                        Text(
+                            text = "Conversation compacted",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        )
+                    }
+                }
+                event?.kind == EventKinds.System && event.system?.subtype == "api_error" -> {
+                    Text(
+                        text = "API error",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier
+                            .background(
+                                color = MaterialTheme.colorScheme.errorContainer,
+                                shape = MaterialTheme.shapes.small,
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+                event?.kind == EventKinds.System && event.system?.subtype == "step_start" -> {
+                    // suppress: no useful content to display
                 }
                 event?.kind == EventKinds.System -> {
                     val subtype = event.system?.subtype
