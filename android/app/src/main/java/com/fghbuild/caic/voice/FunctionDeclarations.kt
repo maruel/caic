@@ -207,5 +207,25 @@ fun buildFunctionDeclarations(
         behavior = "NON_BLOCKING",
         scheduling = "INTERRUPT",
     ),
+    FunctionDeclaration(
+        name = "web_search",
+        description = "Search the web for a query and display the results in an embedded browser.",
+        parameters = objectSchema(
+            "query" to stringProp("The search query"),
+            required = listOf("query"),
+        ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
+    ),
+    FunctionDeclaration(
+        name = "web_fetch",
+        description = "Open a URL in the embedded browser.",
+        parameters = objectSchema(
+            "url" to stringProp("The URL to open"),
+            required = listOf("url"),
+        ),
+        behavior = "NON_BLOCKING",
+        scheduling = "INTERRUPT",
+    ),
     )
 }

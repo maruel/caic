@@ -67,4 +67,5 @@ var Routes = []Route{
 	{Name: "globalUsageEvents", Method: "GET", Path: "/api/v1/server/usage/events", Resp: reflect.TypeFor[UsageResp](), IsSSE: true},
 	{Name: "getUsage", Method: "GET", Path: "/api/v1/usage", Resp: reflect.TypeFor[UsageResp]()},
 	{Name: "getVoiceToken", Method: "GET", Path: "/api/v1/voice/token", Resp: reflect.TypeFor[VoiceTokenResp]()},
+	{Name: "webFetch", Method: "POST", Path: "/api/v1/web/fetch", Req: reflect.TypeFor[WebFetchReq](), Resp: reflect.TypeFor[WebFetchResp]()},
 }

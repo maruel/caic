@@ -375,6 +375,12 @@ data class VoiceTokenResp(
 )
 
 @Serializable
+data class WebFetchReq(val url: String)
+
+@Serializable
+data class WebFetchResp(val title: String, val content: String)
+
+@Serializable
 data class ErrorDetails(val code: String, val message: String)
 
 @Serializable

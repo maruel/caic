@@ -198,7 +198,12 @@ export class VoiceSession {
       this.taskNumberMap.update(active);
       this._pendingSnapshot = buildSnapshot(active, recentRepo, this.taskNumberMap, defaultHarness, defaultModel);
 
-      this._functions = new FunctionHandlers(this.taskNumberMap, () => this.excludedTaskIds, defaultHarness, defaultModel);
+      this._functions = new FunctionHandlers(
+        this.taskNumberMap,
+        () => this.excludedTaskIds,
+        defaultHarness,
+        defaultModel,
+      );
 
       const wsUrl = tokenResp.ephemeral
         ? `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContentConstrained?access_token=${encodeURIComponent(tokenResp.token)}`

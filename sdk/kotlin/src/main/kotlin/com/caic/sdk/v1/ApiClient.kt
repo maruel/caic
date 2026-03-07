@@ -95,6 +95,7 @@ class ApiClient(baseURL: String) {
     suspend fun getTaskToolInput(id: String, toolUseID: String): TaskToolInputResp = request("GET", "/api/v1/tasks/$id/tool/$toolUseID")
     suspend fun getUsage(): UsageResp = request("GET", "/api/v1/usage")
     suspend fun getVoiceToken(): VoiceTokenResp = request("GET", "/api/v1/voice/token")
+    suspend fun webFetch(req: WebFetchReq): WebFetchResp = request("POST", "/api/v1/web/fetch", json.encodeToString(req))
 
     // SSE endpoints
     fun taskRawEvents(id: String): Flow<EventMessage> = sseFlow<EventMessage>("/api/v1/tasks/$id/raw_events")

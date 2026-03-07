@@ -43,6 +43,12 @@ RESTful JSON API served at `/api/v1/`. SSE endpoints stream newline-delimited JS
 |--------|------|---------|----------|
 | GET | `/api/v1/voice/token` |  | `VoiceTokenResp` |
 
+## Web
+
+| Method | Path | Request | Response |
+|--------|------|---------|----------|
+| POST | `/api/v1/web/fetch` | `WebFetchReq` | `WebFetchResp` |
+
 ## Errors
 
 All errors return:
@@ -482,4 +488,17 @@ All errors return:
 | `token` | `string` | yes |
 | `expiresAt` | `string` | yes |
 | `ephemeral` | `boolean` | yes |
+
+### WebFetchReq
+
+| Field | Type | Required |
+|-------|------|----------|
+| `url` | `string` | yes |
+
+### WebFetchResp
+
+| Field | Type | Required |
+|-------|------|----------|
+| `title` | `string` | yes |
+| `content` | `string` | yes |
 

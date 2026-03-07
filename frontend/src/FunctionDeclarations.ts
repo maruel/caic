@@ -170,5 +170,25 @@ export function buildFunctionDeclarations(
       behavior: "NON_BLOCKING",
       scheduling: "INTERRUPT",
     },
+    {
+      name: "web_search",
+      description: "Search the web for a query and display the results in an embedded browser.",
+      parameters: objectSchema(
+        { query: stringProp("The search query") },
+        ["query"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
+    {
+      name: "web_fetch",
+      description: "Open a URL in the embedded browser.",
+      parameters: objectSchema(
+        { url: stringProp("The URL to open") },
+        ["url"],
+      ),
+      behavior: "NON_BLOCKING",
+      scheduling: "INTERRUPT",
+    },
   ];
 }

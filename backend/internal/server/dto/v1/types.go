@@ -251,5 +251,16 @@ type CloneRepoReq struct {
 	Depth int    `json:"depth,omitempty"`
 }
 
+// WebFetchReq is the request body for POST /api/v1/web/fetch.
+type WebFetchReq struct {
+	URL string `json:"url"`
+}
+
+// WebFetchResp is the response for POST /api/v1/web/fetch.
+type WebFetchResp struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
 // EmptyReq is used for endpoints that take no request body.
 type EmptyReq = dto.EmptyReq

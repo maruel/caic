@@ -572,6 +572,19 @@ export interface CloneRepoReq {
   depth?: number /* int */;
 }
 /**
+ * WebFetchReq is the request body for POST /api/v1/web/fetch.
+ */
+export interface WebFetchReq {
+  url: string;
+}
+/**
+ * WebFetchResp is the response for POST /api/v1/web/fetch.
+ */
+export interface WebFetchResp {
+  title: string;
+  content: string;
+}
+/**
  * EmptyReq is used for endpoints that take no request body.
  */
 export type EmptyReq = any /* dto.EmptyReq */;

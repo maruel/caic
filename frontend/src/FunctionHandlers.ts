@@ -9,6 +9,7 @@ import {
   getUsage,
   cloneRepo,
   taskEvents,
+  webFetch,
 } from "@sdk/api.gen";
 import type { Task, EventMessage } from "@sdk/types.gen";
 import { formatCost, formatElapsed } from "./formatting";
@@ -98,6 +99,10 @@ export class FunctionHandlers {
           return await this.handleCloneRepo(args);
         case "task_get_last_message_from_assistant":
           return await this.handleGetLastMessage(args);
+        case "web_search":
+          return await this.handleWebSearch(args);
+        case "web_fetch":
+          return await this.handleWebFetch(args);
         default:
           return errorResult(`Unknown function: ${name}`);
       }
@@ -215,6 +220,19 @@ export class FunctionHandlers {
     const path = optString(args, "path");
     const repo = await cloneRepo({ url, ...(path ? { path } : {}) });
     return textResult(`Cloned **${repo.path}** (base: ${repo.baseBranch}).`);
+  }
+
+  private async handleWebSearch(args: FunctionArgs): Promise<Record<string, unknown>> {
+    const query = requireString(args, "query");
+    const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const resp = await webFetch({ url });
+    return { title: resp.title, content: resp.content };
+  }
+
+  private async handleWebFetch(args: FunctionArgs): Promise<Record<string, unknown>> {
+    const url = requireString(args, "url");
+    const resp = await webFetch({ url });
+    return { title: resp.title, content: resp.content };
   }
 
   private handleGetLastMessage(args: FunctionArgs): Promise<Record<string, unknown>> {

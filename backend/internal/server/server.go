@@ -351,6 +351,7 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 	mux.HandleFunc("GET /api/v1/tasks/{id}/tool/{toolUseID}", s.handleTaskToolInput)
 	mux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
 	mux.HandleFunc("GET /api/v1/voice/token", handle(s.getVoiceToken))
+	mux.HandleFunc("POST /api/v1/web/fetch", handle(s.webFetch))
 	mux.HandleFunc("GET /api/v1/server/tasks/events", s.handleTaskListEvents)
 	mux.HandleFunc("GET /api/v1/server/usage/events", s.handleUsageEvents)
 

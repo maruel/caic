@@ -9,6 +9,7 @@ import com.caic.sdk.v1.InputReq
 import com.caic.sdk.v1.Prompt
 import com.caic.sdk.v1.SyncReq
 import com.caic.sdk.v1.Task
+import com.caic.sdk.v1.WebFetchReq
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.data.TaskSSEEvent
 import com.fghbuild.caic.util.formatCost
@@ -44,6 +45,8 @@ class FunctionHandlers(
                 "get_usage" -> handleGetUsage()
                 "clone_repo" -> handleCloneRepo(args)
                 "task_get_last_message_from_assistant" -> handleGetLastMessage(args)
+                "web_search" -> handleWebSearch(args)
+                "web_fetch" -> handleWebFetch(args)
                 else -> errorResult("Unknown function: $name")
             }
         } catch (@Suppress("TooGenericExceptionCaught") e: Exception) {
@@ -189,6 +192,19 @@ class FunctionHandlers(
             "Last message from task #$num: $t"
         } ?: "No messages from task #$num yet."
         return textResult(message)
+    }
+
+    private suspend fun handleWebSearch(args: JsonObject): JsonElement {
+        val query = args.requireString("query")
+        val url = "https://html.duckduckgo.com/html/?q=${java.net.URLEncoder.encode(query, "UTF-8")}"
+        val resp = apiClient.webFetch(WebFetchReq(url = url))
+        return JsonObject(mapOf("title" to JsonPrimitive(resp.title), "content" to JsonPrimitive(resp.content)))
+    }
+
+    private suspend fun handleWebFetch(args: JsonObject): JsonElement {
+        val url = args.requireString("url")
+        val resp = apiClient.webFetch(WebFetchReq(url = url))
+        return JsonObject(mapOf("title" to JsonPrimitive(resp.title), "content" to JsonPrimitive(resp.content)))
     }
 
     private suspend fun handleCloneRepo(args: JsonObject): JsonElement {

@@ -2,6 +2,7 @@
 package v1
 
 import (
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -86,6 +87,21 @@ func (r *CloneRepoReq) Validate() error {
 				return dto.BadRequest("path segment contains invalid characters: " + seg)
 			}
 		}
+	}
+	return nil
+}
+
+// Validate checks that the URL is non-empty and has an http or https scheme.
+func (r *WebFetchReq) Validate() error {
+	if r.URL == "" {
+		return dto.BadRequest("url is required")
+	}
+	u, err := url.Parse(r.URL)
+	if err != nil {
+		return dto.BadRequest("invalid url")
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return dto.BadRequest("url must have http or https scheme")
 	}
 	return nil
 }
