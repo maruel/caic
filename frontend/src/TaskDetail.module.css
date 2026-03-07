@@ -478,20 +478,36 @@ a.headerPR:hover {
 }
 
 .elidedTurn {
+  display: block;
+  width: 100%;
   margin-bottom: 0.35rem;
   background: #e4eaf1;
+  border: none;
   border-radius: var(--radius-md);
   padding: 0.25rem 0.5rem;
-}
-
-.elidedTurn summary {
   cursor: pointer;
   font-size: 0.8rem;
   color: #4a6785;
+  text-align: left;
 }
 
-.elidedTurnInner {
-  margin-top: 0.25rem;
+.elidedTurn::before {
+  content: "▶";
+  margin-right: 0.4em;
+  font-size: 0.7em;
+}
+
+.elidedTurn:hover {
+  background: #d5e3f0;
+}
+
+.elidedTurnExpanded {
+  background: #d5e3f0;
+  margin-bottom: 0.1rem;
+}
+
+.elidedTurnExpanded::before {
+  content: "▼";
 }
 
 @keyframes toolSpin {

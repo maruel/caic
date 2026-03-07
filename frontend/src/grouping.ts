@@ -288,6 +288,46 @@ export function groupTurns(groups: MessageGroup[]): Turn[] {
   return turns;
 }
 
+// Flat display item for the message list.
+// Analogous to Android's sealed MsgItem interface. buildItems produces a linear
+// sequence that maps 1:1 to rendered rows, enabling future virtualization.
+export type MsgItem =
+  | { kind: "elided"; turn: Turn; key: string }
+  | { kind: "expandedHeader"; turn: Turn; turnKey: string; key: string }
+  | { kind: "group"; group: MessageGroup; isLive: boolean; key: string };
+
+// Builds flat display items for a set of completed (past) turns.
+// Exported separately so the live turn can be appended without recomputing past turns,
+// keeping completedItems stable during streaming (only updates on result events).
+export function buildCompletedItems(turns: Turn[], expandedTurnKeys: ReadonlySet<string>): MsgItem[] {
+  const items: MsgItem[] = [];
+  for (let i = 0; i < turns.length; i++) {
+    const turn = turns[i];
+    const turnKey = "turn:" + (turn.groups[0]?.events[0]?.ts ?? i);
+    if (expandedTurnKeys.has(turnKey)) {
+      items.push({ kind: "expandedHeader", turn, turnKey, key: `hdr:${turnKey}` });
+      for (let j = 0; j < turn.groups.length; j++) {
+        items.push({ kind: "group", group: turn.groups[j], isLive: false, key: `${turnKey}-g${j}` });
+      }
+    } else {
+      items.push({ kind: "elided", turn, key: turnKey });
+    }
+  }
+  return items;
+}
+
+// Builds a flat list of display items from all turns + expansion state.
+// Past turns are elided or expanded; the last (live) turn is always expanded without a header.
+export function buildItems(turns: Turn[], expandedTurnKeys: ReadonlySet<string>): MsgItem[] {
+  if (turns.length === 0) return [];
+  const items = buildCompletedItems(turns.slice(0, -1), expandedTurnKeys);
+  const liveTurn = turns[turns.length - 1];
+  for (let j = 0; j < liveTurn.groups.length; j++) {
+    items.push({ kind: "group", group: liveTurn.groups[j], isLive: true, key: `live-g${j}` });
+  }
+  return items;
+}
+
 export function toolCountSummary(calls: ToolCall[]): string {
   const counts = new Map<string, number>();
   for (const tc of calls) {

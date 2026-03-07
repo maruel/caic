@@ -1,11 +1,11 @@
 // TaskDetail renders the real-time agent output stream for a single task.
-import { createSignal, createMemo, For, Index, Show, onCleanup, onMount, createEffect, Switch, Match, type Accessor } from "solid-js";
+import { createSignal, createMemo, createEffect, For, Index, Show, onCleanup, onMount, untrack, Switch, Match, type Accessor } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import { sendInput as apiSendInput, restartTask as apiRestartTask, syncTask as apiSyncTask, taskEvents, getTaskToolInput } from "@sdk/api.gen";
-import type { EventMessage, EventResult, AskQuestion, EventTextDelta, SafetyIssue, ImageData as APIImageData, SyncTarget, DiffFileStat } from "@sdk/types.gen";
-import { groupMessages, groupTurns, toolCountSummary, turnSummary } from "./grouping";
+import type { EventMessage, EventResult, AskQuestion, EventAsk, EventTextDelta, SafetyIssue, ImageData as APIImageData, SyncTarget, DiffFileStat } from "@sdk/types.gen";
+import { groupMessages, groupTurns, buildCompletedItems, toolCountSummary, turnSummary, type MsgItem, type MessageGroup } from "./grouping";
 import { formatDuration, formatTokens, toolCallDetail } from "./formatting";
-import type { ToolCall, Turn } from "./grouping";
+import type { ToolCall } from "./grouping";
 import { SyncTargetDefault } from "@sdk/types.gen";
 import { Marked } from "marked";
 import AutoResizeTextarea from "./AutoResizeTextarea";
@@ -18,13 +18,14 @@ import SyncIcon from "@material-symbols/svg-400/outlined/sync.svg?solid";
 import GitHubIcon from "./github.svg?solid";
 import styles from "./TaskDetail.module.css";
 
-// Module-level store for <details> open/closed state so it survives
-// component remounts (task switching, memo re-evaluation).
-// Keys: toolUseID (tool calls), "group:<firstToolUseID>" (tool groups),
-// "turn:<firstEventTs>" (elided turns).
+// Module-level store for <details> open/closed state (tool calls, thinking blocks).
+// Keys: toolUseID, "group:<firstToolUseID>", "thinking:<firstEventTs>".
+// Survives component remounts on task switching.
 export const detailsOpenState = new Map<string, boolean>();
 
-// A group of consecutive events that should be rendered together.
+// Per-task expansion state for collapsed past turns.
+// Key: taskId → Set of "turn:<firstEventTs>" strings.
+const expandedTurnsByTask = new Map<string, Set<string>>();
 
 interface Props {
   taskId: string;
@@ -96,13 +97,82 @@ export default function TaskDetail(props: Props) {
   // Scroll to bottom whenever messages change, if the user hasn't scrolled up.
   createEffect(() => {
     messages(); // track dependency
-    // Use requestAnimationFrame so the DOM has updated before we measure.
     requestAnimationFrame(scrollToBottom);
+  });
+
+  // Expansion state for collapsed past turns. Persisted per task across remounts.
+  const [expandedTurnKeys, setExpandedTurnKeys] = createSignal<ReadonlySet<string>>(
+    expandedTurnsByTask.get(props.taskId) ?? new Set(), // eslint-disable-line solid/reactivity -- initial value; createEffect below syncs on taskId changes
+  );
+  // Sync expansion state when taskId changes.
+  createEffect(() => {
+    setExpandedTurnKeys(expandedTurnsByTask.get(props.taskId) ?? new Set());
+  });
+  function toggleTurn(key: string) {
+    setExpandedTurnKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      expandedTurnsByTask.set(props.taskId, next);
+      return next;
+    });
+  }
+
+  // Incremental grouping: cache completed-turn groups so streaming only reprocesses the current turn.
+  // splitIdx is the index into messages() where the current (incomplete) turn starts.
+  // It advances only when a "result" event arrives, keeping completedGroups stable during streaming.
+  const [splitIdx, setSplitIdx] = createSignal(0);
+  const [completedMsgs, setCompletedMsgs] = createSignal<EventMessage[]>([]);
+  createEffect(() => {
+    const msgs = messages();
+    let idx = untrack(splitIdx);
+    for (let i = idx; i < msgs.length; i++) {
+      if (msgs[i].kind === "result") idx = i + 1;
+    }
+    if (idx !== untrack(splitIdx)) {
+      setSplitIdx(idx);
+      setCompletedMsgs(msgs.slice(0, idx));
+    }
+  });
+
+  // completedGroups: recomputes only when a turn completes (splitIdx advances).
+  const completedGroups = createMemo(() => groupMessages(completedMsgs()));
+  // currentGroups: recomputes on every message, but only over the current turn's messages.
+  const currentGroups = createMemo(() => groupMessages(messages().slice(splitIdx())));
+
+  // Flat item model split into stable (past) + last-completed + reactive (live) parts.
+  // pastItems: all completed turns except the most recent — stable during streaming.
+  // lastCompletedItems: most recent completed turn's groups — always shown inline, never collapsed.
+  // liveItems: current (in-progress) turn's groups — reactive.
+  const completedTurns = createMemo(() => groupTurns(completedGroups()));
+  const pastItems = createMemo(() => buildCompletedItems(completedTurns().slice(0, -1), expandedTurnKeys()));
+  const lastCompletedItems = createMemo((): MsgItem[] => {
+    const turns = completedTurns();
+    if (turns.length === 0) return [];
+    const lastTurn = turns[turns.length - 1];
+    return lastTurn.groups.map((g, j) => ({ kind: "group" as const, group: g, isLive: false, key: `last-g${j}` }));
+  });
+  const liveItems = createMemo(() =>
+    currentGroups().map((g, j) => ({ kind: "group" as const, group: g, isLive: true, key: `live-g${j}` } satisfies MsgItem)),
+  );
+  const items = createMemo(() => [...pastItems(), ...lastCompletedItems(), ...liveItems()]);
+
+  // Last ask group: only the most recent ask is interactive.
+  const allGroups = createMemo(() => [...completedGroups(), ...currentGroups()]);
+  const lastAskGroup = createMemo((): MessageGroup | null => {
+    const groups = allGroups();
+    for (let i = groups.length - 1; i >= 0; i--) {
+      if (groups[i].kind === "ask") return groups[i];
+    }
+    return null;
   });
 
   createEffect(() => {
     const id = props.taskId;
     userScrolledUp = false;
+
+    // Reset incremental grouping state for the new task.
+    setSplitIdx(0);
+    setCompletedMsgs([]);
 
     let es: EventSource | null = null;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -110,16 +180,34 @@ export default function TaskDetail(props: Props) {
     // Buffer accumulates replayed history; swapped into signal on "ready" event.
     let buf: EventMessage[] = [];
     let live = false;
+    // rAF batching for live events: reduces setMessages calls from one-per-event
+    // to one-per-frame, cutting O(n²) streaming overhead to O(n/fps).
+    let pendingLive: EventMessage[] = [];
+    let rafId: number | null = null;
 
-    // Returns a copy of msgs with planContent cleared on all ExitPlanMode
-    // events. Called when a new ExitPlanMode or context_cleared arrives so
-    // the frontend doesn't list superseded plan proposals.
+    // Returns a copy of msgs with planContent cleared on all ExitPlanMode events.
     function clearExitPlanContent(msgs: EventMessage[]): EventMessage[] {
       return msgs.map((m) =>
         m.toolUse?.name === "ExitPlanMode" && m.toolUse.planContent
           ? { ...m, toolUse: { ...m.toolUse, planContent: "" } }
-          : m
+          : m,
       );
+    }
+
+    function flushLive() {
+      rafId = null;
+      const evs = pendingLive;
+      pendingLive = [];
+      setMessages((prev) => {
+        let next = prev;
+        for (const ev of evs) {
+          const clearsOldPlan =
+            (ev.toolUse?.name === "ExitPlanMode" && !!ev.toolUse.planContent) ||
+            ev.system?.subtype === "context_cleared";
+          next = clearsOldPlan ? [...clearExitPlanContent(next), ev] : [...next, ev];
+        }
+        return next;
+      });
     }
 
     function connect() {
@@ -127,14 +215,8 @@ export default function TaskDetail(props: Props) {
       live = false;
       es = taskEvents(id, (ev) => {
         if (live) {
-          const clearsOldPlan =
-            (ev.toolUse?.name === "ExitPlanMode" && !!ev.toolUse.planContent) ||
-            ev.system?.subtype === "context_cleared";
-          if (clearsOldPlan) {
-            setMessages((prev) => [...clearExitPlanContent(prev), ev]);
-          } else {
-            setMessages((prev) => [...prev, ev]);
-          }
+          pendingLive.push(ev);
+          if (rafId === null) rafId = requestAnimationFrame(flushLive);
         } else {
           buf.push(ev);
         }
@@ -151,8 +233,6 @@ export default function TaskDetail(props: Props) {
       es.onerror = () => {
         es?.close();
         es = null;
-        // For terminal tasks the server closes the stream after sending
-        // history — no new messages will arrive, so stop reconnecting.
         const st = props.taskState;
         if (live && messages().length > 0 && (st === "terminated" || st === "failed")) {
           return;
@@ -167,6 +247,11 @@ export default function TaskDetail(props: Props) {
     onCleanup(() => {
       es?.close();
       if (timer !== null) clearTimeout(timer);
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+        pendingLive = [];
+      }
     });
   });
 
@@ -179,6 +264,19 @@ export default function TaskDetail(props: Props) {
       await apiSendInput(props.taskId, { prompt: { text, ...(imgs.length > 0 ? { images: imgs } : {}) } });
       props.onInputDraft("");
       props.onInputImages([]);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Unknown error";
+      setActionError(`send failed: ${msg}`);
+      setTimeout(() => setActionError(null), 5000);
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function sendAskAnswer(text: string) {
+    setSending(true);
+    try {
+      await apiSendInput(props.taskId, { prompt: { text } });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       setActionError(`send failed: ${msg}`);
@@ -263,91 +361,44 @@ export default function TaskDetail(props: Props) {
         </Show>
       </div>
       <div class={styles.messageArea} ref={messageAreaRef} onScroll={handleScroll}>
-        {(() => {
-          const grouped = createMemo(() => groupMessages(messages()));
-          const turns = createMemo(() => groupTurns(grouped()));
-
-          // Find the index of the last "ask" group across all turns for interactivity.
-          const lastAskIdx = createMemo(() => {
-            const g = grouped();
-            for (let i = g.length - 1; i >= 0; i--) {
-              if (g[i].kind === "ask") return i;
-            }
-            return -1;
-          });
-
-          async function sendAskAnswer(text: string) {
-            setSending(true);
-            try {
-              await apiSendInput(props.taskId, { prompt: { text } });
-            } catch (e) {
-              const msg = e instanceof Error ? e.message : "Unknown error";
-              setActionError(`send failed: ${msg}`);
-              setTimeout(() => setActionError(null), 5000);
-            } finally {
-              setSending(false);
-            }
-          }
-
-          return (
-            <Index each={turns()}>
-              {(turn, turnIdx) => {
-                const isLastTurn = () => turnIdx === turns().length - 1;
-
-                return (
-                  <Show when={isLastTurn()} fallback={
-                    <ElidedTurn turn={turn()} taskId={props.taskId} />
-                  }>
-                    <Index each={turn().groups}>
-                      {(group) => (
-                        <Switch>
-                          <Match when={group().kind === "ask" && group().ask} keyed>
-                            {(ask) => (
-                              <AskQuestionCard
-                                ask={ask}
-                                interactive={isWaiting() && group() === grouped()[lastAskIdx()]}
-                                answerText={group().answerText}
-                                onSubmit={sendAskAnswer}
-                              />
-                            )}
-                          </Match>
-                          <Match when={group().kind === "userInput" && group().events[0]?.userInput} keyed>
-                            {(ui) => (
-                              <div class={styles.userInputMsg}>
-                                <Markdown text={ui.text} />
-                                <Show when={ui.images?.length}>
-                                  <div class={styles.userInputImages}>
-                                    <For each={ui.images}>
-                                      {(img) => <img class={styles.userInputImage} src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />}
-                                    </For>
-                                  </div>
-                                </Show>
-                              </div>
-                            )}
-                          </Match>
-                          <Match when={group().kind === "action"}>
-                            <Show when={group().toolCalls.length > 0}
-                              fallback={<ThinkingCard events={group().events} />}>
-                              <ToolMessageGroup toolCalls={group().toolCalls} taskId={props.taskId} events={group().events} />
-                            </Show>
-                          </Match>
-                          <Match when={group().kind === "text"}>
-                            <TextMessageGroup events={group().events} />
-                          </Match>
-                          <Match when={group().kind === "other"}>
-                            <For each={group().events}>
-                              {(ev) => <MessageItem ev={ev} />}
-                            </For>
-                          </Match>
-                        </Switch>
-                      )}
-                    </Index>
-                  </Show>
-                );
-              }}
-            </Index>
-          );
-        })()}
+        <Index each={items()}>
+          {(item) => {
+            // Type-narrowing accessors for the MsgItem discriminated union.
+            const elided = () => item().kind === "elided" ? item() as Extract<MsgItem, { kind: "elided" }> : null;
+            const expHdr = () => item().kind === "expandedHeader" ? item() as Extract<MsgItem, { kind: "expandedHeader" }> : null;
+            const grp = () => item().kind === "group" ? (item() as Extract<MsgItem, { kind: "group" }>).group : null;
+            return (
+              <Switch>
+                {/* Collapsed past turn: single clickable row. */}
+                <Match when={elided()} keyed>
+                  {(e) => (
+                    <button class={styles.elidedTurn} onClick={() => toggleTurn(e.key)}>
+                      {turnSummary(e.turn)}
+                    </button>
+                  )}
+                </Match>
+                {/* Expanded past turn header: click to collapse. */}
+                <Match when={expHdr()} keyed>
+                  {(h) => (
+                    <button class={`${styles.elidedTurn} ${styles.elidedTurnExpanded}`} onClick={() => toggleTurn(h.turnKey)}>
+                      {turnSummary(h.turn)}
+                    </button>
+                  )}
+                </Match>
+                {/* Message group: dispatch to group-specific renderer. */}
+                <Match when={grp()}>
+                  <GroupContent
+                    group={() => grp() as MessageGroup}
+                    taskId={props.taskId}
+                    isWaiting={isWaiting}
+                    lastAskGroup={lastAskGroup}
+                    onAskAnswer={sendAskAnswer}
+                  />
+                </Match>
+              </Switch>
+            );
+          }}
+        </Index>
         <Show when={isWaiting() && props.planContent} keyed>
           {(plan) => (
             <div class={styles.planAction}>
@@ -420,6 +471,61 @@ export default function TaskDetail(props: Props) {
         </Show>
       </Show>
     </div>
+  );
+}
+
+// Renders the content for a single message group.
+// group is a reactive accessor so group().kind etc track correctly in JSX.
+function GroupContent(props: {
+  group: () => MessageGroup;
+  taskId: string;
+  isWaiting: () => boolean;
+  lastAskGroup: () => MessageGroup | null;
+  onAskAnswer: (text: string) => void;
+}) {
+  // eslint-disable-next-line solid/reactivity -- props.group is a function reference, not a reactive read
+  const group = props.group;
+  return (
+    <Switch>
+      <Match when={group().kind === "ask" && group().ask} keyed>
+        {(ask) => (
+          <AskQuestionCard
+            ask={ask}
+            interactive={props.isWaiting() && group() === props.lastAskGroup()}
+            answerText={group().answerText}
+            onSubmit={props.onAskAnswer}
+          />
+        )}
+      </Match>
+      <Match when={group().kind === "userInput" && group().events[0]?.userInput} keyed>
+        {(ui) => (
+          <div class={styles.userInputMsg}>
+            <Markdown text={ui.text} />
+            <Show when={ui.images?.length}>
+              <div class={styles.userInputImages}>
+                <For each={ui.images}>
+                  {(img) => <img class={styles.userInputImage} src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />}
+                </For>
+              </div>
+            </Show>
+          </div>
+        )}
+      </Match>
+      <Match when={group().kind === "action"}>
+        <Show when={group().toolCalls.length > 0}
+          fallback={<ThinkingCard events={group().events} />}>
+          <ToolMessageGroup toolCalls={group().toolCalls} taskId={props.taskId} events={group().events} />
+        </Show>
+      </Match>
+      <Match when={group().kind === "text"}>
+        <TextMessageGroup events={group().events} />
+      </Match>
+      <Match when={group().kind === "other"}>
+        <For each={group().events}>
+          {(ev) => <MessageItem ev={ev} />}
+        </For>
+      </Match>
+    </Switch>
   );
 }
 
@@ -593,18 +699,13 @@ function ThinkingCard(props: { events: EventMessage[] }) {
 }
 
 // Renders a text group, combining textDelta fragments into a single view.
-// When a final "text" event arrives, it replaces the accumulated deltas.
-// If the group contains thinking events (absorbed from a preceding thinking-only
-// group), a collapsed ThinkingCard is shown above the text.
 function TextMessageGroup(props: { events: EventMessage[] }) {
   const thinkingEvents = createMemo(() =>
-    props.events.filter((e) => e.kind === "thinking" || e.kind === "thinkingDelta")
+    props.events.filter((e) => e.kind === "thinking" || e.kind === "thinkingDelta"),
   );
   const text = createMemo(() => {
-    // If a final text event exists, use it (it has the complete content).
     const finalEv = props.events.findLast((e) => e.kind === "text");
     if (finalEv?.text) return finalEv.text.text;
-    // Otherwise, accumulate textDelta fragments.
     return props.events
       .filter((e): e is EventMessage & { textDelta: EventTextDelta } => e.kind === "textDelta" && !!e.textDelta)
       .map((e) => e.textDelta.text)
@@ -621,74 +722,6 @@ function TextMessageGroup(props: { events: EventMessage[] }) {
         </div>
       </Show>
     </>
-  );
-}
-
-
-function ElidedTurn(props: { turn: Turn; taskId: string }) {
-  const turnKey = () => "turn:" + (props.turn.groups[0]?.events[0]?.ts ?? 0);
-  // Use a signal so Show can gate rendering — prevents Markdown parsing and DOM
-  // creation for all collapsed turns on every message update (e.g. after restart).
-  const [open, setOpen] = createSignal(detailsOpenState.get(turnKey()) ?? false);
-  return (
-    <details class={styles.elidedTurn} open={open()}
-      onToggle={(e) => {
-        const o = e.currentTarget.open;
-        detailsOpenState.set(turnKey(), o);
-        setOpen(o);
-      }}>
-      <summary>{turnSummary(props.turn)}</summary>
-      <Show when={open()}>
-        <div class={styles.elidedTurnInner}>
-          <Index each={props.turn.groups}>
-            {(group) => (
-              <Switch>
-                <Match when={group().kind === "ask" && group().ask} keyed>
-                  {(ask) => (
-                    <div class={styles.askGroup}>
-                      <div class={styles.askText}>
-                        {ask.questions[0]?.question ?? "Question"}
-                      </div>
-                      <Show when={group().answerText}>
-                        <div class={styles.askSubmitted}>{group().answerText}</div>
-                      </Show>
-                    </div>
-                  )}
-                </Match>
-                <Match when={group().kind === "userInput" && group().events[0]?.userInput} keyed>
-                  {(ui) => (
-                    <div class={styles.userInputMsg}>
-                      {ui.text}
-                      <Show when={ui.images?.length}>
-                        <div class={styles.userInputImages}>
-                          <For each={ui.images}>
-                            {(img) => <img class={styles.userInputImage} src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />}
-                          </For>
-                        </div>
-                      </Show>
-                    </div>
-                  )}
-                </Match>
-                <Match when={group().kind === "action"}>
-                  <Show when={group().toolCalls.length > 0}
-                    fallback={<ThinkingCard events={group().events} />}>
-                    <ToolMessageGroup toolCalls={group().toolCalls} taskId={props.taskId} events={group().events} />
-                  </Show>
-                </Match>
-                <Match when={group().kind === "text"}>
-                  <TextMessageGroup events={group().events} />
-                </Match>
-                <Match when={group().kind === "other"}>
-                  <For each={group().events}>
-                    {(ev) => <MessageItem ev={ev} />}
-                  </For>
-                </Match>
-              </Switch>
-            )}
-          </Index>
-        </div>
-      </Show>
-    </details>
   );
 }
 
