@@ -32,7 +32,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -44,15 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.caic.sdk.v1.DiffFileStat
-
-private val DiffAddedColor = Color(0xFF4EC94E)
-private val DiffDeletedColor = Color(0xFFFF4444)
-private val DiffHunkColor = Color(0xFFB48EAD)
-private val DiffHeaderColor = Color(0xFF888888)
-private val DiffBg = Color(0xFF1E1E1E)
-private val DiffFg = Color(0xFFD4D4D4)
-private val StatAddedColor = Color(0xFF22863A)
-private val StatDeletedColor = Color(0xFFCB2431)
+import com.fghbuild.caic.ui.theme.appColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -193,14 +184,14 @@ private fun FileSection(
                         Text(
                             text = "+${stat.added}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = StatAddedColor,
+                            color = MaterialTheme.appColors.diffAddedStat,
                         )
                     }
                     if (stat.deleted > 0) {
                         Text(
                             text = "\u2212${stat.deleted}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = StatDeletedColor,
+                            color = MaterialTheme.appColors.diffDeletedStat,
                         )
                     }
                 }
@@ -214,16 +205,23 @@ private fun FileSection(
 
 @Composable
 private fun DiffContentBlock(diff: String) {
-    val annotated = remember(diff) {
+    val appColors = MaterialTheme.appColors
+    val addedColor = appColors.diffAddedLine
+    val deletedColor = appColors.diffDeletedLine
+    val hunkColor = appColors.diffHunk
+    val headerColor = appColors.diffHeader
+    val fgColor = appColors.diffCodeFg
+    val bgColor = appColors.diffCodeBg
+    val annotated = remember(diff, addedColor, deletedColor, hunkColor, headerColor, fgColor) {
         buildAnnotatedString {
             diff.lineSequence().forEachIndexed { i, line ->
                 if (i > 0) append("\n")
                 val color = when {
-                    line.startsWith("+") -> DiffAddedColor
-                    line.startsWith("-") -> DiffDeletedColor
-                    line.startsWith("@@") -> DiffHunkColor
-                    line.startsWith("diff ") -> DiffHeaderColor
-                    else -> DiffFg
+                    line.startsWith("+") -> addedColor
+                    line.startsWith("-") -> deletedColor
+                    line.startsWith("@@") -> hunkColor
+                    line.startsWith("diff ") -> headerColor
+                    else -> fgColor
                 }
                 withStyle(SpanStyle(color = color)) {
                     append(line)
@@ -239,9 +237,9 @@ private fun DiffContentBlock(diff: String) {
         modifier = Modifier
             .fillMaxWidth()
             .padding(4.dp),
-        color = DiffFg,
+        color = fgColor,
         style = MaterialTheme.typography.bodySmall.copy(
-            background = DiffBg,
+            background = bgColor,
         ),
     )
 }

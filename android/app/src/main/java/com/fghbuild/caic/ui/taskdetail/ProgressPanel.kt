@@ -27,12 +27,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.TodoItem
+import com.fghbuild.caic.ui.theme.appColors
 
 @Composable
 fun ProgressPanel(
@@ -98,7 +98,7 @@ private fun TodoItemRow(item: TodoItem) {
         when (item.status) {
             "completed" -> Icon(
                 Icons.Default.Check, contentDescription = "Done",
-                tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.appColors.success, modifier = Modifier.size(16.dp),
             )
             "in_progress" -> Icon(
                 Icons.Default.PlayArrow, contentDescription = "In progress",

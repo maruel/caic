@@ -207,8 +207,8 @@ a.headerBranch:hover {
 }
 
 .markdown pre {
-  background: var(--color-code-bg);
-  color: var(--color-code-text);
+  background: var(--color-diff-code-bg);
+  color: var(--color-diff-code-fg);
   padding: 0.75em;
   border-radius: var(--radius-md);
   overflow-x: auto;
@@ -384,8 +384,8 @@ a.headerBranch:hover {
 .diffContent {
   margin: 0.25rem 0;
   padding: 0.5rem;
-  background: var(--color-code-bg);
-  color: var(--color-code-text);
+  background: var(--color-diff-code-bg);
+  color: var(--color-diff-code-fg);
   font-size: 0.75rem;
   line-height: 1.4;
   border-radius: var(--radius-md);
@@ -399,11 +399,11 @@ a.headerBranch:hover {
 }
 
 .diffLineAdded {
-  color: var(--color-diff-line-added);
+  color: var(--color-diff-added-line);
 }
 
 .diffLineDeleted {
-  color: var(--color-diff-line-deleted);
+  color: var(--color-diff-deleted-line);
 }
 
 .diffLineHunk {

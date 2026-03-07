@@ -56,15 +56,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.ImageData
 import com.caic.sdk.v1.SafetyIssue
+import com.fghbuild.caic.ui.theme.appColors
 import com.fghbuild.caic.util.imageDataToBitmap
-
-private val SafetyBgColor = Color(0xFFFFF3CD)
-private val SafetyBorderColor = Color(0xFFFFECB5)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -102,9 +99,9 @@ fun InputBar(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(bottom = 4.dp)
-                    .border(1.dp, SafetyBorderColor, MaterialTheme.shapes.small),
+                    .border(1.dp, MaterialTheme.appColors.safetyBorder, MaterialTheme.shapes.small),
                 shape = MaterialTheme.shapes.small,
-                color = SafetyBgColor,
+                color = MaterialTheme.appColors.warningBg,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),

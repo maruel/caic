@@ -30,9 +30,9 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.fghbuild.caic.ui.theme.appColors
 import com.fghbuild.caic.ui.theme.markdownTypography
 import com.fghbuild.caic.util.ToolCall
 import com.fghbuild.caic.util.formatDuration
@@ -42,11 +42,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
-
-private val PlanBorderColor = Color(0xFFDDD6FE)
-private val PlanBgColor = Color(0xFFF5F3FF)
-private val ToolErrorBgColor = Color(0xFFFFF0F0)
-private val ToolBlockBgColor = Color(0xFFF0F0F0)
 
 @Composable
 fun ToolCallCard(
@@ -65,7 +60,7 @@ fun ToolCallCard(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.small,
-            color = ToolBlockBgColor,
+            color = MaterialTheme.appColors.toolBlockBg,
         ) {
             Column {
                 Row(
@@ -123,7 +118,7 @@ fun ToolCallCard(
                             Surface(
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                                 shape = MaterialTheme.shapes.small,
-                                color = ToolErrorBgColor,
+                                color = MaterialTheme.appColors.toolErrorBg,
                             ) {
                                 Text(
                                     text = error,
@@ -143,9 +138,9 @@ fun ToolCallCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 4.dp)
-                    .border(1.dp, PlanBorderColor, RoundedCornerShape(6.dp)),
+                    .border(1.dp, MaterialTheme.appColors.planBorder, RoundedCornerShape(6.dp)),
                 shape = RoundedCornerShape(6.dp),
-                color = PlanBgColor,
+                color = MaterialTheme.appColors.planSurface,
             ) {
                 Markdown(
                     content = plan,
@@ -169,7 +164,7 @@ private fun ToolStatusIcon(done: Boolean, hasError: Boolean) {
         done -> Icon(
             Icons.Default.Check,
             contentDescription = "Done",
-            tint = Color(0xFF4CAF50),
+            tint = MaterialTheme.appColors.success,
             modifier = Modifier.size(16.dp),
         )
         else -> CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)

@@ -17,22 +17,19 @@ import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.ExtraUsage
 import com.caic.sdk.v1.UsageResp
 import com.caic.sdk.v1.UsageWindow
-
-private val BadgeGreenBg = Color(0xFFD4EDDA)
-private val BadgeGreenFg = Color(0xFF155724)
-private val BadgeYellowBg = Color(0xFFFFF3CD)
-private val BadgeYellowFg = Color(0xFF856404)
-private val BadgeRedBg = Color(0xFFF8D7DA)
-private val BadgeRedFg = Color(0xFF721C24)
-private val BadgeDisabledBg = Color(0xFFE2E3E5)
-private val BadgeDisabledFg = Color(0xFF6C757D)
+import com.fghbuild.caic.ui.theme.appColors
 
 private data class BadgeColors(val bg: Color, val fg: Color)
 
-private fun windowColors(pct: Int, yellowAt: Int, redAt: Int): BadgeColors = when {
-    pct >= redAt -> BadgeColors(BadgeRedBg, BadgeRedFg)
-    pct >= yellowAt -> BadgeColors(BadgeYellowBg, BadgeYellowFg)
-    else -> BadgeColors(BadgeGreenBg, BadgeGreenFg)
+@Composable
+private fun windowColors(pct: Int, yellowAt: Int, redAt: Int): BadgeColors {
+    val appColors = MaterialTheme.appColors
+    val scheme = MaterialTheme.colorScheme
+    return when {
+        pct >= redAt -> BadgeColors(scheme.errorContainer, scheme.onErrorContainer)
+        pct >= yellowAt -> BadgeColors(appColors.warningBg, appColors.warningText)
+        else -> BadgeColors(appColors.successBg, appColors.successText)
+    }
 }
 
 @Composable
@@ -58,7 +55,7 @@ private fun ExtraBadge(extra: ExtraUsage) {
     if (used == 0.0 && limit == 0.0) return
     val pct = extra.utilization.toInt().coerceIn(0, 100)
     val colors = if (!extra.isEnabled) {
-        BadgeColors(BadgeDisabledBg, BadgeDisabledFg)
+        BadgeColors(MaterialTheme.appColors.badgeDisabledBg, MaterialTheme.colorScheme.secondary)
     } else {
         windowColors(pct, yellowAt = 50, redAt = 80)
     }

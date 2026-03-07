@@ -22,15 +22,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.EventKinds
 import com.caic.sdk.v1.EventMessage
-
-private val ThinkingBgColor = Color(0xFFE8E8E8)
-private val ThinkingBorderColor = Color(0xFF9B8FD4)
+import com.fghbuild.caic.ui.theme.appColors
 
 @Composable
 fun ThinkingCard(events: List<EventMessage>, modifier: Modifier = Modifier) {
@@ -52,13 +49,13 @@ fun ThinkingCard(events: List<EventMessage>, modifier: Modifier = Modifier) {
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
             .clip(MaterialTheme.shapes.small)
-            .background(ThinkingBgColor),
+            .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
         Box(
             modifier = Modifier
                 .width(2.dp)
                 .fillMaxHeight()
-                .background(ThinkingBorderColor),
+                .background(MaterialTheme.appColors.thinkingBorder),
         )
         Column(modifier = Modifier.weight(1f)) {
             Row(

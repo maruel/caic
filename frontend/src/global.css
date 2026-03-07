@@ -1,4 +1,4 @@
-/* Global resets and design tokens. */
+/* Global resets and design tokens. Keep color values in sync with android/app/src/main/java/com/fghbuild/caic/ui/theme/Theme.kt */
 
 :root {
   /* Primary action (buttons, focus rings) */
@@ -58,12 +58,10 @@
   --color-border-medium: #ccc;
 
   /* Code / diff dark theme */
-  --color-code-bg: #1e1e1e;
-  --color-code-text: #d4d4d4;
-  --color-diff-added: #22863a;
-  --color-diff-deleted: #cb2431;
-  --color-diff-line-added: #4ec94e;
-  --color-diff-line-deleted: #f44;
+  --color-diff-code-bg: #1e1e1e;
+  --color-diff-code-fg: #d4d4d4;
+  --color-diff-added-line: #4ec94e;
+  --color-diff-deleted-line: #f44;
   --color-diff-hunk: #b48ead;
   --color-diff-binary: #6a737d;
 

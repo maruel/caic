@@ -10,13 +10,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.fghbuild.caic.util.ToolCall
 import com.fghbuild.caic.util.toolCountSummary
 import kotlinx.serialization.json.JsonElement
-
-private val ToolGroupBgColor = Color(0xFFE8E8E8)
 
 // Used by MessageGroupContent for single-call TOOL groups only (size 0 or 1).
 // Multi-call groups are split into ToolGroupHeaderItem + individual ToolCallCard lazy items.
@@ -52,7 +49,7 @@ fun ToolGroupHeaderItem(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.small,
-        color = ToolGroupBgColor,
+        color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Text(
             text = "${if (isExpanded) "▼" else "▶"} $baseSummary",

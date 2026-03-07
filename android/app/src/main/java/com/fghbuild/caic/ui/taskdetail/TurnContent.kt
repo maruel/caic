@@ -18,26 +18,21 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.EventKinds
 import com.caic.sdk.v1.ImageData
+import com.fghbuild.caic.ui.theme.appColors
+import com.fghbuild.caic.ui.theme.markdownTypography
 import com.fghbuild.caic.util.GroupKind
 import com.fghbuild.caic.util.MessageGroup
 import com.fghbuild.caic.util.Turn
 import com.fghbuild.caic.util.formatTokens
 import com.fghbuild.caic.util.imageDataToBitmap
 import kotlinx.serialization.json.JsonElement
-import com.fghbuild.caic.ui.theme.markdownTypography
 import com.mikepenz.markdown.m3.Markdown
-
-private val PlanBorderColor = Color(0xFFDDD6FE)
-private val PlanBgColor = Color(0xFFF5F3FF)
-private val UserMsgBgColor = Color(0xFFDBE9F9)
-private val ImageBorderColor = Color(0xFFB8D0EA)
 
 /** Renders a single [MessageGroup]. Used both in [TurnContent] and the flat list. */
 @Composable
@@ -190,9 +185,9 @@ fun PlanApprovalSection(planContent: String, onExecute: () -> Unit) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .border(1.dp, PlanBorderColor, RoundedCornerShape(6.dp)),
+                .border(1.dp, MaterialTheme.appColors.planBorder, RoundedCornerShape(6.dp)),
             shape = RoundedCornerShape(6.dp),
-            color = PlanBgColor,
+            color = MaterialTheme.appColors.planSurface,
         ) {
             Markdown(
                 content = planContent,
@@ -206,8 +201,8 @@ fun PlanApprovalSection(planContent: String, onExecute: () -> Unit) {
         Button(
             onClick = onExecute,
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                containerColor = MaterialTheme.colorScheme.secondary,
+                contentColor = MaterialTheme.colorScheme.onSecondary,
             ),
         ) {
             Text("Clear and execute plan")
@@ -220,7 +215,7 @@ private fun UserInputContent(text: String, images: List<ImageData>) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(6.dp),
-        color = UserMsgBgColor,
+        color = MaterialTheme.appColors.userMsgBg,
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
             if (text.isNotBlank()) {
@@ -247,7 +242,7 @@ private fun UserInputContent(text: String, images: List<ImageData>) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(4.dp))
-                                    .border(1.dp, ImageBorderColor, RoundedCornerShape(4.dp)),
+                                    .border(1.dp, MaterialTheme.appColors.imageBorder, RoundedCornerShape(4.dp)),
                                 contentScale = ContentScale.FillWidth,
                             )
                         }

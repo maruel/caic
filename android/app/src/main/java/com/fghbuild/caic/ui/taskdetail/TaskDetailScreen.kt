@@ -54,6 +54,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.fghbuild.caic.ui.theme.appColors
 import com.fghbuild.caic.ui.theme.stateColor
 import com.fghbuild.caic.ui.theme.waitingStates
 import com.fghbuild.caic.util.createCameraPhotoUri
@@ -65,10 +66,7 @@ import com.fghbuild.caic.util.Turn
 import com.fghbuild.caic.util.turnSummary
 import com.fghbuild.caic.util.uriToImageData
 
-private val PlanBadgeBg = Color(0xFFEDE9FE)
-private val PlanBadgeFg = Color(0xFF7C3AED)
 private val TerminalStates = setOf("terminated", "failed")
-private val UserMsgBgColor = Color(0xFFDBE9F9)
 
 // Flat list items for the LazyColumn. Expansion state is owned here so collapsed items are
 // never composed — true laziness without AnimatedVisibility wrappers.
@@ -209,11 +207,14 @@ fun TaskDetailScreen(
                                 },
                             )
                             if (task?.inPlanMode == true) {
-                                Surface(shape = RoundedCornerShape(4.dp), color = PlanBadgeBg) {
+                                Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.tertiaryContainer,
+                            ) {
                                     Text(
                                         "P",
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = PlanBadgeFg,
+                                        color = MaterialTheme.colorScheme.tertiary,
                                         fontWeight = FontWeight.Bold,
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                     )
@@ -330,7 +331,7 @@ fun TaskDetailScreen(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(6.dp),
-                        color = UserMsgBgColor,
+                        color = MaterialTheme.appColors.userMsgBg,
                     ) {
                         Markdown(
                             content = prompt,
