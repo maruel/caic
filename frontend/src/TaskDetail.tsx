@@ -627,59 +627,67 @@ function TextMessageGroup(props: { events: EventMessage[] }) {
 
 function ElidedTurn(props: { turn: Turn; taskId: string }) {
   const turnKey = () => "turn:" + (props.turn.groups[0]?.events[0]?.ts ?? 0);
-  const isOpen = () => detailsOpenState.get(turnKey()) ?? false;
+  // Use a signal so Show can gate rendering — prevents Markdown parsing and DOM
+  // creation for all collapsed turns on every message update (e.g. after restart).
+  const [open, setOpen] = createSignal(detailsOpenState.get(turnKey()) ?? false);
   return (
-    <details class={styles.elidedTurn} open={isOpen()}
-      onToggle={(e) => detailsOpenState.set(turnKey(), e.currentTarget.open)}>
+    <details class={styles.elidedTurn} open={open()}
+      onToggle={(e) => {
+        const o = e.currentTarget.open;
+        detailsOpenState.set(turnKey(), o);
+        setOpen(o);
+      }}>
       <summary>{turnSummary(props.turn)}</summary>
-      <div class={styles.elidedTurnInner}>
-        <Index each={props.turn.groups}>
-          {(group) => (
-            <Switch>
-              <Match when={group().kind === "ask" && group().ask} keyed>
-                {(ask) => (
-                  <div class={styles.askGroup}>
-                    <div class={styles.askText}>
-                      {ask.questions[0]?.question ?? "Question"}
-                    </div>
-                    <Show when={group().answerText}>
-                      <div class={styles.askSubmitted}>{group().answerText}</div>
-                    </Show>
-                  </div>
-                )}
-              </Match>
-              <Match when={group().kind === "userInput" && group().events[0]?.userInput} keyed>
-                {(ui) => (
-                  <div class={styles.userInputMsg}>
-                    {ui.text}
-                    <Show when={ui.images?.length}>
-                      <div class={styles.userInputImages}>
-                        <For each={ui.images}>
-                          {(img) => <img class={styles.userInputImage} src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />}
-                        </For>
+      <Show when={open()}>
+        <div class={styles.elidedTurnInner}>
+          <Index each={props.turn.groups}>
+            {(group) => (
+              <Switch>
+                <Match when={group().kind === "ask" && group().ask} keyed>
+                  {(ask) => (
+                    <div class={styles.askGroup}>
+                      <div class={styles.askText}>
+                        {ask.questions[0]?.question ?? "Question"}
                       </div>
-                    </Show>
-                  </div>
-                )}
-              </Match>
-              <Match when={group().kind === "action"}>
-                <Show when={group().toolCalls.length > 0}
-                  fallback={<ThinkingCard events={group().events} />}>
-                  <ToolMessageGroup toolCalls={group().toolCalls} taskId={props.taskId} events={group().events} />
-                </Show>
-              </Match>
-              <Match when={group().kind === "text"}>
-                <TextMessageGroup events={group().events} />
-              </Match>
-              <Match when={group().kind === "other"}>
-                <For each={group().events}>
-                  {(ev) => <MessageItem ev={ev} />}
-                </For>
-              </Match>
-            </Switch>
-          )}
-        </Index>
-      </div>
+                      <Show when={group().answerText}>
+                        <div class={styles.askSubmitted}>{group().answerText}</div>
+                      </Show>
+                    </div>
+                  )}
+                </Match>
+                <Match when={group().kind === "userInput" && group().events[0]?.userInput} keyed>
+                  {(ui) => (
+                    <div class={styles.userInputMsg}>
+                      {ui.text}
+                      <Show when={ui.images?.length}>
+                        <div class={styles.userInputImages}>
+                          <For each={ui.images}>
+                            {(img) => <img class={styles.userInputImage} src={`data:${img.mediaType};base64,${img.data}`} alt="attached" />}
+                          </For>
+                        </div>
+                      </Show>
+                    </div>
+                  )}
+                </Match>
+                <Match when={group().kind === "action"}>
+                  <Show when={group().toolCalls.length > 0}
+                    fallback={<ThinkingCard events={group().events} />}>
+                    <ToolMessageGroup toolCalls={group().toolCalls} taskId={props.taskId} events={group().events} />
+                  </Show>
+                </Match>
+                <Match when={group().kind === "text"}>
+                  <TextMessageGroup events={group().events} />
+                </Match>
+                <Match when={group().kind === "other"}>
+                  <For each={group().events}>
+                    {(ev) => <MessageItem ev={ev} />}
+                  </For>
+                </Match>
+              </Switch>
+            )}
+          </Index>
+        </div>
+      </Show>
     </details>
   );
 }
