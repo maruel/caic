@@ -672,7 +672,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		})
 		result := mustJSON(t, agent.ResultMessage{
 			MessageType: "result", Subtype: "success", Result: "done",
-			TotalCostUSD: 1.23, DurationMs: 5000, NumTurns: 3,
+			TotalCostUSD: 1.23, Usage: agent.Usage{OutputTokens: 16400}, DurationMs: 5000, NumTurns: 3,
 		})
 		trailer := mustJSON(t, agent.MetaResultMessage{
 			MessageType: "caic_result", State: "terminated",
@@ -730,7 +730,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		})
 		result := mustJSON(t, agent.ResultMessage{
 			MessageType: "result", Subtype: "success", Result: "done",
-			TotalCostUSD: 0.42, DurationMs: 3000, NumTurns: 2, // DurationMs is agent wire format (int64 ms).
+			TotalCostUSD: 0.42, Usage: agent.Usage{OutputTokens: 5600}, DurationMs: 3000, NumTurns: 2,
 		})
 		trailer := mustJSON(t, agent.MetaResultMessage{
 			MessageType: "caic_result", State: "terminated",

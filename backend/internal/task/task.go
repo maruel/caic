@@ -369,9 +369,10 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	}
 	// Restore live stats: cost/turns/duration are cumulative within each
 	// session, but must be summed across sessions separated by
-	// context_cleared markers. Token usage is per-query and always summed.
+	// context_cleared or compact_boundary markers. Token usage is always summed.
 	for _, m := range msgs {
-		if sm, ok := m.(*agent.SystemMessage); ok && sm.Subtype == "context_cleared" {
+		if sm, ok := m.(*agent.SystemMessage); ok &&
+			(sm.Subtype == "context_cleared" || sm.Subtype == "compact_boundary") {
 			t.priorCostUSD = t.liveCostUSD
 			t.priorNumTurns = t.liveNumTurns
 			t.priorDuration = t.liveDuration
@@ -381,14 +382,16 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 		if !ok {
 			continue
 		}
-		t.liveCostUSD = t.priorCostUSD + rm.TotalCostUSD
-		t.liveNumTurns = t.priorNumTurns + rm.NumTurns
-		t.liveDuration = t.priorDuration + time.Duration(rm.DurationMs)*time.Millisecond
 		t.liveUsage.InputTokens += rm.Usage.InputTokens
 		t.liveUsage.OutputTokens += rm.Usage.OutputTokens
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
 		t.lastUsage = rm.Usage
+		// Compute cost from token counts: TotalCostUSD from Claude Code excludes
+		// cache_read_input_tokens, which are charged but omitted from its total.
+		t.liveCostUSD = t.priorCostUSD + computeCost(rm.TotalCostUSD, rm.Usage)
+		t.liveNumTurns = t.priorNumTurns + rm.NumTurns
+		t.liveDuration = t.priorDuration + time.Duration(rm.DurationMs)*time.Millisecond
 	}
 	// Infer state: if the last agent-emitted message is a ResultMessage, the
 	// agent finished its turn and is waiting for user input (or asking a
@@ -451,19 +454,29 @@ func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 	if ds, ok := m.(*agent.DiffStatMessage); ok {
 		t.liveDiffStat = ds.DiffStat
 	}
+	// compact_boundary resets NumTurns, DurationMs, and usage-based cost in
+	// Claude Code's subsequent ResultMessages (same as context_cleared).
+	// Snapshot priors here so accumulation across the boundary is correct.
+	if sm, ok := m.(*agent.SystemMessage); ok && sm.Subtype == "compact_boundary" {
+		t.priorCostUSD = t.liveCostUSD
+		t.priorNumTurns = t.liveNumTurns
+		t.priorDuration = t.liveDuration
+	}
 	// Transition to waiting/asking when a result arrives.
 	if rm, ok := m.(*agent.ResultMessage); ok {
 		if len(rm.DiffStat) > 0 {
 			t.liveDiffStat = rm.DiffStat
 		}
-		t.liveCostUSD = t.priorCostUSD + rm.TotalCostUSD
-		t.liveNumTurns = t.priorNumTurns + rm.NumTurns
-		t.liveDuration = t.priorDuration + time.Duration(rm.DurationMs)*time.Millisecond
 		t.liveUsage.InputTokens += rm.Usage.InputTokens
 		t.liveUsage.OutputTokens += rm.Usage.OutputTokens
 		t.liveUsage.CacheCreationInputTokens += rm.Usage.CacheCreationInputTokens
 		t.liveUsage.CacheReadInputTokens += rm.Usage.CacheReadInputTokens
 		t.lastUsage = rm.Usage
+		// Compute cost from token counts: TotalCostUSD from Claude Code excludes
+		// cache_read_input_tokens, which are charged but omitted from its total.
+		t.liveCostUSD = t.priorCostUSD + computeCost(rm.TotalCostUSD, rm.Usage)
+		t.liveNumTurns = t.priorNumTurns + rm.NumTurns
+		t.liveDuration = t.priorDuration + time.Duration(rm.DurationMs)*time.Millisecond
 		t.planDismissed = false
 		// Transition Running→Waiting/Asking/HasPlan. Also handle
 		// Running/Waiting because watchSession may have already set
@@ -612,9 +625,9 @@ func (t *Task) ClearMessages(ctx context.Context) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.sessionID = ""
-	t.priorCostUSD += t.liveCostUSD
-	t.priorNumTurns += t.liveNumTurns
-	t.priorDuration += t.liveDuration
+	t.priorCostUSD = t.liveCostUSD
+	t.priorNumTurns = t.liveNumTurns
+	t.priorDuration = t.liveDuration
 	t.inPlanMode = false
 	t.planFile = ""
 	t.planContent = ""
@@ -813,6 +826,27 @@ func (t *Task) SendInput(ctx context.Context, p agent.Prompt) error {
 	}
 	t.addMessage(ctx, syntheticUserInput(p))
 	return h.Session.Send(p)
+}
+
+// computeCost returns the true USD cost for a Claude API result by adding the
+// cache-read surcharge that TotalCostUSD omits.
+//
+// Claude Code's TotalCostUSD correctly prices input, output, and cache-write
+// tokens but excludes cache_read_input_tokens. All Claude models share the same
+// structural price ratios (output = 5×input, cache-write = 1.25×input,
+// cache-read = 0.10×input), so we derive the per-token input price from
+// TotalCostUSD and the non-cache-read token counts, then add the missing term.
+//
+// If there are no non-cache-read tokens to derive a unit price from,
+// TotalCostUSD is returned unchanged.
+func computeCost(totalCostUSD float64, u agent.Usage) float64 {
+	// Express all non-cache-read tokens as an equivalent number of input tokens.
+	nonCREquiv := float64(u.InputTokens) + 5*float64(u.OutputTokens) + 1.25*float64(u.CacheCreationInputTokens)
+	if nonCREquiv == 0 {
+		return totalCostUSD
+	}
+	inputPricePerTok := totalCostUSD / nonCREquiv
+	return totalCostUSD + float64(u.CacheReadInputTokens)*0.10*inputPricePerTok
 }
 
 const titleSystemPrompt = "Summarize this coding task conversation in 3-8 words as a short title. Reply with ONLY the title, no quotes."

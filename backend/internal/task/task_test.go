@@ -776,26 +776,29 @@ func TestTask(t *testing.T) {
 
 	t.Run("LiveCostCumulativeAcrossSessions", func(t *testing.T) {
 		// Cost, turns, and duration must accumulate across sessions separated
-		// by ClearMessages ("Clear and execute plan").
+		// by ClearMessages. computeCost uses TotalCostUSD as the base and adds
+		// the cache-read surcharge.
 		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 		tk.SetState(StateRunning)
+		// Session 1: TotalCostUSD = $10.00.
 		tk.addMessage(t.Context(), &agent.ResultMessage{
 			MessageType:  "result",
-			TotalCostUSD: 0.50,
+			TotalCostUSD: 10.0,
 			NumTurns:     3,
 			DurationMs:   5000,
 		})
 		tk.ClearMessages(t.Context())
 		tk.SetState(StateRunning)
+		// Session 2: TotalCostUSD = $5.00.
 		tk.addMessage(t.Context(), &agent.ResultMessage{
 			MessageType:  "result",
-			TotalCostUSD: 0.30,
+			TotalCostUSD: 5.0,
 			NumTurns:     2,
 			DurationMs:   3000,
 		})
 		costUSD, numTurns, duration, _, _ := tk.LiveStats()
-		if costUSD != 0.80 {
-			t.Errorf("costUSD = %v, want 0.80", costUSD)
+		if costUSD != 15.0 {
+			t.Errorf("costUSD = %v, want 15.0", costUSD)
 		}
 		if numTurns != 5 {
 			t.Errorf("numTurns = %d, want 5", numTurns)
@@ -805,29 +808,67 @@ func TestTask(t *testing.T) {
 		}
 	})
 
+	t.Run("LiveCostCumulativeAcrossThreeSessions", func(t *testing.T) {
+		// Regression: ClearMessages used += (double-count) instead of = assignment.
+		// Verify cost is correct after two ClearMessages calls.
+		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+		tk.SetState(StateRunning)
+		// Session 1: $75.
+		tk.addMessage(t.Context(), &agent.ResultMessage{
+			MessageType:  "result",
+			TotalCostUSD: 75.0,
+			NumTurns:     1,
+		})
+		tk.ClearMessages(t.Context())
+		tk.SetState(StateRunning)
+		// Session 2: $75.
+		tk.addMessage(t.Context(), &agent.ResultMessage{
+			MessageType:  "result",
+			TotalCostUSD: 75.0,
+			NumTurns:     1,
+		})
+		tk.ClearMessages(t.Context())
+		tk.SetState(StateRunning)
+		// Session 3: $75.
+		tk.addMessage(t.Context(), &agent.ResultMessage{
+			MessageType:  "result",
+			TotalCostUSD: 75.0,
+			NumTurns:     1,
+		})
+		costUSD, numTurns, _, _, _ := tk.LiveStats()
+		if costUSD != 225.0 {
+			t.Errorf("costUSD = %v, want 225.0 (three sessions × $75)", costUSD)
+		}
+		if numTurns != 3 {
+			t.Errorf("numTurns = %d, want 3", numTurns)
+		}
+	})
+
 	t.Run("RestoreMessagesCostCumulativeAcrossSessions", func(t *testing.T) {
 		// RestoreMessages must sum cost/turns/duration across context_cleared
 		// boundaries, mirroring the live path.
 		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
 		tk.SetState(StateTerminated)
 		tk.RestoreMessages([]agent.Message{
+			// Session 1: TotalCostUSD = $10.00.
 			&agent.ResultMessage{
 				MessageType:  "result",
-				TotalCostUSD: 0.50,
+				TotalCostUSD: 10.0,
 				NumTurns:     3,
 				DurationMs:   5000,
 			},
 			&agent.SystemMessage{MessageType: "system", Subtype: "context_cleared"},
+			// Session 2: TotalCostUSD = $5.00.
 			&agent.ResultMessage{
 				MessageType:  "result",
-				TotalCostUSD: 0.30,
+				TotalCostUSD: 5.0,
 				NumTurns:     2,
 				DurationMs:   3000,
 			},
 		})
 		costUSD, numTurns, duration, _, _ := tk.LiveStats()
-		if costUSD != 0.80 {
-			t.Errorf("costUSD = %v, want 0.80", costUSD)
+		if costUSD != 15.0 {
+			t.Errorf("costUSD = %v, want 15.0", costUSD)
 		}
 		if numTurns != 5 {
 			t.Errorf("numTurns = %d, want 5", numTurns)
@@ -835,6 +876,84 @@ func TestTask(t *testing.T) {
 		if duration != 8*time.Second {
 			t.Errorf("duration = %v, want 8s", duration)
 		}
+	})
+
+	t.Run("LiveCostIncludesCacheRead", func(t *testing.T) {
+		// Regression: TotalCostUSD from Claude Code omits cache_read cost.
+		// computeCost must add the surcharge on top of TotalCostUSD.
+		// Setup: TotalCostUSD = $1.50 from 100K input tokens (price = $0.000015/tok).
+		// Cache read surcharge = 10M × 0.10 × $0.000015 = $15.00.
+		tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+		tk.SetState(StateRunning)
+		tk.addMessage(t.Context(), &agent.ResultMessage{
+			MessageType:  "result",
+			TotalCostUSD: 1.50,
+			Usage: agent.Usage{
+				InputTokens:          100_000,
+				CacheReadInputTokens: 10_000_000,
+			},
+		})
+		costUSD, _, _, _, _ := tk.LiveStats()
+		if costUSD != 16.50 { // $1.50 (reported) + $15.00 (cache read surcharge)
+			t.Errorf("costUSD = %v, want 16.50 (cache reads must be added to TotalCostUSD)", costUSD)
+		}
+	})
+
+	t.Run("CompactBoundaryAccumulatesStats", func(t *testing.T) {
+		// compact_boundary resets NumTurns, DurationMs, and TotalCostUSD in
+		// Claude Code's subsequent ResultMessages. Stats must be accumulated
+		// across the boundary, just like context_cleared.
+		newTask := func() *Task {
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}}
+			tk.SetState(StateRunning)
+			return tk
+		}
+		result1 := &agent.ResultMessage{
+			MessageType:  "result",
+			TotalCostUSD: 10.0,
+			NumTurns:     3,
+			DurationMs:   5000,
+		}
+		compact := &agent.SystemMessage{MessageType: "system", Subtype: "compact_boundary"}
+		result2 := &agent.ResultMessage{
+			MessageType:  "result",
+			TotalCostUSD: 5.0,
+			NumTurns:     2,
+			DurationMs:   3000,
+		}
+
+		t.Run("Live", func(t *testing.T) {
+			tk := newTask()
+			tk.addMessage(t.Context(), result1)
+			tk.addMessage(t.Context(), compact)
+			tk.addMessage(t.Context(), result2)
+			costUSD, numTurns, duration, _, _ := tk.LiveStats()
+			if costUSD != 15.0 {
+				t.Errorf("costUSD = %v, want 15.0", costUSD)
+			}
+			if numTurns != 5 {
+				t.Errorf("numTurns = %d, want 5", numTurns)
+			}
+			if duration != 8*time.Second {
+				t.Errorf("duration = %v, want 8s", duration)
+			}
+		})
+
+		t.Run("Restore", func(t *testing.T) {
+			tk := newTask()
+			tk.SetState(StateTerminated)
+			tk.RestoreMessages([]agent.Message{result1, compact, result2})
+			costUSD, numTurns, duration, _, _ := tk.LiveStats()
+			if costUSD != 15.0 {
+				t.Errorf("costUSD = %v, want 15.0", costUSD)
+			}
+			if numTurns != 5 {
+				t.Errorf("numTurns = %d, want 5", numTurns)
+			}
+			if duration != 8*time.Second {
+				t.Errorf("duration = %v, want 8s", duration)
+			}
+		})
 	})
 
 	t.Run("ClearMessages", func(t *testing.T) {
