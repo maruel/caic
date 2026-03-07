@@ -87,6 +87,7 @@ Environment variables (flags take precedence when set):
   CAIC_LLM_MODEL            Model name for LLM features
   GEMINI_API_KEY            Gemini API key for the Gemini agent backend
   TAILSCALE_API_KEY         Tailscale API key for Tailscale integration
+  GITHUB_TOKEN              GitHub personal access token for automatic PR creation and CI monitoring
 
 See contrib/caic.env for a template with all variables and documentation.
 `)
@@ -110,6 +111,7 @@ See contrib/caic.env for a template with all variables and documentation.
 		LLMProvider:     os.Getenv("CAIC_LLM_PROVIDER"),
 		LLMModel:        os.Getenv("CAIC_LLM_MODEL"),
 		PreferencesPath: configPath("preferences.json"),
+		GitHubToken:     os.Getenv("GITHUB_TOKEN"),
 	}
 
 	if key := cfg.GeminiAPIKey; key != "" {

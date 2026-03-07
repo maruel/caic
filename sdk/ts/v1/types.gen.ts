@@ -373,6 +373,10 @@ export interface Task {
   contextWindowLimit: number /* int */; // Model context window limit (tokens).
   error?: string;
   result?: string;
+  gitHubOwner?: string;
+  gitHubRepo?: string;
+  gitHubPR?: number /* int */;
+  ciStatus?: string;
   /**
    * Per-task harness/container metadata.
    */

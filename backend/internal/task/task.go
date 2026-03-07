@@ -70,6 +70,17 @@ func (s State) String() string {
 	}
 }
 
+// CIStatus represents the GitHub CI check state for a task.
+type CIStatus string
+
+// CI status values.
+const (
+	CIStatusNone    CIStatus = ""
+	CIStatusPending CIStatus = "pending"
+	CIStatusSuccess CIStatus = "success"
+	CIStatusFailure CIStatus = "failure"
+)
+
 // SessionHandle bundles the three resources associated with an active agent
 // session: the SSH session, the message dispatch channel, and the log writer.
 type SessionHandle struct {
@@ -126,6 +137,10 @@ type Task struct {
 	lastUsage      agent.Usage    // Most recent ResultMessage usage (active context).
 	lastAPIUsage   agent.Usage    // Most recent per-API-call usage from AssistantMessage (context window fill).
 	liveDiffStat   agent.DiffStat // Updated by DiffStatMessage from relay.
+	gitHubOwner    string
+	gitHubRepo     string
+	gitHubPR       int
+	ciStatus       CIStatus
 }
 
 // setState updates the state and records the transition time. The caller must
@@ -227,6 +242,22 @@ func (t *Task) SetLiveDiffStat(ds agent.DiffStat) {
 	t.liveDiffStat = ds
 }
 
+// SetPR stores the GitHub org, repo, and PR number. Does not change task state.
+func (t *Task) SetPR(org, repo string, pr int) {
+	t.mu.Lock()
+	t.gitHubOwner = org
+	t.gitHubRepo = repo
+	t.gitHubPR = pr
+	t.mu.Unlock()
+}
+
+// SetCIStatus updates the ciStatus field under the mutex.
+func (t *Task) SetCIStatus(status CIStatus) {
+	t.mu.Lock()
+	t.ciStatus = status
+	t.mu.Unlock()
+}
+
 // Title returns the task title under the mutex.
 func (t *Task) Title() string {
 	t.mu.Lock()
@@ -254,6 +285,10 @@ type Snapshot struct {
 	LastUsage      agent.Usage
 	LastAPIUsage   agent.Usage
 	DiffStat       agent.DiffStat
+	GitHubOwner    string
+	GitHubRepo     string
+	GitHubPR       int
+	CIStatus       CIStatus
 }
 
 // Snapshot returns a consistent read of all volatile fields under the mutex.
@@ -281,6 +316,10 @@ func (t *Task) Snapshot() Snapshot {
 		LastUsage:      t.lastUsage,
 		LastAPIUsage:   t.lastAPIUsage,
 		DiffStat:       t.liveDiffStat,
+		GitHubOwner:    t.gitHubOwner,
+		GitHubRepo:     t.gitHubRepo,
+		GitHubPR:       t.gitHubPR,
+		CIStatus:       t.ciStatus,
 	}
 }
 

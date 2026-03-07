@@ -36,6 +36,9 @@ interface Props {
   repoURL?: string;
   branch: string;
   baseBranch: string;
+  gitHubOwner?: string;
+  gitHubRepo?: string;
+  gitHubPR?: number;
   diffStat?: DiffFileStat[];
   supportsImages?: boolean;
   onClose: () => void;
@@ -247,6 +250,9 @@ export default function TaskDetail(props: Props) {
           </Show>
           <Show when={isGitHub()} fallback={<span class={styles.headerBranch}>{props.branch}</span>}>
             <a class={styles.headerBranch} href={`${props.repoURL}/compare/${props.branch}?expand=1`} target="_blank" rel="noopener">{props.branch}</a>
+          </Show>
+          <Show when={props.gitHubOwner && props.gitHubRepo && props.gitHubPR}>
+            <a class={styles.headerPR} href={`https://github.com/${props.gitHubOwner}/${props.gitHubRepo}/pull/${props.gitHubPR}`} target="_blank" rel="noopener">PR #{props.gitHubPR}</a>
           </Show>
         </span>
         <Show when={(props.diffStat?.length ?? 0) > 0}>

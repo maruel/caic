@@ -66,6 +66,21 @@ a.headerBranch:hover {
   margin-right: 0.4em;
 }
 
+.headerPR {
+  margin-left: 0.4em;
+  color: var(--color-link);
+  text-decoration: none;
+}
+
+a.headerPR:hover {
+  text-decoration: underline;
+}
+
+.headerPR::before {
+  content: "·";
+  margin-right: 0.4em;
+}
+
 .messageArea {
   flex: 1;
   overflow: auto;

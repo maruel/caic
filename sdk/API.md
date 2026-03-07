@@ -156,6 +156,10 @@ All errors return:
 | `contextWindowLimit` | `number` | yes |
 | `error` | `string` |  |
 | `result` | `string` |  |
+| `gitHubOwner` | `string` |  |
+| `gitHubRepo` | `string` |  |
+| `gitHubPR` | `number` |  |
+| `ciStatus` | `string` |  |
 | `harness` | `string` | yes |
 | `model` | `string` |  |
 | `agentVersion` | `string` |  |

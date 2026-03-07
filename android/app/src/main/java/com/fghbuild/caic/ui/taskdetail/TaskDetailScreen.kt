@@ -252,6 +252,23 @@ fun TaskDetailScreen(
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                     )
                                 }
+                                val gitHubOwner = it.gitHubOwner
+                                val gitHubRepo = it.gitHubRepo
+                                val gitHubPR = it.gitHubPR
+                                if (gitHubOwner != null && gitHubRepo != null && gitHubPR != null && gitHubPR > 0) {
+                                    val prURL = "https://github.com/$gitHubOwner/$gitHubRepo/pull/$gitHubPR"
+                                    Text(
+                                        text = "·",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        text = "PR #$gitHubPR",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable { uriHandler.openUri(prURL) },
+                                    )
+                                }
                             }
                         }
                     }

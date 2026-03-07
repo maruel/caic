@@ -630,6 +630,9 @@ export default function App() {
                   repoURL={selectedTask()?.repoURL}
                   branch={selectedTask()?.branch ?? ""}
                   baseBranch={repos().find((r) => r.path === selectedTask()?.repo)?.baseBranch ?? "main"}
+                  gitHubOwner={selectedTask()?.gitHubOwner}
+                  gitHubRepo={selectedTask()?.gitHubRepo}
+                  gitHubPR={selectedTask()?.gitHubPR}
                   diffStat={selectedTask()?.diffStat}
                   supportsImages={harnesses().find((h) => h.name === (selectedTask()?.harness ?? ""))?.supportsImages}
                   onClose={() => navigate("/")}

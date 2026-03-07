@@ -81,6 +81,10 @@ type Task struct {
 	ContextWindowLimit                 int      `json:"contextWindowLimit"`    // Model context window limit (tokens).
 	Error                              string   `json:"error,omitempty"`
 	Result                             string   `json:"result,omitempty"`
+	GitHubOwner                        string   `json:"gitHubOwner,omitempty"`
+	GitHubRepo                         string   `json:"gitHubRepo,omitempty"`
+	GitHubPR                           int      `json:"gitHubPR,omitempty"`
+	CIStatus                           string   `json:"ciStatus,omitempty"`
 	// Per-task harness/container metadata.
 	Harness      Harness `json:"harness"`
 	Model        string  `json:"model,omitempty"`

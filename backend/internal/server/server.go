@@ -28,6 +28,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
 	"github.com/caic-xyz/caic/backend/internal/container"
+	"github.com/caic-xyz/caic/backend/internal/github"
 	"github.com/caic-xyz/caic/backend/internal/preferences"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
 	v1 "github.com/caic-xyz/caic/backend/internal/server/dto/v1"
@@ -73,6 +74,9 @@ type Config struct {
 	TailscaleAPIKey string
 	// PreferencesPath is the path to the persistent user preferences file.
 	PreferencesPath string
+	// GitHubToken is used to create pull requests and poll CI check-runs after sync.
+	// Leave empty to disable automatic PR creation.
+	GitHubToken string
 }
 
 // Server is the HTTP server for the caic web UI.
@@ -90,6 +94,7 @@ type Server struct {
 	prefs        *preferences.Store
 	usage        *usageFetcher // nil if no OAuth token available
 	geminiAPIKey string
+	githubToken  string
 	provider     genai.Provider
 	backend      *mdBackend // container backend for runner creation
 }
@@ -237,6 +242,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 		prefs:        prefs,
 		usage:        newUsageFetcher(ctx),
 		geminiAPIKey: cfg.GeminiAPIKey,
+		githubToken:  cfg.GitHubToken,
 		mdClient:     mdClient,
 		backend:      backend,
 	}
@@ -1033,7 +1039,115 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 	} else if len(issues) > 0 && !req.Force {
 		status = "blocked"
 	}
+	if status == "synced" && s.githubToken != "" {
+		go s.startPRFlow(s.ctx, entry, t.Branch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
+	}
 	return &v1.SyncResp{Status: status, Branch: t.Branch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
+}
+
+// startPRFlow creates a GitHub PR for the synced branch and then launches CI
+// monitoring. Runs in a goroutine; logs errors and returns on failure.
+func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, baseBranch string) {
+	t := entry.task
+	runner, ok := s.runners[t.Repo]
+	if !ok {
+		slog.Warn("startPRFlow: no runner for repo", "repo", t.Repo)
+		return
+	}
+	rawURL, err := github.RemoteURL(ctx, runner.Dir)
+	if err != nil {
+		slog.Warn("startPRFlow: remote URL", "repo", t.Repo, "err", err)
+		return
+	}
+	owner, repo, err := github.ParseRemoteURL(rawURL)
+	if err != nil {
+		slog.Warn("startPRFlow: parse remote URL", "url", rawURL, "err", err)
+		return
+	}
+	gh := &github.Client{Token: s.githubToken}
+	title := t.Title()
+	if title == "" {
+		title = t.InitialPrompt.Text
+	}
+	var body string
+	if entry.result != nil {
+		body = entry.result.AgentResult
+	}
+	pr, err := gh.CreatePR(ctx, owner, repo, branch, baseBranch, title, body)
+	if err != nil {
+		slog.Warn("startPRFlow: create PR", "repo", t.Repo, "branch", branch, "err", err)
+		return
+	}
+	slog.Info("PR created", "task", t.ID, "owner", owner, "repo", repo, "pr", pr.Number)
+	t.SetPR(owner, repo, pr.Number)
+	s.notifyTaskChange()
+	go s.monitorCI(ctx, entry, gh, owner, repo, pr.HeadSHA)
+}
+
+// monitorCI polls GitHub check-runs every 30 s until all checks complete,
+// then injects a summary into the agent via SendInput.
+func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, gh *github.Client, owner, repo, sha string) {
+	t := entry.task
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		// Stop if the task is no longer waiting (user sent input / terminated).
+		st := t.GetState()
+		if st != task.StateWaiting && st != task.StateAsking && st != task.StateHasPlan {
+			return
+		}
+		runs, err := gh.GetCheckRuns(ctx, owner, repo, sha)
+		if err != nil {
+			slog.Warn("monitorCI: get check-runs", "task", t.ID, "err", err)
+			continue
+		}
+		if len(runs) == 0 {
+			continue
+		}
+		allDone := true
+		for _, r := range runs {
+			if r.Status != github.CheckRunStatusCompleted {
+				allDone = false
+				break
+			}
+		}
+		if !allDone {
+			t.SetCIStatus(task.CIStatusPending)
+			s.notifyTaskChange()
+			continue
+		}
+		// All checks completed — build summary and resume agent.
+		var failed []github.CheckRun
+		for _, r := range runs {
+			if r.Conclusion != github.CheckRunConclusionSuccess && r.Conclusion != github.CheckRunConclusionNeutral && r.Conclusion != github.CheckRunConclusionSkipped {
+				failed = append(failed, r)
+			}
+		}
+		ciStatus := task.CIStatusSuccess
+		var summary string
+		if len(failed) == 0 {
+			summary = fmt.Sprintf("GitHub CI: %d/%d checks passed.", len(runs), len(runs))
+		} else {
+			ciStatus = task.CIStatusFailure
+			var sb strings.Builder
+			fmt.Fprintf(&sb, "GitHub CI: %d/%d checks passed, %d failed:\n", len(runs)-len(failed), len(runs), len(failed))
+			for _, r := range failed {
+				fmt.Fprintf(&sb, "- %s: https://github.com/%s/%s/runs/%d\n", r.Name, owner, repo, r.ID)
+			}
+			summary = strings.TrimRight(sb.String(), "\n")
+		}
+		t.SetCIStatus(ciStatus)
+		s.notifyTaskChange()
+		if err := t.SendInput(ctx, agent.Prompt{Text: summary}); err != nil {
+			slog.Warn("monitorCI: send input", "task", t.ID, "err", err)
+		}
+		return
+	}
 }
 
 func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
@@ -1750,6 +1864,10 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	} else {
 		j.DiffStat = toV1DiffStat(snap.DiffStat)
 	}
+	j.GitHubOwner = snap.GitHubOwner
+	j.GitHubRepo = snap.GitHubRepo
+	j.GitHubPR = snap.GitHubPR
+	j.CIStatus = string(snap.CIStatus)
 	return j
 }
 
