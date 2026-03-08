@@ -1,6 +1,7 @@
 // Full-screen diff viewer showing per-file diffs for a task.
 package com.fghbuild.caic.ui.diff
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -236,10 +237,9 @@ private fun DiffContentBlock(diff: String) {
         lineHeight = 15.sp,
         modifier = Modifier
             .fillMaxWidth()
+            .background(bgColor)
             .padding(4.dp),
         color = fgColor,
-        style = MaterialTheme.typography.bodySmall.copy(
-            background = bgColor,
-        ),
+        style = MaterialTheme.typography.bodySmall,
     )
 }
