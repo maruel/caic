@@ -4,8 +4,16 @@
 
 - **Docker** — required to run agent containers via [md](https://github.com/caic-xyz/md).
 - **Go** — to build from source, or use the prebuilt binary via `go install`.
-- **At least one agent** — Claude Code, Codex CLI, or Kilo Code authenticated and working in your terminal.
-  You can do it via a [md container](https://github.com/caic-xyz/md).
+- **At least one agent** — install and authenticate at least one of the following.
+
+### Agents
+
+| Backend | CLI tool | Setup |
+|---|---|---|
+| **Claude Code** | `claude` | Authenticate via `claude login`. |
+| **Codex CLI** | `codex` | Authenticate via `codex login` (browser OAuth) or `codex login --with-api-key`. |
+| **Kilo Code** | `kilo` | Authenticate via `kilo login` or set the relevant API key. |
+| **Gemini** | `gemini` | Set `GEMINI_API_KEY`. Get one at [aistudio.google.com](https://aistudio.google.com/app/apikey). |
 
 ## Install
 
@@ -15,51 +23,19 @@ go install github.com/caic-xyz/caic/backend/cmd/caic@latest
 
 ## Configuration
 
-All configuration is via environment variables. Flags take precedence when set.
+All configuration is via environment variables. Flags take precedence when set. See [`contrib/caic.env`](contrib/caic.env) for a template with all variables.
 
-### Required
-
-| Variable | Flag | Description |
-|---|---|---|
-| `CAIC_HTTP` | `-http` | HTTP listen address (e.g. `:8080`). Port-only addresses listen on localhost. Use `0.0.0.0:8080` to listen on all interfaces. |
-| `CAIC_ROOT` | `-root` | Parent directory containing your git repositories. Each subdirectory is a repo caic can manage. |
-
-### Optional
-
-| Variable | Flag | Default | Description |
-|---|---|---|---|
-| `CAIC_MAX_TURNS` | `-max-turns` | `0` (unlimited) | Maximum agentic turns per task before the agent stops. |
-| `CAIC_LOG_LEVEL` | `-log-level` | `info` | Log verbosity: `debug`, `info`, `warn`, `error`. |
-
-### Agent Backends
-
-caic supports multiple agent backends. Install and authenticate at least one:
-
-| Backend | CLI tool | Notes |
-|---|---|---|
-| **Claude Code** | `claude` | Authenticate via `claude login`. No extra env var needed. |
-| **Codex CLI** | `codex` | Authenticate via `codex login` (browser OAuth) or pipe an API key with `codex login --with-api-key`. |
-| **Kilo Code** | `kilo` | Authenticate via `kilo login` or set the relevant API key. |
-
-| Variable | Description |
-|---|---|
-| `GEMINI_API_KEY` | Gemini API key for the Gemini agent backend. Get one at [aistudio.google.com](https://aistudio.google.com/app/apikey). |
-
-### LLM Features (title generation, commit descriptions)
-
-These power caic's built-in LLM features (task title generation, commit message descriptions). They are independent of the agent backend.
-
-| Variable | Description |
-|---|---|
-| `CAIC_LLM_PROVIDER` | AI provider name (e.g. `anthropic`, `gemini`, `openaichat`). See [genai providers](https://pkg.go.dev/github.com/maruel/genai/providers). Set the corresponding `FOO_API_KEY` for the chosen provider. |
-| `CAIC_LLM_MODEL` | Model name (e.g. `claude-haiku-4-5-20251001`). |
-
-### Integrations
-
-| Variable | Description |
-|---|---|
-| `TAILSCALE_API_KEY` | Tailscale API key for Tailscale integration. Get one at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys). |
-| `GITHUB_TOKEN` | GitHub personal access token for automatic PR creation and CI check-run monitoring. [Create a fine-grained token](https://github.com/settings/personal-access-tokens/new?name=caic&description=caic+PR+creation+and+CI+monitoring&pull_requests=write&checks=read&expires_in=365) with `pull_requests: write` and `checks: read` permissions. |
+| Variable | Flag | Required | Default | Description |
+|---|---|---|---|---|
+| `CAIC_HTTP` | `-http` | Yes | — | HTTP listen address (e.g. `:8080`). Port-only addresses listen on localhost. Use `0.0.0.0:8080` to listen on all interfaces. |
+| `CAIC_ROOT` | `-root` | Yes | — | Parent directory containing your git repositories. Each subdirectory is a repo caic can manage. |
+| `CAIC_MAX_TURNS` | `-max-turns` | No | `0` (unlimited) | Maximum agentic turns per task before the agent stops. |
+| `CAIC_LOG_LEVEL` | `-log-level` | No | `info` | Log verbosity: `debug`, `info`, `warn`, `error`. |
+| `CAIC_LLM_PROVIDER` | — | No | — | AI provider for LLM features (title generation, commit descriptions). E.g. `anthropic`, `gemini`, `openaichat`. See [genai providers](https://pkg.go.dev/github.com/maruel/genai/providers). |
+| `CAIC_LLM_MODEL` | — | No | — | Model name for LLM features (e.g. `claude-haiku-4-5-20251001`). |
+| `GEMINI_API_KEY` | — | No | — | Gemini API key for the Gemini agent backend. |
+| `GITHUB_TOKEN` | — | No | — | GitHub token for automatic PR creation and CI monitoring. [Create a fine-grained token](https://github.com/settings/personal-access-tokens/new?name=caic&description=caic+PR+creation+and+CI+monitoring&pull_requests=write&checks=read&expires_in=365) with `pull_requests: write` and `checks: read`. |
+| `TAILSCALE_API_KEY` | — | No | — | Tailscale API key for Tailscale integration. Get one at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys). |
 
 ## Running
 
