@@ -62,6 +62,9 @@ data class TaskListState(
     val error: String? = null,
     val pendingImages: List<ImageData> = emptyList(),
     val supportsImages: Boolean = false,
+    val authRequired: Boolean = false,
+    val authProviders: List<String> = emptyList(),
+    val serverURL: String = "",
 )
 
 @HiltViewModel
@@ -112,6 +115,9 @@ class TaskListViewModel @Inject constructor(
             error = form.error,
             pendingImages = form.pendingImages,
             supportsImages = imgSupport,
+            authRequired = form.authRequired,
+            authProviders = form.authProviders,
+            serverURL = settings.serverURL,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TaskListState())
 
@@ -126,10 +132,22 @@ class TaskListViewModel @Inject constructor(
             val url = settingsRepository.settings.value.serverURL
             if (url.isBlank()) return@launch
             try {
-                val client = ApiClient(url)
+                val client = ApiClient(url, tokenProvider = { settingsRepository.settings.value.authToken })
                 val repos = client.listRepos()
                 val harnesses = client.listHarnesses()
                 val config = client.getConfig()
+                if (config.authProviders?.isNotEmpty() == true) {
+                    try {
+                        client.getMe()
+                        _formState.value = _formState.value.copy(authRequired = false)
+                    } catch (_: Exception) {
+                        _formState.value = _formState.value.copy(
+                            authRequired = true,
+                            authProviders = config.authProviders.orEmpty(),
+                        )
+                        return@launch
+                    }
+                }
                 val prefs = try {
                     client.getPreferences().also { settingsRepository.updateServerPreferences(it) }
                 } catch (_: Exception) { null }
@@ -181,7 +199,7 @@ class TaskListViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val url = settingsRepository.settings.value.serverURL
-                val client = ApiClient(url)
+                val client = ApiClient(url, tokenProvider = { settingsRepository.settings.value.authToken })
                 val resp = client.listRepoBranches(repo)
                 _formState.value = _formState.value.copy(branches = resp.branches)
             } catch (_: Exception) {
@@ -229,7 +247,7 @@ class TaskListViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val serverURL = settingsRepository.settings.value.serverURL
-                val client = ApiClient(serverURL)
+                val client = ApiClient(serverURL, tokenProvider = { settingsRepository.settings.value.authToken })
                 client.cloneRepo(CloneRepoReq(url = url, path = path?.ifBlank { null }))
                 loadFormData()
                 _formState.value = _formState.value.copy(cloning = false)
@@ -251,7 +269,7 @@ class TaskListViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val url = settingsRepository.settings.value.serverURL
-                val client = ApiClient(url)
+                val client = ApiClient(url, tokenProvider = { settingsRepository.settings.value.authToken })
                 client.createTask(
                     CreateTaskReq(
                         initialPrompt = Prompt(
@@ -300,6 +318,13 @@ class TaskListViewModel @Inject constructor(
         }
     }
 
+    fun logout() {
+        viewModelScope.launch {
+            settingsRepository.clearAuthToken()
+            _formState.value = _formState.value.copy(authRequired = true)
+        }
+    }
+
     private data class FormState(
         val repos: List<Repo> = emptyList(),
         val harnesses: List<HarnessInfo> = emptyList(),
@@ -316,5 +341,7 @@ class TaskListViewModel @Inject constructor(
         val error: String? = null,
         val pendingImages: List<ImageData> = emptyList(),
         val prefModels: Map<String, String> = emptyMap(),
+        val authRequired: Boolean = false,
+        val authProviders: List<String> = emptyList(),
     )
 }

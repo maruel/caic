@@ -2,7 +2,7 @@
 import { createSignal, createEffect, createMemo, For, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import type { DiffFileStat } from "@sdk/types.gen";
-import { getTaskDiff } from "@sdk/api.gen";
+import { getTaskDiff } from "./api";
 import ArrowBackIcon from "@material-symbols/svg-400/outlined/arrow_back.svg?solid";
 import styles from "./DiffDetail.module.css";
 

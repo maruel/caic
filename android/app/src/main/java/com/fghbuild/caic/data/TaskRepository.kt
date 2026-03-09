@@ -115,6 +115,7 @@ class TaskRepository @Inject constructor(
         val request = Request.Builder()
             .url("$baseURL/api/v1/tasks/$taskId/raw_events")
             .header("Accept", "text/event-stream")
+            .apply { settingsRepository.settings.value.authToken?.let { header("Authorization", "Bearer $it") } }
             .build()
         val factory = EventSources.createFactory(client)
         val source = factory.newEventSource(request, object : EventSourceListener() {
@@ -155,6 +156,7 @@ class TaskRepository @Inject constructor(
         val request = Request.Builder()
             .url("$baseURL/api/v1/server/tasks/events")
             .header("Accept", "text/event-stream")
+            .apply { settingsRepository.settings.value.authToken?.let { header("Authorization", "Bearer $it") } }
             .build()
         val factory = EventSources.createFactory(client)
         val source = factory.newEventSource(request, object : EventSourceListener() {
@@ -198,6 +200,7 @@ class TaskRepository @Inject constructor(
         val request = Request.Builder()
             .url(url)
             .header("Accept", "text/event-stream")
+            .apply { settingsRepository.settings.value.authToken?.let { header("Authorization", "Bearer $it") } }
             .build()
         val factory = EventSources.createFactory(client)
         val source = factory.newEventSource(request, object : EventSourceListener() {

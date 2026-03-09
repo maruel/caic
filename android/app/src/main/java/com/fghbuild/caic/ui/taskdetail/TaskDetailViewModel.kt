@@ -18,6 +18,7 @@ import com.caic.sdk.v1.SafetyIssue
 import com.caic.sdk.v1.SyncReq
 import com.caic.sdk.v1.Task
 import com.fghbuild.caic.data.DraftStore
+import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.data.TaskSSEEvent
 import com.fghbuild.caic.navigation.Screen
@@ -63,6 +64,7 @@ private val TerminalStates = setOf("terminated", "failed")
 @HiltViewModel
 class TaskDetailViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
+    private val settingsRepository: SettingsRepository,
     private val draftStore: DraftStore,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
@@ -137,12 +139,15 @@ class TaskDetailViewModel @Inject constructor(
         loadHarnesses()
     }
 
+    private fun apiClient(): ApiClient =
+        ApiClient(taskRepository.serverURL(), tokenProvider = { settingsRepository.settings.value.authToken })
+
     private fun loadHarnesses() {
         viewModelScope.launch {
             val url = taskRepository.serverURL()
             if (url.isBlank()) return@launch
             try {
-                _harnesses.value = ApiClient(url).listHarnesses()
+                _harnesses.value = apiClient().listHarnesses()
             } catch (_: Exception) {
                 // Non-critical; attach button will just stay hidden.
             }
@@ -255,7 +260,7 @@ class TaskDetailViewModel @Inject constructor(
         _sending.value = true
         viewModelScope.launch {
             try {
-                val client = ApiClient(taskRepository.serverURL())
+                val client = apiClient()
                 client.sendInput(
                     taskId,
                     InputReq(
@@ -278,7 +283,7 @@ class TaskDetailViewModel @Inject constructor(
         _pendingAction.value = "sync"
         viewModelScope.launch {
             try {
-                val client = ApiClient(taskRepository.serverURL())
+                val client = apiClient()
                 val resp = client.syncTask(taskId, SyncReq(force = if (force) true else null, target = target))
                 val issues = resp.safetyIssues.orEmpty()
                 if (issues.isNotEmpty() && !force) {
@@ -299,7 +304,7 @@ class TaskDetailViewModel @Inject constructor(
         _pendingAction.value = "terminate"
         viewModelScope.launch {
             try {
-                val client = ApiClient(taskRepository.serverURL())
+                val client = apiClient()
                 client.terminateTask(taskId)
             } catch (e: Exception) {
                 showActionError("terminate failed: ${e.message}")
@@ -314,7 +319,7 @@ class TaskDetailViewModel @Inject constructor(
         _pendingAction.value = "restart"
         viewModelScope.launch {
             try {
-                val client = ApiClient(taskRepository.serverURL())
+                val client = apiClient()
                 client.restartTask(taskId, RestartReq(prompt = Prompt(text = prompt)))
             } catch (e: Exception) {
                 showActionError("restart failed: ${e.message}")
@@ -326,7 +331,7 @@ class TaskDetailViewModel @Inject constructor(
 
     @Suppress("TooGenericExceptionCaught") // Error boundary: surface all API failures as null.
     suspend fun loadToolInput(toolUseID: String): JsonElement? = try {
-        ApiClient(taskRepository.serverURL()).getTaskToolInput(taskId, toolUseID).input
+        apiClient().getTaskToolInput(taskId, toolUseID).input
     } catch (_: Exception) {
         null
     }
@@ -336,7 +341,7 @@ class TaskDetailViewModel @Inject constructor(
         _pendingAction.value = "fixCI"
         viewModelScope.launch {
             try {
-                val client = ApiClient(taskRepository.serverURL())
+                val client = apiClient()
                 val task = state.value.task
                 val failedCheck = task?.ciChecks?.firstOrNull { check ->
                     check.conclusion != "success" && check.conclusion != "neutral" && check.conclusion != "skipped"

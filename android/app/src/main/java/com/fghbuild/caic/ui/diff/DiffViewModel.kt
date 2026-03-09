@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.caic.sdk.v1.ApiClient
 import com.caic.sdk.v1.DiffFileStat
 import com.caic.sdk.v1.Task
+import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.navigation.Screen
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -33,6 +34,7 @@ data class DiffState(
 @HiltViewModel
 class DiffViewModel @Inject constructor(
     private val taskRepository: TaskRepository,
+    private val settingsRepository: SettingsRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -93,7 +95,7 @@ class DiffViewModel @Inject constructor(
             try {
                 val baseURL = taskRepository.serverURL()
                 if (baseURL.isBlank()) return@launch
-                val client = ApiClient(baseURL)
+                val client = ApiClient(baseURL, tokenProvider = { settingsRepository.settings.value.authToken })
                 val resp = client.getTaskDiff(taskId)
                 _fileDiffs.value = splitDiff(resp.diff)
             } catch (e: Exception) {

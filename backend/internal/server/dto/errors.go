@@ -12,6 +12,8 @@ type ErrorCode string
 // Standard error codes.
 const (
 	CodeBadRequest    ErrorCode = "BAD_REQUEST"
+	CodeUnauthorized  ErrorCode = "UNAUTHORIZED"
+	CodeForbidden     ErrorCode = "FORBIDDEN"
 	CodeNotFound      ErrorCode = "NOT_FOUND"
 	CodeConflict      ErrorCode = "CONFLICT"
 	CodeInternalError ErrorCode = "INTERNAL_ERROR"
@@ -88,6 +90,11 @@ func BadRequest(msg string) *APIError {
 // NotFound creates a 404 error.
 func NotFound(resource string) *APIError {
 	return &APIError{statusCode: http.StatusNotFound, code: CodeNotFound, message: resource + " not found"}
+}
+
+// Forbidden creates a 403 error.
+func Forbidden(resource string) *APIError {
+	return &APIError{statusCode: http.StatusForbidden, code: CodeForbidden, message: resource + " access denied"}
 }
 
 // Conflict creates a 409 error.

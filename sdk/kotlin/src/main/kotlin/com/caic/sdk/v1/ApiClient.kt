@@ -29,7 +29,10 @@ class ApiException(
     val details: Map<String, kotlinx.serialization.json.JsonElement>? = null,
 ) : Exception(message)
 
-class ApiClient(baseURL: String) {
+class ApiClient(
+    baseURL: String,
+    private val tokenProvider: (() -> String?)? = null,
+) {
     private val baseURL: String = baseURL.trimEnd('/')
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
@@ -44,6 +47,7 @@ class ApiClient(baseURL: String) {
             .url(url)
             .method(method, requestBody)
             .header("Content-Type", "application/json")
+            .apply { tokenProvider?.invoke()?.let { header("Authorization", "Bearer $it") } }
             .build()
         return suspendCancellableCoroutine { cont ->
             val call = client.newCall(request)
@@ -81,6 +85,8 @@ class ApiClient(baseURL: String) {
 
     // JSON endpoints
     suspend fun getConfig(): Config = request("GET", "/api/v1/server/config")
+    suspend fun getMe(): UserResp = request("GET", "/api/v1/auth/me")
+    suspend fun logout(): StatusResp = request("POST", "/api/v1/auth/logout")
     suspend fun getPreferences(): PreferencesResp = request("GET", "/api/v1/server/preferences")
     suspend fun listHarnesses(): List<HarnessInfo> = request("GET", "/api/v1/server/harnesses")
     suspend fun listRepos(): List<Repo> = request("GET", "/api/v1/server/repos")
@@ -109,6 +115,7 @@ class ApiClient(baseURL: String) {
         val request = Request.Builder()
             .url("$baseURL$path")
             .header("Accept", "text/event-stream")
+            .apply { tokenProvider?.invoke()?.let { header("Authorization", "Bearer $it") } }
             .build()
         val factory = EventSources.createFactory(client)
         val source = factory.newEventSource(request, object : EventSourceListener() {

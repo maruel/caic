@@ -49,7 +49,7 @@ func run() error {
 	return generateDoc(sdkDir)
 }
 
-// generateTS generates the TypeScript API client (existing behavior).
+// generateTS generates the TypeScript API client as a createApiClient factory.
 func generateTS(outDir string) error {
 	// Collect all referenced types for the import statement.
 	types := map[string]struct{}{}
@@ -81,43 +81,57 @@ func generateTS(outDir string) error {
 
 `)
 
-	// Generic request helper.
-	b.WriteString(`async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const init: RequestInit = { method, headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60_000) };
-  if (body !== undefined) init.body = JSON.stringify(body);
-  const res = await fetch(path, init);
-  if (!res.ok) {
-    const err = (await res.json()) as ErrorResponse;
-    const e = new APIError(res.status, err.error.code, err.details);
-    e.message = err.error.message;
-    throw e;
-  }
-  return res.json() as Promise<T>;
+	// FetchFn type and makeRequester factory.
+	b.WriteString(`export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+
+function makeRequester(fetchFn: FetchFn) {
+  return async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const init: RequestInit = { method, headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(60_000) };
+    if (body !== undefined) init.body = JSON.stringify(body);
+    const res = await fetchFn(path, init);
+    if (!res.ok) {
+      const err = (await res.json()) as ErrorResponse;
+      const e = new APIError(res.status, err.error.code, err.details);
+      e.message = err.error.message;
+      throw e;
+    }
+    return res.json() as Promise<T>;
+  };
 }
 
 `)
 
-	// One function per route.
+	// createApiClient factory function wrapping all methods.
+	b.WriteString("// createApiClient returns an API client bound to the given fetch function.\n")
+	b.WriteString("// When fetchFn is omitted, globalThis.fetch is used.\n")
+	b.WriteString("// eslint-disable-next-line @typescript-eslint/no-explicit-any\n")
+	b.WriteString("export function createApiClient(fetchFn: FetchFn = (globalThis as any).fetch.bind(globalThis)) {\n")
+	b.WriteString("  const request = makeRequester(fetchFn);\n")
+	b.WriteString("  return {\n")
+
+	// One method per route.
 	for i := range v1.Routes {
 		r := &v1.Routes[i]
 		params := extractPathParams(r.Path)
 		if r.IsSSE {
-			writeTSSSEFunc(&b, r, params)
+			writeTSSSEMethod(&b, r, params)
 		} else {
-			writeTSJSONFunc(&b, r, params)
+			writeTSJSONMethod(&b, r, params)
 		}
 	}
+
+	b.WriteString("  };\n")
+	b.WriteString("}\n")
 
 	return os.WriteFile(filepath.Join(outDir, "api.gen.ts"), []byte(b.String()), 0o600)
 }
 
-func writeTSJSONFunc(b *strings.Builder, r *v1.Route, params []string) {
+func writeTSJSONMethod(b *strings.Builder, r *v1.Route, params []string) {
 	respType := r.RespName()
 	if r.IsArray {
 		respType += "[]"
 	}
 
-	// Build function signature.
 	args := make([]string, 0, len(params)+len(r.QueryParams)+1)
 	for _, p := range params {
 		args = append(args, p+": string")
@@ -132,16 +146,14 @@ func writeTSJSONFunc(b *strings.Builder, r *v1.Route, params []string) {
 
 	tsPath := buildTSPath(r.Path, params, r.QueryParams)
 
-	fmt.Fprintf(b, "export function %s(%s): Promise<%s> {\n", r.Name, strings.Join(args, ", "), respType)
 	if hasReq {
-		fmt.Fprintf(b, "  return request<%s>(%q, %s, req);\n", respType, r.Method, tsPath)
+		fmt.Fprintf(b, "    %s: (%s): Promise<%s> => request<%s>(%q, %s, req),\n", r.Name, strings.Join(args, ", "), respType, respType, r.Method, tsPath)
 	} else {
-		fmt.Fprintf(b, "  return request<%s>(%q, %s);\n", respType, r.Method, tsPath)
+		fmt.Fprintf(b, "    %s: (%s): Promise<%s> => request<%s>(%q, %s),\n", r.Name, strings.Join(args, ", "), respType, respType, r.Method, tsPath)
 	}
-	b.WriteString("}\n\n")
 }
 
-func writeTSSSEFunc(b *strings.Builder, r *v1.Route, params []string) {
+func writeTSSSEMethod(b *strings.Builder, r *v1.Route, params []string) {
 	args := make([]string, 0, len(params)+1)
 	for _, p := range params {
 		args = append(args, p+": string")
@@ -149,13 +161,13 @@ func writeTSSSEFunc(b *strings.Builder, r *v1.Route, params []string) {
 	tsPath := buildTSPath(r.Path, params, nil)
 	respName := r.RespName()
 	args = append(args, "onMessage: (event: "+respName+") => void")
-	fmt.Fprintf(b, "export function %s(%s): EventSource {\n", r.Name, strings.Join(args, ", "))
-	fmt.Fprintf(b, "  const es = new EventSource(%s);\n", tsPath)
-	b.WriteString("  es.addEventListener(\"message\", (e) => {\n")
-	fmt.Fprintf(b, "    onMessage(JSON.parse(e.data) as %s);\n", respName)
-	b.WriteString("  });\n")
-	b.WriteString("  return es;\n")
-	b.WriteString("}\n\n")
+	fmt.Fprintf(b, "    %s: (%s): EventSource => {\n", r.Name, strings.Join(args, ", "))
+	fmt.Fprintf(b, "      const es = new EventSource(%s);\n", tsPath)
+	b.WriteString("      es.addEventListener(\"message\", (e) => {\n")
+	fmt.Fprintf(b, "        onMessage(JSON.parse(e.data) as %s);\n", respName)
+	b.WriteString("      });\n")
+	b.WriteString("      return es;\n")
+	b.WriteString("    },\n")
 }
 
 // generateKotlin generates Types.kt and ApiClient.kt in outDir.
@@ -588,7 +600,10 @@ class ApiException(
     val details: Map<String, kotlinx.serialization.json.JsonElement>? = null,
 ) : Exception(message)
 
-class ApiClient(baseURL: String) {
+class ApiClient(
+    baseURL: String,
+    private val tokenProvider: (() -> String?)? = null,
+) {
     private val baseURL: String = baseURL.trimEnd('/')
     private val client = OkHttpClient()
     private val json = Json { ignoreUnknownKeys = true }
@@ -603,6 +618,7 @@ class ApiClient(baseURL: String) {
             .url(url)
             .method(method, requestBody)
             .header("Content-Type", "application/json")
+            .apply { tokenProvider?.invoke()?.let { header("Authorization", "Bearer $it") } }
             .build()
         return suspendCancellableCoroutine { cont ->
             val call = client.newCall(request)
@@ -669,6 +685,7 @@ class ApiClient(baseURL: String) {
         val request = Request.Builder()
             .url("$baseURL$path")
             .header("Accept", "text/event-stream")
+            .apply { tokenProvider?.invoke()?.let { header("Authorization", "Bearer $it") } }
             .build()
         val factory = EventSources.createFactory(client)
         val source = factory.newEventSource(request, object : EventSourceListener() {

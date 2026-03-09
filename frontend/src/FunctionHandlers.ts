@@ -10,7 +10,7 @@ import {
   cloneRepo,
   taskEvents,
   webFetch,
-} from "@sdk/api.gen";
+} from "./api";
 import type { Task, EventMessage } from "@sdk/types.gen";
 import { formatCost, formatElapsed } from "./formatting";
 import type { TaskNumberMap } from "./TaskNumberMap";

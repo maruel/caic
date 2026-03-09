@@ -148,7 +148,7 @@ class VoiceSession @Inject constructor(
                     return@launch
                 }
 
-                val apiClient = ApiClient(settings.serverURL)
+                val apiClient = ApiClient(settings.serverURL, tokenProvider = { settingsRepository.settings.value.authToken })
                 availableHarnesses = apiClient.listHarnesses().map { it.name }
                 availableRepos = apiClient.listRepos().map { it.path }
                 val prefs = settingsRepository.serverPreferences.value

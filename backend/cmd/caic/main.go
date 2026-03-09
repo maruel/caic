@@ -98,9 +98,15 @@ Environment variables (flags take precedence when set):
   CAIC_LOG_LEVEL            Log level: debug, info, warn, error (default: info)
   CAIC_LLM_PROVIDER         AI provider for LLM features (title generation, commit descriptions)
   CAIC_LLM_MODEL            Model name for LLM features
+  CAIC_EXTERNAL_URL         External base URL (e.g. https://caic.example.com); required for OAuth
   GEMINI_API_KEY            Gemini API key for the Gemini agent backend
   TAILSCALE_API_KEY         Tailscale API key for Tailscale integration
   GITHUB_TOKEN              GitHub personal access token for automatic PR creation and CI monitoring
+  GITHUB_OAUTH_CLIENT_ID    GitHub OAuth app client ID (enables GitHub login)
+  GITHUB_OAUTH_CLIENT_SECRET GitHub OAuth app client secret
+  GITLAB_OAUTH_CLIENT_ID    GitLab OAuth app client ID (enables GitLab login)
+  GITLAB_OAUTH_CLIENT_SECRET GitLab OAuth app client secret
+  GITLAB_URL                GitLab instance URL (default: https://gitlab.com)
 
 See contrib/caic.env for a template with all variables and documentation.
 `)
@@ -120,13 +126,19 @@ See contrib/caic.env for a template with all variables and documentation.
 	initLogging(*logLevel)
 
 	cfg := &server.Config{
-		GeminiAPIKey:    os.Getenv("GEMINI_API_KEY"),
-		TailscaleAPIKey: os.Getenv("TAILSCALE_API_KEY"),
-		LLMProvider:     os.Getenv("CAIC_LLM_PROVIDER"),
-		LLMModel:        os.Getenv("CAIC_LLM_MODEL"),
-		ConfigDir:       configDir(),
-		CacheDir:        cacheDir(),
-		GitHubToken:     os.Getenv("GITHUB_TOKEN"),
+		GeminiAPIKey:            os.Getenv("GEMINI_API_KEY"),
+		TailscaleAPIKey:         os.Getenv("TAILSCALE_API_KEY"),
+		LLMProvider:             os.Getenv("CAIC_LLM_PROVIDER"),
+		LLMModel:                os.Getenv("CAIC_LLM_MODEL"),
+		ConfigDir:               configDir(),
+		CacheDir:                cacheDir(),
+		GitHubToken:             os.Getenv("GITHUB_TOKEN"),
+		ExternalURL:             os.Getenv("CAIC_EXTERNAL_URL"),
+		GitHubOAuthClientID:     os.Getenv("GITHUB_OAUTH_CLIENT_ID"),
+		GitHubOAuthClientSecret: os.Getenv("GITHUB_OAUTH_CLIENT_SECRET"),
+		GitLabOAuthClientID:     os.Getenv("GITLAB_OAUTH_CLIENT_ID"),
+		GitLabOAuthClientSecret: os.Getenv("GITLAB_OAUTH_CLIENT_SECRET"),
+		GitLabURL:               os.Getenv("GITLAB_URL"),
 	}
 
 	if key := cfg.GeminiAPIKey; key != "" {

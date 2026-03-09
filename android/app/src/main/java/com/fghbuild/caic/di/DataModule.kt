@@ -6,6 +6,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.caic.sdk.v1.ApiClient
+import com.fghbuild.caic.data.AuthTokenStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -24,5 +25,6 @@ object DataModule {
 
     @Provides
     @Singleton
-    fun provideApiClient(): ApiClient = ApiClient("")
+    fun provideApiClient(authTokenStore: AuthTokenStore): ApiClient =
+        ApiClient("", tokenProvider = authTokenStore::getToken)
 }

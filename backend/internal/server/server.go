@@ -27,6 +27,7 @@ import (
 	"github.com/caic-xyz/caic/backend/frontend"
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
+	"github.com/caic-xyz/caic/backend/internal/auth"
 	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/container"
 	"github.com/caic-xyz/caic/backend/internal/forge"
@@ -94,26 +95,38 @@ type Config struct {
 	// GitLabToken is used to create merge requests and poll CI pipelines after sync
 	// for gitlab.com repositories. Leave empty to disable.
 	GitLabToken string
+	// Auth config — auth is disabled when ExternalURL or all OAuth pairs are absent.
+	ExternalURL             string
+	GitHubOAuthClientID     string
+	GitHubOAuthClientSecret string
+	GitLabOAuthClientID     string
+	GitLabOAuthClientSecret string
+	GitLabURL               string // default "https://gitlab.com"
 }
 
 // Server is the HTTP server for the caic web UI.
 type Server struct {
 	// Immutable after construction.
-	ctx          context.Context // server-lifetime context; outlives individual HTTP requests
-	absRoot      string          // absolute path to the root repos directory
-	repos        []repoInfo
-	runners      map[string]*task.Runner // keyed by RelPath
-	mdClient     *md.Client
-	maxTurns     int
-	logDir       string
-	prefs        *preferences.Store
-	usage        *usageFetcher // nil if no OAuth token available
-	geminiAPIKey string
-	githubToken  string
-	gitlabToken  string
-	ciCache      *cicache.Cache
-	provider     genai.Provider
-	backend      *mdBackend // container backend for runner creation
+	ctx           context.Context // server-lifetime context; outlives individual HTTP requests
+	absRoot       string          // absolute path to the root repos directory
+	repos         []repoInfo
+	runners       map[string]*task.Runner // keyed by RelPath
+	mdClient      *md.Client
+	maxTurns      int
+	logDir        string
+	prefsDir      string               // directory for per-user preference files
+	prefsStores   sync.Map             // map[string]*preferences.Store, keyed by userID
+	authStore     *auth.Store          // nil when auth disabled
+	sessionSecret []byte               // nil when auth disabled
+	githubOAuth   *auth.ProviderConfig // nil if not configured
+	gitlabOAuth   *auth.ProviderConfig // nil if not configured
+	usage         *usageFetcher        // nil if no OAuth token available
+	geminiAPIKey  string
+	githubToken   string
+	gitlabToken   string
+	ciCache       *cicache.Cache
+	provider      genai.Provider
+	backend       *mdBackend // container backend for runner creation
 
 	// Guarded by mu.
 	mu            sync.Mutex
@@ -250,9 +263,53 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 		return nil, fmt.Errorf("no git repos found under %s", rootDir)
 	}
 
-	prefs, err := preferences.Open(filepath.Join(cfg.ConfigDir, "preferences.json"))
+	// Load persistent settings (generates sessionSecret on first run).
+	settings, err := loadSettings(filepath.Join(cfg.ConfigDir, "settings.json"))
 	if err != nil {
-		return nil, fmt.Errorf("open preferences: %w", err)
+		return nil, fmt.Errorf("load settings: %w", err)
+	}
+
+	// Initialize auth store and OAuth providers when auth is configured.
+	var authStore *auth.Store
+	var sessionSecret []byte
+	var githubOAuth *auth.ProviderConfig
+	var gitlabOAuth *auth.ProviderConfig
+	if cfg.ExternalURL != "" {
+		secret, err := hexDecode(settings.SessionSecret)
+		if err != nil {
+			return nil, fmt.Errorf("decode session secret: %w", err)
+		}
+		sessionSecret = secret
+		store, err := auth.Open(filepath.Join(cfg.ConfigDir, "users.json"))
+		if err != nil {
+			return nil, fmt.Errorf("open users store: %w", err)
+		}
+		authStore = store
+		if cfg.GitHubOAuthClientID != "" && cfg.GitHubOAuthClientSecret != "" {
+			c := auth.GitHubConfig(cfg.GitHubOAuthClientID, cfg.GitHubOAuthClientSecret, cfg.ExternalURL)
+			githubOAuth = &c
+		}
+		if cfg.GitLabOAuthClientID != "" && cfg.GitLabOAuthClientSecret != "" {
+			c := auth.GitLabConfig(cfg.GitLabOAuthClientID, cfg.GitLabOAuthClientSecret, cfg.GitLabURL, cfg.ExternalURL)
+			gitlabOAuth = &c
+		}
+	}
+
+	// Migrate legacy preferences.json to preferences/default.json on first startup in no-auth mode.
+	prefsDir := filepath.Join(cfg.ConfigDir, "preferences")
+	legacyPrefsPath := filepath.Join(cfg.ConfigDir, "preferences.json")
+	if authStore == nil {
+		defaultPrefsPath := filepath.Join(prefsDir, "default.json")
+		if _, err := os.Stat(legacyPrefsPath); err == nil {
+			if _, err := os.Stat(defaultPrefsPath); errors.Is(err, os.ErrNotExist) {
+				if mkErr := os.MkdirAll(filepath.Dir(defaultPrefsPath), 0o700); mkErr == nil {
+					if data, readErr := os.ReadFile(legacyPrefsPath); readErr == nil { //nolint:gosec // G304: internal config path
+						_ = os.WriteFile(defaultPrefsPath, data, 0o600) //nolint:gosec // G703: path is constructed from config dir, not user input
+						slog.Info("migrated preferences.json to preferences/default.json")
+					}
+				}
+			}
+		}
 	}
 
 	backend := &mdBackend{client: mdClient, llmProvider: cfg.LLMProvider, llmModel: cfg.LLMModel}
@@ -271,7 +328,11 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 		mdClient:      mdClient,
 		maxTurns:      maxTurns,
 		logDir:        logDir,
-		prefs:         prefs,
+		prefsDir:      prefsDir,
+		authStore:     authStore,
+		sessionSecret: sessionSecret,
+		githubOAuth:   githubOAuth,
+		gitlabOAuth:   gitlabOAuth,
 		usage:         newUsageFetcher(ctx),
 		geminiAPIKey:  cfg.GeminiAPIKey,
 		githubToken:   cfg.GitHubToken,
@@ -381,7 +442,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 	s.watchContainerEvents(ctx)
 	go s.discoverKiloModels()
 	for _, info := range s.repos {
-		if info.ForgeOwner != "" && s.forgeForInfo(&info) != nil {
+		if info.ForgeOwner != "" && s.forgeForInfo(ctx, &info) != nil {
 			s.updateRepoCIPolling(info.RelPath) //nolint:contextcheck // uses server context intentionally
 		}
 	}
@@ -389,45 +450,68 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 }
 
 // ListenAndServe starts the HTTP server.
-func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+// buildHandler assembles the full HTTP handler. Extracted from ListenAndServe
+// so that route registration can be tested without a listener.
+func (s *Server) buildHandler() (http.Handler, error) {
+	// Auth routes (exempt from RequireUser).
+	authMux := http.NewServeMux()
+	authMux.HandleFunc("GET /api/v1/server/config", handle(s.getConfig))
+	authMux.HandleFunc("GET /api/v1/auth/github/start", s.handleAuthStart("github"))
+	authMux.HandleFunc("GET /api/v1/auth/github/callback", s.handleAuthCallback("github"))
+	authMux.HandleFunc("GET /api/v1/auth/gitlab/start", s.handleAuthStart("gitlab"))
+	authMux.HandleFunc("GET /api/v1/auth/gitlab/callback", s.handleAuthCallback("gitlab"))
+	authMux.HandleFunc("GET /api/v1/auth/me", s.handleGetMe)
+	authMux.HandleFunc("POST /api/v1/auth/logout", s.handleLogout)
+
+	// Protected routes.
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("GET /api/v1/server/preferences", handle(s.getPreferences))
+	apiMux.HandleFunc("GET /api/v1/server/harnesses", handle(s.listHarnesses))
+	apiMux.HandleFunc("GET /api/v1/server/repos", handle(s.listRepos))
+	apiMux.HandleFunc("POST /api/v1/server/repos", handle(s.cloneRepo))
+	apiMux.HandleFunc("GET /api/v1/server/repos/branches", s.handleListRepoBranches)
+	apiMux.HandleFunc("GET /api/v1/tasks", handle(s.listTasks))
+	apiMux.HandleFunc("POST /api/v1/tasks", handle(s.createTask))
+	apiMux.HandleFunc("GET /api/v1/tasks/{id}/raw_events", s.handleTaskRawEvents)
+	apiMux.HandleFunc("GET /api/v1/tasks/{id}/events", s.handleTaskEvents)
+	apiMux.HandleFunc("POST /api/v1/tasks/{id}/input", handleWithTask(s, s.sendInput))
+	apiMux.HandleFunc("POST /api/v1/tasks/{id}/restart", handleWithTask(s, s.restartTask))
+	apiMux.HandleFunc("POST /api/v1/tasks/{id}/terminate", handleWithTask(s, s.terminateTask))
+	apiMux.HandleFunc("GET /api/v1/tasks/{id}/ci-log", s.handleGetCILog)
+	apiMux.HandleFunc("POST /api/v1/tasks/{id}/sync", handleWithTask(s, s.syncTask))
+	apiMux.HandleFunc("GET /api/v1/tasks/{id}/diff", s.handleGetDiff)
+	apiMux.HandleFunc("GET /api/v1/tasks/{id}/tool/{toolUseID}", s.handleTaskToolInput)
+	apiMux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
+	apiMux.HandleFunc("GET /api/v1/voice/token", handle(s.getVoiceToken))
+	apiMux.HandleFunc("POST /api/v1/web/fetch", handle(s.webFetch))
+	apiMux.HandleFunc("GET /api/v1/server/tasks/events", s.handleTaskListEvents)
+	apiMux.HandleFunc("GET /api/v1/server/usage/events", s.handleUsageEvents)
+
+	// Combine: auth routes first, then protected API routes (gated by RequireUser when auth enabled).
+	var protectedAPI http.Handler = apiMux
+	if s.authEnabled() {
+		protectedAPI = auth.RequireUser(apiMux)
+	}
+
 	mux := http.NewServeMux()
+	mux.Handle("/api/v1/auth/", authMux)
 	mux.HandleFunc("GET /api/v1/server/config", handle(s.getConfig))
-	mux.HandleFunc("GET /api/v1/server/preferences", handle(s.getPreferences))
-	mux.HandleFunc("GET /api/v1/server/harnesses", handle(s.listHarnesses))
-	mux.HandleFunc("GET /api/v1/server/repos", handle(s.listRepos))
-	mux.HandleFunc("POST /api/v1/server/repos", handle(s.cloneRepo))
-	mux.HandleFunc("GET /api/v1/server/repos/branches", s.handleListRepoBranches)
-	mux.HandleFunc("GET /api/v1/tasks", handle(s.listTasks))
-	mux.HandleFunc("POST /api/v1/tasks", handle(s.createTask))
-	mux.HandleFunc("GET /api/v1/tasks/{id}/raw_events", s.handleTaskRawEvents)
-	mux.HandleFunc("GET /api/v1/tasks/{id}/events", s.handleTaskEvents)
-	mux.HandleFunc("POST /api/v1/tasks/{id}/input", handleWithTask(s, s.sendInput))
-	mux.HandleFunc("POST /api/v1/tasks/{id}/restart", handleWithTask(s, s.restartTask))
-	mux.HandleFunc("POST /api/v1/tasks/{id}/terminate", handleWithTask(s, s.terminateTask))
-	mux.HandleFunc("GET /api/v1/tasks/{id}/ci-log", s.handleGetCILog)
-	mux.HandleFunc("POST /api/v1/tasks/{id}/sync", handleWithTask(s, s.syncTask))
-	mux.HandleFunc("GET /api/v1/tasks/{id}/diff", s.handleGetDiff)
-	mux.HandleFunc("GET /api/v1/tasks/{id}/tool/{toolUseID}", s.handleTaskToolInput)
-	mux.HandleFunc("GET /api/v1/usage", s.handleGetUsage)
-	mux.HandleFunc("GET /api/v1/voice/token", handle(s.getVoiceToken))
-	mux.HandleFunc("POST /api/v1/web/fetch", handle(s.webFetch))
-	mux.HandleFunc("GET /api/v1/server/tasks/events", s.handleTaskListEvents)
-	mux.HandleFunc("GET /api/v1/server/usage/events", s.handleUsageEvents)
+	mux.Handle("/api/v1/", protectedAPI)
 
 	// Serve embedded frontend with SPA fallback and precompressed variants.
 	dist, err := fs.Sub(frontend.Files, "dist")
 	if err != nil {
-		return err
+		return nil, err
 	}
-	mux.HandleFunc("GET /", newStaticHandler(dist))
+	mux.HandleFunc("/", newStaticHandler(dist))
 
-	// Middleware chain: logging → decompress → compress → mux.
-	// Logging sees compressed bytes (accurate wire-size reporting).
+	// Middleware chain: logging → auth → decompress → compress → mux.
 	var inner http.Handler = mux
 	inner = compressMiddleware(inner)
 	inner = decompressMiddleware(inner)
+	inner = auth.Middleware(s.authStore, s.sessionSecret)(inner)
 
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		inner.ServeHTTP(rw, r)
@@ -438,7 +522,15 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 			"d", roundDuration(time.Since(start)),
 			"b", rw.size,
 		)
-	})
+	}), nil
+}
+
+// ListenAndServe starts the HTTP server on addr and blocks until ctx is cancelled.
+func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
+	handler, err := s.buildHandler()
+	if err != nil {
+		return err
+	}
 
 	srv := &http.Server{
 		Addr:              addr,
@@ -467,15 +559,23 @@ func (s *Server) ListenAndServe(ctx context.Context, addr string) error {
 }
 
 func (s *Server) getConfig(_ context.Context, _ *dto.EmptyReq) (*v1.Config, error) {
-	return &v1.Config{
+	cfg := &v1.Config{
 		TailscaleAvailable: s.mdClient.TailscaleAPIKey != "",
 		USBAvailable:       runtime.GOOS == "linux",
 		DisplayAvailable:   true,
-	}, nil
+	}
+	if s.authEnabled() {
+		cfg.AuthProviders = s.authProviders()
+	}
+	return cfg, nil
 }
 
-func (s *Server) getPreferences(_ context.Context, _ *dto.EmptyReq) (*v1.PreferencesResp, error) {
-	prefs := s.prefs.Get()
+func (s *Server) getPreferences(ctx context.Context, _ *dto.EmptyReq) (*v1.PreferencesResp, error) {
+	prefsStore, err := s.prefsForUser(ctx)
+	if err != nil {
+		return nil, dto.InternalError("open preferences: " + err.Error())
+	}
+	prefs := prefsStore.Get()
 	recent := prefs.RecentRepos(time.Now())
 	repos := make([]v1.RepoPrefsResp, len(recent))
 	for i, r := range recent {
@@ -632,10 +732,19 @@ func (s *Server) cloneRepo(ctx context.Context, req *v1.CloneRepoReq) (*v1.Repo,
 	return &v1.Repo{Path: targetPath, BaseBranch: branch, RemoteURL: gitutil.RemoteToHTTPS(remote)}, nil
 }
 
-func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]v1.Task, error) {
+func (s *Server) listTasks(ctx context.Context, _ *dto.EmptyReq) (*[]v1.Task, error) {
+	var ownerID string
+	if s.authEnabled() {
+		if u, ok := auth.UserFromContext(ctx); ok {
+			ownerID = u.ID
+		}
+	}
 	s.mu.Lock()
 	out := make([]v1.Task, 0, len(s.tasks))
 	for _, e := range s.tasks {
+		if ownerID != "" && e.task.OwnerID != "" && e.task.OwnerID != ownerID {
+			continue
+		}
 		out = append(out, s.toJSON(e))
 	}
 	s.mu.Unlock()
@@ -663,7 +772,12 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 		return nil, dto.BadRequest(string(req.Harness) + " does not support images")
 	}
 
-	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, BaseBranch: req.BaseBranch, Harness: harness, Model: req.Model, DockerImage: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC(), Provider: s.provider}
+	var ownerID string
+	if u, ok := auth.UserFromContext(ctx); ok {
+		ownerID = u.ID
+	}
+
+	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, BaseBranch: req.BaseBranch, Harness: harness, Model: req.Model, DockerImage: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC(), OwnerID: ownerID, Provider: s.provider}
 	t.SetTitle(req.InitialPrompt.Text)
 	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive request
 	entry := &taskEntry{task: t, done: make(chan struct{})}
@@ -690,7 +804,11 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 		s.watchSession(entry, runner, h)
 	}()
 
-	if err := s.prefs.Update(func(p *preferences.Preferences) {
+	prefsStore, err := s.prefsForUser(ctx)
+	if err != nil {
+		return nil, dto.InternalError("open preferences: " + err.Error())
+	}
+	if err := prefsStore.Update(func(p *preferences.Preferences) {
 		p.TouchRepo(req.Repo, &preferences.RepoPrefs{
 			BaseBranch: req.BaseBranch,
 			Harness:    string(req.Harness),
@@ -1103,7 +1221,7 @@ func (s *Server) handleGetCILog(w http.ResponseWriter, r *http.Request) {
 		writeError(w, dto.BadRequest("no repo info found"))
 		return
 	}
-	f := s.forgeForInfo(info)
+	f := s.forgeForInfo(r.Context(), info)
 	if f == nil {
 		writeError(w, dto.BadRequest("no forge token configured for this repo"))
 		return
@@ -1209,7 +1327,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 		status = "blocked"
 	}
 	if status == "synced" {
-		if info := s.repoInfoFor(t.Repo); info != nil && s.forgeForInfo(info) != nil {
+		if info := s.repoInfoFor(t.Repo); info != nil && s.forgeForInfo(ctx, info) != nil {
 			go s.startPRFlow(s.ctx, entry, t.Branch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
 		}
 	}
@@ -1224,7 +1342,7 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, base
 	if info == nil || info.ForgeOwner == "" {
 		return
 	}
-	f := s.forgeForInfo(info)
+	f := s.forgeForInfo(ctx, info)
 	if f == nil {
 		return
 	}
@@ -1500,7 +1618,7 @@ func (s *Server) updateRepoCIPolling(relPath string) {
 		s.mu.Unlock()
 		return
 	}
-	f := s.forgeForInfo(info)
+	f := s.forgeForInfo(s.ctx, info)
 	if f == nil {
 		s.mu.Unlock()
 		return
@@ -1536,8 +1654,25 @@ func (s *Server) repoInfoFor(relPath string) *repoInfo {
 
 // forgeForInfo returns the appropriate forge.Forge for the repo's remote, using
 // the configured tokens. Returns nil if no matching token is set.
-func (s *Server) forgeForInfo(info *repoInfo) forge.Forge {
-	switch info.ForgeKind {
+func (s *Server) forgeForInfo(ctx context.Context, info *repoInfo) forge.Forge {
+	return s.forgeFor(ctx, info.ForgeKind)
+}
+
+// forgeFor returns a Forge client for the given kind, using the authenticated
+// user's OAuth token if available, falling back to the global PAT.
+// Returns nil if no token is available.
+func (s *Server) forgeFor(ctx context.Context, kind forge.Kind) forge.Forge {
+	// Prefer the authenticated user's access token.
+	if u, ok := auth.UserFromContext(ctx); ok && u.Provider == kind && u.AccessToken != "" {
+		switch kind {
+		case forge.KindGitHub:
+			return &github.Client{Token: u.AccessToken}
+		case forge.KindGitLab:
+			return &gitlab.Client{Token: u.AccessToken}
+		}
+	}
+	// Fall back to global PAT.
+	switch kind {
 	case forge.KindGitHub:
 		if s.githubToken != "" {
 			return &github.Client{Token: s.githubToken}
@@ -1548,6 +1683,70 @@ func (s *Server) forgeForInfo(info *repoInfo) forge.Forge {
 		}
 	}
 	return nil
+}
+
+// prefsForUser returns (lazily opening) the preferences store for the user
+// in ctx. In no-auth mode, uses userID="default".
+func (s *Server) prefsForUser(ctx context.Context) (*preferences.Store, error) {
+	userID := "default"
+	if u, ok := auth.UserFromContext(ctx); ok {
+		userID = u.ID
+	}
+	if v, ok := s.prefsStores.Load(userID); ok {
+		return v.(*preferences.Store), nil
+	}
+	path := filepath.Join(s.prefsDir, "preferences", userID+".json")
+	store, err := preferences.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("open preferences for %s: %w", userID, err)
+	}
+	actual, _ := s.prefsStores.LoadOrStore(userID, store)
+	return actual.(*preferences.Store), nil
+}
+
+// hexDecode decodes a hex string to bytes, returning an error if invalid.
+func hexDecode(s string) ([]byte, error) {
+	if len(s)%2 != 0 {
+		return nil, errors.New("odd length hex string")
+	}
+	b := make([]byte, len(s)/2)
+	for i := range b {
+		hi, lo := hexNibble(s[2*i]), hexNibble(s[2*i+1])
+		if hi < 0 || lo < 0 {
+			return nil, fmt.Errorf("invalid hex character at position %d", 2*i)
+		}
+		b[i] = byte(hi<<4 | lo) //nolint:gosec // G115: hi and lo are 0-15 from hexNibble, no overflow
+	}
+	return b, nil
+}
+
+func hexNibble(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c-'a') + 10
+	case c >= 'A' && c <= 'F':
+		return int(c-'A') + 10
+	}
+	return -1
+}
+
+// authEnabled reports whether OAuth authentication is configured.
+func (s *Server) authEnabled() bool {
+	return s.authStore != nil
+}
+
+// authProviders returns the list of configured OAuth provider names.
+func (s *Server) authProviders() []string {
+	var ps []string
+	if s.githubOAuth != nil {
+		ps = append(ps, "github")
+	}
+	if s.gitlabOAuth != nil {
+		ps = append(ps, "gitlab")
+	}
+	return ps
 }
 
 func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
@@ -2160,6 +2359,7 @@ func (s *Server) handleContainerDeath(containerName string) {
 }
 
 // getTask looks up a task by the {id} path parameter.
+// When auth is enabled, returns 403 if the task belongs to a different user.
 func (s *Server) getTask(r *http.Request) (*taskEntry, error) {
 	id := r.PathValue("id")
 	s.mu.Lock()
@@ -2167,6 +2367,13 @@ func (s *Server) getTask(r *http.Request) (*taskEntry, error) {
 	entry, ok := s.tasks[id]
 	if !ok {
 		return nil, dto.NotFound("task")
+	}
+	if s.authEnabled() {
+		if u, ok := auth.UserFromContext(r.Context()); ok {
+			if entry.task.OwnerID != "" && entry.task.OwnerID != u.ID {
+				return nil, dto.Forbidden("task")
+			}
+		}
 	}
 	return entry, nil
 }
@@ -2297,6 +2504,11 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 				JobID:      c.JobID,
 				Conclusion: v1.CheckConclusion(c.Conclusion),
 			}
+		}
+	}
+	if s.authStore != nil && e.task.OwnerID != "" {
+		if u, ok := s.authStore.FindByID(e.task.OwnerID); ok {
+			j.Owner = u.Username
 		}
 	}
 	return j

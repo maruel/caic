@@ -1,0 +1,60 @@
+// Auth context: tracks the current user and auth configuration.
+import { createContext, createSignal, useContext, onMount, type ParentComponent } from "solid-js";
+import type { UserResp } from "@sdk/types.gen";
+import { getConfig, getMe, logout as apiLogout } from "./api";
+
+interface AuthState {
+  /** True once the initial auth check has completed. */
+  ready: () => boolean;
+  /** Available OAuth providers, e.g. ["github", "gitlab"]; non-empty means auth is enabled. */
+  providers: () => string[];
+  /** The currently logged-in user, or null. */
+  user: () => UserResp | null;
+  /** Sign out and clear the session cookie. */
+  logout: () => Promise<void>;
+}
+
+const AuthContext = createContext<AuthState>();
+
+export const AuthProvider: ParentComponent = (props) => {
+  const [ready, setReady] = createSignal(false);
+  const [providers, setProviders] = createSignal<string[]>([]);
+  const [user, setUser] = createSignal<UserResp | null>(null);
+
+  onMount(async () => {
+    try {
+      const cfg = await getConfig();
+      const authProviders = cfg.authProviders ?? [];
+      setProviders(authProviders);
+      if (authProviders.length > 0) {
+        try {
+          const me = await getMe();
+          setUser(me);
+        } catch {
+          // Not logged in.
+        }
+      }
+    } catch {
+      // Server unreachable; auth state stays null.
+    } finally {
+      setReady(true);
+    }
+  });
+
+  const logout = async () => {
+    await apiLogout();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ ready, providers, user, logout }}>
+      {props.children}
+    </AuthContext.Provider>
+  );
+};
+
+export function useAuth(): AuthState {
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error("useAuth must be used inside AuthProvider");
+  return ctx;
+}

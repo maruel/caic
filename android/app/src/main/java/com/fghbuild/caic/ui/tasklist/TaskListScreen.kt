@@ -75,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.ImageData
 import com.caic.sdk.v1.Repo
 import com.fghbuild.caic.ui.common.AttachMenu
+import com.fghbuild.caic.ui.login.LoginScreen
 import com.fghbuild.caic.util.ScreenshotService
 import com.fghbuild.caic.util.bitmapToImageData
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -119,6 +120,7 @@ fun TaskListScreen(
     ) { padding ->
         when {
             !state.serverConfigured -> NotConfiguredContent(padding, onNavigateToSettings)
+            state.authRequired -> LoginScreen(serverURL = state.serverURL, providers = state.authProviders)
             else -> MainContent(state, padding, onNavigateToTask, viewModel)
         }
     }

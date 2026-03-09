@@ -115,6 +115,7 @@ type Task struct {
 	Display       bool          // Enable Xvfb display in the container.
 	MaxTurns      int           // Maximum number of turns before task is terminated.
 	StartedAt     time.Time     // When the task was created.
+	OwnerID       string        // Internal user ID of the creator; empty in no-auth mode.
 	Provider      genai.Provider
 
 	// Write-once fields — set during setup/adoption, never modified after.

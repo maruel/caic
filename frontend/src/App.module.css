@@ -1,5 +1,24 @@
 /* Styles for the App component. */
 
+.navUser {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.navLogout {
+  padding: 0.2rem 0.5rem;
+  font-size: 0.8rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.navLogout:hover {
+  background: var(--color-bg-hover);
+}
+
 .app {
   max-width: 1200px;
   margin: 0 auto;

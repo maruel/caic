@@ -23,6 +23,7 @@ data class SettingsState(
     val serverURL: String = "",
     val voiceEnabled: Boolean = true,
     val voiceName: String = "Orus",
+    val authToken: String? = null,
 )
 
 @Singleton
@@ -33,6 +34,7 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
         val SERVER_URL = stringPreferencesKey("SERVER_URL")
         val VOICE_ENABLED = booleanPreferencesKey("VOICE_ENABLED")
         val VOICE_NAME = stringPreferencesKey("VOICE_NAME")
+        val AUTH_TOKEN = stringPreferencesKey("AUTH_TOKEN")
     }
 
     val settings: StateFlow<SettingsState> = dataStore.data
@@ -41,6 +43,7 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
                 serverURL = prefs[Keys.SERVER_URL] ?: "",
                 voiceEnabled = prefs[Keys.VOICE_ENABLED] ?: true,
                 voiceName = prefs[Keys.VOICE_NAME] ?: "Orus",
+                authToken = prefs[Keys.AUTH_TOKEN],
             )
         }
         .stateIn(scope, SharingStarted.Eagerly, SettingsState())
@@ -55,6 +58,16 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 
     suspend fun updateVoiceName(name: String) {
         dataStore.edit { it[Keys.VOICE_NAME] = name }
+    }
+
+    suspend fun updateAuthToken(token: String?) {
+        dataStore.edit {
+            if (token != null) it[Keys.AUTH_TOKEN] = token else it.remove(Keys.AUTH_TOKEN)
+        }
+    }
+
+    suspend fun clearAuthToken() {
+        dataStore.edit { it.remove(Keys.AUTH_TOKEN) }
     }
 
     // Server preferences cached after first fetch by TaskListViewModel.

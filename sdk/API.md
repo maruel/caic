@@ -17,6 +17,13 @@ RESTful JSON API served at `/api/v1/`. SSE endpoints stream newline-delimited JS
 | GET | `/api/v1/server/tasks/events` |  | `TaskListEvent` SSE |
 | GET | `/api/v1/server/usage/events` |  | `UsageResp` SSE |
 
+## Auth
+
+| Method | Path | Request | Response |
+|--------|------|---------|----------|
+| GET | `/api/v1/auth/me` |  | `UserResp` |
+| POST | `/api/v1/auth/logout` |  | `StatusResp` |
+
 ## Tasks
 
 | Method | Path | Request | Response |
@@ -78,6 +85,22 @@ All errors return:
 | `tailscaleAvailable` | `boolean` | yes |
 | `usbAvailable` | `boolean` | yes |
 | `displayAvailable` | `boolean` | yes |
+| `authProviders` | `string[]` |  |
+
+### UserResp
+
+| Field | Type | Required |
+|-------|------|----------|
+| `id` | `string` | yes |
+| `provider` | `string` | yes |
+| `username` | `string` | yes |
+| `avatarURL` | `string` |  |
+
+### StatusResp
+
+| Field | Type | Required |
+|-------|------|----------|
+| `status` | `string` | yes |
 
 ### RepoPrefsResp
 
@@ -182,6 +205,7 @@ All errors return:
 | `forgePR` | `number` |  |
 | `ciStatus` | `string` |  |
 | `ciChecks` | `ForgeCheck[]` |  |
+| `owner` | `string` |  |
 | `harness` | `string` | yes |
 | `model` | `string` |  |
 | `agentVersion` | `string` |  |
@@ -421,12 +445,6 @@ All errors return:
 | Field | Type | Required |
 |-------|------|----------|
 | `prompt` | `Prompt` | yes |
-
-### StatusResp
-
-| Field | Type | Required |
-|-------|------|----------|
-| `status` | `string` | yes |
 
 ### RestartReq
 

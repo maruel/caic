@@ -2,7 +2,9 @@
 import { createEffect, createSignal, For, Show, Switch, Match, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { HarnessInfo, Repo, Task, TaskListEvent, UsageResp, ImageData as APIImageData } from "@sdk/types.gen";
-import { getConfig, getPreferences, listHarnesses, listRepos, listRepoBranches, createTask, cloneRepo, getUsage, terminateTask } from "@sdk/api.gen";
+import { getConfig, getPreferences, listHarnesses, listRepos, listRepoBranches, createTask, cloneRepo, getUsage, terminateTask } from "./api";
+import { useAuth } from "./AuthContext";
+import Login from "./Login";
 import TaskDetail from "./TaskDetail";
 import DiffDetail from "./DiffDetail";
 import TaskList, { sortTasks } from "./TaskList";
@@ -64,6 +66,7 @@ function ConnectionDot(props: { connected: boolean }) {
 export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
+  const auth = useAuth();
 
   const [prompt, setPrompt] = createSignal("");
   const [tasks, setTasks] = createSignal<Task[]>([]);
@@ -448,12 +451,17 @@ export default function App() {
   }
 
   return (
+    <Show when={auth.providers().length === 0 || auth.user()} fallback={<Login />}>
     <div class={styles.app}>
       <div class={styles.navbar}>
         <h1 class={styles.title}>caic</h1>
         <span class={styles.subtitle}>Coding Agents in Containers</span>
         <UsageBadges usage={usage} now={now} />
         <ConnectionDot connected={connected()} />
+        <Show when={auth.providers().length > 0 && auth.user()}>
+          <span class={styles.navUser} title="Signed in">{auth.user()?.username}</span>
+          <button class={styles.navLogout} onClick={() => void auth.logout()} title="Sign out">Sign out</button>
+        </Show>
       </div>
 
       <form onSubmit={(e) => { e.preventDefault(); submitTask(); }} class={`${styles.submitForm} ${selectedId() ? styles.hidden : ""}`}>
@@ -675,5 +683,6 @@ export default function App() {
       </div>
       <VoiceOverlay tasks={tasks} recentRepo={() => repos()[0]?.path ?? ""} selectedHarness={selectedHarness} selectedModel={selectedModel} />
     </div>
+    </Show>
   );
 }

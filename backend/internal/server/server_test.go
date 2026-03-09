@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
-	"github.com/caic-xyz/caic/backend/internal/preferences"
+	"github.com/caic-xyz/caic/backend/internal/auth"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
 	v1 "github.com/caic-xyz/caic/backend/internal/server/dto/v1"
 	"github.com/caic-xyz/caic/backend/internal/task"
@@ -58,22 +58,14 @@ func decodeError(t *testing.T, w *httptest.ResponseRecorder) dto.ErrorDetails {
 	return resp.Error
 }
 
-func testPrefs(t *testing.T) *preferences.Store {
-	s, err := preferences.Open(filepath.Join(t.TempDir(), "preferences.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return s
-}
-
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	return &Server{
-		ctx:     t.Context(),
-		runners: map[string]*task.Runner{},
-		tasks:   make(map[string]*taskEntry),
-		changed: make(chan struct{}),
-		prefs:   testPrefs(t),
+		ctx:      t.Context(),
+		runners:  map[string]*task.Runner{},
+		tasks:    make(map[string]*taskEntry),
+		changed:  make(chan struct{}),
+		prefsDir: t.TempDir(),
 	}
 }
 
@@ -331,9 +323,9 @@ func TestHandleCreateTask(t *testing.T) {
 					Backends:   map[agent.Harness]agent.Backend{agent.Claude: stubBackend{}},
 				},
 			},
-			tasks:   make(map[string]*taskEntry),
-			changed: make(chan struct{}),
-			prefs:   testPrefs(t),
+			tasks:    make(map[string]*taskEntry),
+			changed:  make(chan struct{}),
+			prefsDir: t.TempDir(),
 		}
 		handler := handle(s.createTask)
 
@@ -460,9 +452,9 @@ func TestHandleCreateTask(t *testing.T) {
 					Backends:   map[agent.Harness]agent.Backend{"stub": stubBackend{}},
 				},
 			},
-			tasks:   make(map[string]*taskEntry),
-			changed: make(chan struct{}),
-			prefs:   testPrefs(t),
+			tasks:    make(map[string]*taskEntry),
+			changed:  make(chan struct{}),
+			prefsDir: t.TempDir(),
 		}
 		handler := handle(s.createTask)
 
@@ -493,9 +485,9 @@ func TestHandleCreateTask(t *testing.T) {
 					Backends:   map[agent.Harness]agent.Backend{agent.Claude: stubBackend{}},
 				},
 			},
-			tasks:   make(map[string]*taskEntry),
-			changed: make(chan struct{}),
-			prefs:   testPrefs(t),
+			tasks:    make(map[string]*taskEntry),
+			changed:  make(chan struct{}),
+			prefsDir: t.TempDir(),
 		}
 		handler := handle(s.createTask)
 
@@ -1124,6 +1116,48 @@ func TestHandleTaskRawEvents(t *testing.T) {
 		}
 		if events[1].Text == nil || events[1].Text.Text != "Hello world" {
 			t.Errorf("text event = %+v, want text 'Hello world'", events[1].Text)
+		}
+	})
+}
+
+func TestBuildHandler(t *testing.T) {
+	t.Run("auth disabled", func(t *testing.T) {
+		s := newTestServer(t)
+		if _, err := s.buildHandler(); err != nil {
+			t.Fatalf("buildHandler() error = %v", err)
+		}
+	})
+
+	t.Run("auth enabled", func(t *testing.T) {
+		// Regression: adding /api/v1/auth/ (unqualified) alongside GET / (qualified)
+		// caused a pattern conflict panic in Go 1.22+ ServeMux.
+		s := newTestServer(t)
+		secret := make([]byte, 32)
+		s.sessionSecret = secret
+		usersPath := filepath.Join(t.TempDir(), "users.json")
+		store, err := auth.Open(usersPath)
+		if err != nil {
+			t.Fatalf("open auth store: %v", err)
+		}
+		s.authStore = store
+		if _, err := s.buildHandler(); err != nil {
+			t.Fatalf("buildHandler() with auth error = %v", err)
+		}
+	})
+
+	t.Run("static handler rejects non-GET", func(t *testing.T) {
+		s := newTestServer(t)
+		h, err := s.buildHandler()
+		if err != nil {
+			t.Fatalf("buildHandler() error = %v", err)
+		}
+		for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodDelete} {
+			req := httptest.NewRequest(method, "/", http.NoBody)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, req)
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s / = %d, want %d", method, w.Code, http.StatusMethodNotAllowed)
+			}
 		}
 	})
 }

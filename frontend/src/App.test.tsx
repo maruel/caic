@@ -11,7 +11,7 @@ vi.mock("@solidjs/router", () => ({
   useLocation: () => ({ pathname: "/" }),
 }));
 
-vi.mock("@sdk/api.gen", () => ({
+vi.mock("./api", () => ({
   listRepos: vi.fn(),
   getPreferences: vi.fn(),
   listHarnesses: vi.fn(),
@@ -21,6 +21,17 @@ vi.mock("@sdk/api.gen", () => ({
   cloneRepo: vi.fn(),
   createTask: vi.fn(),
   terminateTask: vi.fn(),
+}));
+
+vi.mock("./AuthContext", () => ({
+  // eslint-disable-next-line solid/reactivity
+  AuthProvider: (props: { children: unknown }) => props.children,
+  useAuth: () => ({
+    ready: () => true,
+    providers: () => [],
+    user: () => null,
+    logout: async () => {},
+  }),
 }));
 
 // Stub EventSource to prevent real SSE connections.
@@ -33,7 +44,7 @@ vi.stubGlobal("EventSource", FakeEventSource);
 
 // Imports must follow vi.mock declarations.
 import App from "./App";
-import * as api from "@sdk/api.gen";
+import * as api from "./api";
 
 const repoA: Repo = { path: "repos/a", baseBranch: "main", remoteURL: "" };
 const repoB: Repo = { path: "repos/b", baseBranch: "main", remoteURL: "" };

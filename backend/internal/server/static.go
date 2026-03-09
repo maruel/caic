@@ -40,6 +40,10 @@ func newStaticHandler(dist fs.FS) http.HandlerFunc {
 	var cache sync.Map
 
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		p := r.URL.Path
 		if p == "/" {
 			p = "/index.html"

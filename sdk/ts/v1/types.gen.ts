@@ -337,6 +337,16 @@ export interface Config {
   tailscaleAvailable: boolean;
   usbAvailable: boolean;
   displayAvailable: boolean;
+  authProviders?: string[]; // e.g. ["github","gitlab"]
+}
+/**
+ * UserResp is returned by GET /api/v1/auth/me.
+ */
+export interface UserResp {
+  id: string;
+  provider: string;
+  username: string;
+  avatarURL?: string;
 }
 /**
  * CIStatus is the CI check state for a task or repo default branch.
@@ -443,6 +453,7 @@ export interface Task {
   forgePR?: number /* int */;
   ciStatus?: CIStatus;
   ciChecks?: ForgeCheck[];
+  owner?: string; // username of creator; omitted in no-auth mode
   /**
    * Per-task harness/container metadata.
    */

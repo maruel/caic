@@ -44,9 +44,18 @@ type Prompt struct {
 
 // Config reports server capabilities to the frontend.
 type Config struct {
-	TailscaleAvailable bool `json:"tailscaleAvailable"`
-	USBAvailable       bool `json:"usbAvailable"`
-	DisplayAvailable   bool `json:"displayAvailable"`
+	TailscaleAvailable bool     `json:"tailscaleAvailable"`
+	USBAvailable       bool     `json:"usbAvailable"`
+	DisplayAvailable   bool     `json:"displayAvailable"`
+	AuthProviders      []string `json:"authProviders,omitempty"` // e.g. ["github","gitlab"]
+}
+
+// UserResp is returned by GET /api/v1/auth/me.
+type UserResp struct {
+	ID        string `json:"id"`
+	Provider  string `json:"provider"`
+	Username  string `json:"username"`
+	AvatarURL string `json:"avatarURL,omitempty"`
 }
 
 // CIStatus is the CI check state for a task or repo default branch.
@@ -123,6 +132,7 @@ type Task struct {
 	ForgePR                            int          `json:"forgePR,omitempty"`
 	CIStatus                           CIStatus     `json:"ciStatus,omitempty"`
 	CIChecks                           []ForgeCheck `json:"ciChecks,omitempty"`
+	Owner                              string       `json:"owner,omitempty"` // username of creator; omitted in no-auth mode
 	// Per-task harness/container metadata.
 	Harness       Harness `json:"harness"`
 	Model         string  `json:"model,omitempty"`

@@ -1,7 +1,7 @@
 // TaskDetail renders the real-time agent output stream for a single task.
 import { createSignal, createMemo, createEffect, For, Index, Show, onCleanup, onMount, untrack, Switch, Match, type Accessor } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
-import { sendInput as apiSendInput, restartTask as apiRestartTask, syncTask as apiSyncTask, taskEvents, getTaskToolInput, getTaskCILog, createTask } from "@sdk/api.gen";
+import { sendInput as apiSendInput, restartTask as apiRestartTask, syncTask as apiSyncTask, taskEvents, getTaskToolInput, getTaskCILog, createTask } from "./api";
 import type { EventMessage, EventResult, AskQuestion, EventAsk, EventTextDelta, SafetyIssue, ImageData as APIImageData, SyncTarget, DiffFileStat, GitHubCheck } from "@sdk/types.gen";
 import { groupMessages, groupSessions, isSessionBoundary, buildPastSessionItems, buildTurnItems, toolCountSummary, turnSummary, sessionSummary, type MsgItem, type MessageGroup, type Session } from "./grouping";
 import { formatDuration, formatTokens, toolCallDetail } from "./formatting";

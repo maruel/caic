@@ -1,6 +1,6 @@
 // Core Gemini Live voice session manager for the web frontend. Keep in sync with android/app/src/main/java/com/fghbuild/caic/voice/VoiceSession.kt
 import { createStore, produce } from "solid-js/store";
-import { getVoiceToken, listHarnesses, listRepos } from "@sdk/api.gen";
+import { getVoiceToken, listHarnesses, listRepos } from "./api";
 import type { Task } from "@sdk/types.gen";
 import { FunctionHandlers } from "./FunctionHandlers";
 import { TaskNumberMap } from "./TaskNumberMap";

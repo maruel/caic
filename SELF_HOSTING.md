@@ -68,6 +68,81 @@ journalctl --user -u caic -f
 When caic is reinstalled (binary replaced), the service detects the change and
 restarts automatically.
 
+## OAuth Login
+
+caic supports optional OAuth 2.0 login via GitHub and/or GitLab. When enabled,
+users must sign in before accessing the UI. Auth is disabled by default — set
+`CAIC_EXTERNAL_URL` to enable it.
+
+A session secret is generated automatically on first startup and stored in
+`~/.config/caic/settings.json`. No manual key management is required.
+
+### Prerequisites
+
+Auth requires caic to be reachable at a stable HTTPS URL (the OAuth provider
+redirects back to it). You have to chose one of the following:
+
+- Enable OAuth Login and expose to the internet
+- Do not expose on the internet
+
+Never do both.
+
+### GitHub OAuth app
+
+1. Go to **Settings → Developer settings → OAuth Apps → New OAuth App**
+   (or [click here](https://github.com/settings/applications/new)).
+2. Fill in:
+   - **Application name**: `caic`
+   - **Homepage URL**: `https://<your-domain>`
+   - **Authorization callback URL**: `https://<your-domain>/api/v1/auth/github/callback`
+3. Click **Register application**, then **Generate a new client secret**.
+4. Set environment variables:
+   ```
+   CAIC_EXTERNAL_URL=https://<your-domain>
+   GITHUB_OAUTH_CLIENT_ID=<client-id>
+   GITHUB_OAUTH_CLIENT_SECRET=<client-secret>
+   ```
+
+### GitLab OAuth app
+
+**gitlab.com:**
+
+1. Go to **User Settings → Applications** (or [click here](https://gitlab.com/-/user_settings/applications)).
+2. Fill in:
+   - **Name**: `caic`
+   - **Redirect URI**: `https://<your-domain>/api/v1/auth/gitlab/callback`
+   - **Scopes**: `read_user`
+3. Click **Save application** and copy the Application ID and Secret.
+4. Set environment variables:
+   ```
+   CAIC_EXTERNAL_URL=https://<your-domain>
+   GITLAB_OAUTH_CLIENT_ID=<application-id>
+   GITLAB_OAUTH_CLIENT_SECRET=<secret>
+   ```
+
+**Self-hosted GitLab instance:**
+
+Follow the same steps on your instance, then also set:
+```
+GITLAB_URL=https://<your-gitlab-instance>
+```
+
+### Using both providers
+
+Set all variables for both GitHub and GitLab — caic will show login buttons
+for every configured provider.
+
+### Environment variable reference
+
+| Variable | Description |
+|---|---|
+| `CAIC_EXTERNAL_URL` | Public base URL (e.g. `https://caic.example.com`). Required to enable auth. |
+| `GITHUB_OAUTH_CLIENT_ID` | GitHub OAuth app client ID. |
+| `GITHUB_OAUTH_CLIENT_SECRET` | GitHub OAuth app client secret. |
+| `GITLAB_OAUTH_CLIENT_ID` | GitLab OAuth app client ID. |
+| `GITLAB_OAUTH_CLIENT_SECRET` | GitLab OAuth app client secret. |
+| `GITLAB_URL` | GitLab instance base URL. Default: `https://gitlab.com`. |
+
 ## Serving over Tailscale
 
 Safely expose caic on your [Tailscale](https://tailscale.com/) network using

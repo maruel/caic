@@ -47,7 +47,19 @@ data class Config(
     val tailscaleAvailable: Boolean,
     val usbAvailable: Boolean,
     val displayAvailable: Boolean,
+    val authProviders: List<String>? = null,
 )
+
+@Serializable
+data class UserResp(
+    val id: String,
+    val provider: String,
+    val username: String,
+    @SerialName("avatarURL") val avatarURL: String? = null,
+)
+
+@Serializable
+data class StatusResp(val status: String)
 
 @Serializable
 data class RepoPrefsResp(
@@ -140,6 +152,7 @@ data class Task(
     @SerialName("forgePR") val forgePR: Int? = null,
     val ciStatus: String? = null,
     val ciChecks: List<ForgeCheck>? = null,
+    val owner: String? = null,
     val harness: Harness,
     val model: String? = null,
     val agentVersion: String? = null,
@@ -321,9 +334,6 @@ data class EventMessage(
 
 @Serializable
 data class InputReq(val prompt: Prompt)
-
-@Serializable
-data class StatusResp(val status: String)
 
 @Serializable
 data class RestartReq(val prompt: Prompt)

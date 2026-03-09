@@ -80,7 +80,7 @@ class SettingsViewModel @Inject constructor(
         _state.update { it.copy(connectionStatus = ConnectionStatus.Testing) }
         viewModelScope.launch {
             try {
-                val client = ApiClient(url)
+                val client = ApiClient(url, tokenProvider = { settingsRepository.settings.value.authToken })
                 client.listHarnesses()
                 _state.update { it.copy(connectionStatus = ConnectionStatus.Success) }
             } catch (_: Exception) {
