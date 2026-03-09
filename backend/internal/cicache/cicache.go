@@ -1,6 +1,7 @@
-// Package cicache provides a persistent cache for GitHub CI check-run results.
-// Only terminal results (all checks completed) are stored. The cache is backed
-// by a single JSON file and is safe for concurrent use.
+// Package cicache provides a persistent cache for CI check-run results from
+// code hosting forges (GitHub, GitLab, etc.). Only terminal results (all checks
+// completed) are stored. The cache is backed by a single JSON file and is safe
+// for concurrent use.
 package cicache
 
 import (
@@ -23,10 +24,10 @@ const (
 	StatusPending Status = "pending"
 )
 
-// CheckConclusion is the conclusion of a completed GitHub check run.
+// CheckConclusion is the conclusion of a completed CI check run.
 type CheckConclusion string
 
-// GitHub check-run conclusion values.
+// CI check-run conclusion values.
 const (
 	CheckConclusionSuccess        CheckConclusion = "success"
 	CheckConclusionFailure        CheckConclusion = "failure"
@@ -38,12 +39,12 @@ const (
 	CheckConclusionStale          CheckConclusion = "stale"
 )
 
-// GitHubCheck is a GitHub Actions check run with its conclusion.
-type GitHubCheck struct {
+// ForgeCheck is a CI check run with its conclusion, used in cached results.
+type ForgeCheck struct {
 	Name       string          `json:"name"`
 	Owner      string          `json:"owner"`
 	Repo       string          `json:"repo"`
-	RunID      int64           `json:"runID"` // Workflow run ID. Job URL: /actions/runs/{runID}/job/{jobID}.
+	RunID      int64           `json:"runID"` // Pipeline/workflow run ID.
 	JobID      int64           `json:"jobID"` // Check run / job ID.
 	Conclusion CheckConclusion `json:"conclusion"`
 }
@@ -51,9 +52,9 @@ type GitHubCheck struct {
 // Result is the cached outcome for a commit SHA.
 // Only written once all check-runs for that SHA have completed.
 type Result struct {
-	Status   Status        `json:"status"`
-	Checks   []GitHubCheck `json:"checks,omitempty"`
-	CachedAt time.Time     `json:"cachedAt"`
+	Status   Status       `json:"status"`
+	Checks   []ForgeCheck `json:"checks,omitempty"`
+	CachedAt time.Time    `json:"cachedAt"`
 }
 
 // Cache is a thread-safe persistent store of terminal CI results keyed by

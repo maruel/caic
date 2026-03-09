@@ -29,7 +29,9 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
 	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/container"
+	"github.com/caic-xyz/caic/backend/internal/forge"
 	"github.com/caic-xyz/caic/backend/internal/github"
+	"github.com/caic-xyz/caic/backend/internal/gitlab"
 	"github.com/caic-xyz/caic/backend/internal/preferences"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
 	v1 "github.com/caic-xyz/caic/backend/internal/server/dto/v1"
@@ -42,18 +44,19 @@ import (
 )
 
 type repoInfo struct {
-	RelPath     string // e.g. "github/caic" — used as API ID.
-	AbsPath     string
-	BaseBranch  string
-	Remote      string // Raw git remote URL (origin).
-	GitHubOwner string // empty if not a GitHub remote
-	GitHubRepo  string // empty if not a GitHub remote
+	RelPath    string // e.g. "github/caic" — used as API ID.
+	AbsPath    string
+	BaseBranch string
+	Remote     string     // Raw git remote URL (origin).
+	ForgeKind  forge.Kind // empty if remote is not a recognized forge
+	ForgeOwner string     // empty if remote is not a recognized forge
+	ForgeRepo  string     // empty if remote is not a recognized forge
 }
 
 // repoCIState holds the live default-branch CI status for one repo.
 type repoCIState struct {
 	Status cicache.Status
-	Checks []v1.GitHubCheck
+	Checks []v1.ForgeCheck
 }
 
 // CreateAuthTokenConfig is the request for POST /v1alpha/auth_tokens.
@@ -83,9 +86,12 @@ type Config struct {
 	TailscaleAPIKey string
 	// PreferencesPath is the path to the persistent user preferences file.
 	PreferencesPath string
-	// GitHubToken is used to create pull requests and poll CI check-runs after sync.
-	// Leave empty to disable automatic PR creation.
+	// GitHubToken is used to create pull requests and poll CI check-runs after sync
+	// for github.com repositories. Leave empty to disable.
 	GitHubToken string
+	// GitLabToken is used to create merge requests and poll CI pipelines after sync
+	// for gitlab.com repositories. Leave empty to disable.
+	GitLabToken string
 }
 
 // Server is the HTTP server for the caic web UI.
@@ -102,6 +108,7 @@ type Server struct {
 	usage        *usageFetcher // nil if no OAuth token available
 	geminiAPIKey string
 	githubToken  string
+	gitlabToken  string
 	ciCache      *cicache.Cache
 	provider     genai.Provider
 	backend      *mdBackend // container backend for runner creation
@@ -271,6 +278,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 		usage:         newUsageFetcher(ctx),
 		geminiAPIKey:  cfg.GeminiAPIKey,
 		githubToken:   cfg.GitHubToken,
+		gitlabToken:   cfg.GitLabToken,
 		ciCache:       cache,
 		backend:       backend,
 		tasks:         make(map[string]*taskEntry),
@@ -327,14 +335,15 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 			if err := runner.Init(ctx); err != nil {
 				slog.Warn("runner init failed", "path", abs, "err", err)
 			}
-			var ghOwner, ghRepo string
-			if rawURL, err := github.RemoteURL(ctx, abs); err == nil {
-				ghOwner, ghRepo, _ = github.ParseRemoteURL(rawURL)
+			var forgeKind forge.Kind
+			var forgeOwner, forgeRepo string
+			if rawURL, err := forge.RemoteURL(ctx, abs); err == nil {
+				forgeKind, forgeOwner, forgeRepo, _ = forge.ParseRemoteURL(rawURL)
 			}
 			results[i] = repoResult{
 				info: repoInfo{
 					RelPath: rel, AbsPath: abs, BaseBranch: branch, Remote: remote,
-					GitHubOwner: ghOwner, GitHubRepo: ghRepo,
+					ForgeKind: forgeKind, ForgeOwner: forgeOwner, ForgeRepo: forgeRepo,
 				},
 				runner: runner,
 			}
@@ -374,11 +383,9 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 
 	s.watchContainerEvents(ctx)
 	go s.discoverKiloModels()
-	if cfg.GitHubToken != "" {
-		for _, info := range s.repos {
-			if info.GitHubOwner != "" {
-				s.updateRepoCIPolling(info.RelPath) //nolint:contextcheck // uses server context intentionally
-			}
+	for _, info := range s.repos {
+		if info.ForgeOwner != "" && s.forgeForInfo(&info) != nil {
+			s.updateRepoCIPolling(info.RelPath) //nolint:contextcheck // uses server context intentionally
 		}
 	}
 	return s, nil
@@ -1142,32 +1149,26 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 	} else if len(issues) > 0 && !req.Force {
 		status = "blocked"
 	}
-	if status == "synced" && s.githubToken != "" {
-		go s.startPRFlow(s.ctx, entry, t.Branch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
+	if status == "synced" {
+		if info := s.repoInfoFor(t.Repo); info != nil && s.forgeForInfo(info) != nil {
+			go s.startPRFlow(s.ctx, entry, t.Branch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
+		}
 	}
 	return &v1.SyncResp{Status: status, Branch: t.Branch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
 }
 
-// startPRFlow creates a GitHub PR for the synced branch and then launches CI
+// startPRFlow creates a PR/MR for the synced branch and then launches CI
 // monitoring. Runs in a goroutine; logs errors and returns on failure.
 func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, baseBranch string) {
 	t := entry.task
-	runner, ok := s.runners[t.Repo]
-	if !ok {
-		slog.Warn("startPRFlow: no runner for repo", "repo", t.Repo)
+	info := s.repoInfoFor(t.Repo)
+	if info == nil || info.ForgeOwner == "" {
 		return
 	}
-	rawURL, err := github.RemoteURL(ctx, runner.Dir)
-	if err != nil {
-		slog.Warn("startPRFlow: remote URL", "repo", t.Repo, "err", err)
+	f := s.forgeForInfo(info)
+	if f == nil {
 		return
 	}
-	owner, repo, err := github.ParseRemoteURL(rawURL)
-	if err != nil {
-		slog.Warn("startPRFlow: parse remote URL", "url", rawURL, "err", err)
-		return
-	}
-	gh := &github.Client{Token: s.githubToken}
 	title := t.Title()
 	if title == "" {
 		title = t.InitialPrompt.Text
@@ -1176,25 +1177,25 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, base
 	if entry.result != nil {
 		body = entry.result.AgentResult
 	}
-	pr, err := gh.CreatePR(ctx, owner, repo, branch, baseBranch, title, body)
+	pr, err := f.CreatePR(ctx, info.ForgeOwner, info.ForgeRepo, branch, baseBranch, title, body)
 	if err != nil {
 		slog.Warn("startPRFlow: create PR", "repo", t.Repo, "branch", branch, "err", err)
 		return
 	}
-	slog.Info("PR created", "task", t.ID, "owner", owner, "repo", repo, "pr", pr.Number)
-	t.SetPR(owner, repo, pr.Number)
+	slog.Info("PR created", "task", t.ID, "forge", f.Name(), "owner", info.ForgeOwner, "repo", info.ForgeRepo, "pr", pr.Number)
+	t.SetPR(info.ForgeOwner, info.ForgeRepo, pr.Number)
 	s.notifyTaskChange()
-	go s.monitorCI(ctx, entry, gh, owner, repo, pr.HeadSHA)
+	go s.monitorCI(ctx, entry, f, info.ForgeOwner, info.ForgeRepo, pr.HeadSHA)
 }
 
-// monitorCI polls GitHub check-runs every 30 s until all checks complete,
+// monitorCI polls CI check-runs every 30 s until all checks complete,
 // then injects a summary into the agent via SendInput.
-func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, gh *github.Client, owner, repo, sha string) {
+func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string) {
 	t := entry.task
 
 	// Fast path: result already cached (e.g. after a server restart).
 	if cached, ok := s.ciCache.Get(owner, repo, sha); ok {
-		s.applyMonitorCIResult(ctx, entry, owner, repo, sha, cached)
+		s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, cached)
 		return
 	}
 
@@ -1214,9 +1215,9 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, gh *github.Cli
 		if s.isCINoAccess(owner, repo) {
 			return
 		}
-		runs, err := gh.GetCheckRuns(ctx, owner, repo, sha)
+		runs, err := f.GetCheckRuns(ctx, owner, repo, sha)
 		if err != nil {
-			if errors.Is(err, github.ErrNotFound) {
+			if errors.Is(err, forge.ErrNotFound) {
 				s.markCINoAccess(owner, repo)
 				return
 			}
@@ -1235,14 +1236,14 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, gh *github.Cli
 		if err := s.ciCache.Put(owner, repo, sha, result); err != nil {
 			slog.Warn("monitorCI: cache put", "err", err)
 		}
-		s.applyMonitorCIResult(ctx, entry, owner, repo, sha, result)
+		s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, result)
 		return
 	}
 }
 
 // applyMonitorCIResult updates the task CI status and injects the CI summary
 // into the agent.
-func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, owner, repo, sha string, result cicache.Result) {
+func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string, result cicache.Result) {
 	t := entry.task
 	ciStatus := task.CIStatusSuccess
 	var summary string
@@ -1257,13 +1258,13 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, own
 				numFailed++
 			}
 		}
-		fmt.Fprintf(&sb, "GitHub CI: %d check(s) failed:\n", numFailed)
+		fmt.Fprintf(&sb, "%s CI: %d check(s) failed:\n", f.Name(), numFailed)
 		for _, c := range result.Checks {
 			if c.Conclusion != cicache.CheckConclusionSuccess &&
 				c.Conclusion != cicache.CheckConclusionNeutral &&
 				c.Conclusion != cicache.CheckConclusionSkipped {
-				if c.RunID > 0 && c.JobID > 0 {
-					fmt.Fprintf(&sb, "- %s (%s): https://github.com/%s/%s/actions/runs/%d/job/%d\n", c.Name, c.Conclusion, c.Owner, c.Repo, c.RunID, c.JobID)
+				if jobURL := f.CIJobURL(c.Owner, c.Repo, c.RunID, c.JobID); jobURL != "" {
+					fmt.Fprintf(&sb, "- %s (%s): %s\n", c.Name, c.Conclusion, jobURL)
 				} else {
 					fmt.Fprintf(&sb, "- %s (%s)\n", c.Name, c.Conclusion)
 				}
@@ -1271,7 +1272,7 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, own
 		}
 		summary = strings.TrimRight(sb.String(), "\n")
 	} else {
-		summary = fmt.Sprintf("GitHub CI: all checks passed for %s/%s@%s.", owner, repo, sha[:min(7, len(sha))])
+		summary = fmt.Sprintf("%s CI: all checks passed for %s/%s@%s.", f.Name(), owner, repo, sha[:min(7, len(sha))])
 	}
 	t.SetCIStatus(ciStatus)
 	s.notifyTaskChange()
@@ -1282,16 +1283,16 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, own
 
 // evaluateCheckRuns inspects runs for a SHA and returns a cicache.Result plus
 // whether all checks have completed (done=true). Only call with len(runs)>0.
-func evaluateCheckRuns(owner, repo string, runs []github.CheckRun) (cicache.Result, bool) {
+func evaluateCheckRuns(owner, repo string, runs []forge.CheckRun) (cicache.Result, bool) {
 	for _, r := range runs {
-		if r.Status != github.CheckRunStatusCompleted {
+		if r.Status != forge.CheckRunStatusCompleted {
 			return cicache.Result{}, false
 		}
 	}
-	checks := make([]cicache.GitHubCheck, 0, len(runs))
+	checks := make([]cicache.ForgeCheck, 0, len(runs))
 	anyFailed := false
 	for _, r := range runs {
-		checks = append(checks, cicache.GitHubCheck{
+		checks = append(checks, cicache.ForgeCheck{
 			Name:       r.Name,
 			Owner:      owner,
 			Repo:       repo,
@@ -1299,9 +1300,9 @@ func evaluateCheckRuns(owner, repo string, runs []github.CheckRun) (cicache.Resu
 			JobID:      r.JobID,
 			Conclusion: cicache.CheckConclusion(r.Conclusion),
 		})
-		if r.Conclusion != github.CheckRunConclusionSuccess &&
-			r.Conclusion != github.CheckRunConclusionNeutral &&
-			r.Conclusion != github.CheckRunConclusionSkipped {
+		if r.Conclusion != forge.CheckRunConclusionSuccess &&
+			r.Conclusion != forge.CheckRunConclusionNeutral &&
+			r.Conclusion != forge.CheckRunConclusionSkipped {
 			anyFailed = true
 		}
 	}
@@ -1314,8 +1315,7 @@ func evaluateCheckRuns(owner, repo string, runs []github.CheckRun) (cicache.Resu
 
 // pollDefaultBranchCI periodically checks the default branch HEAD SHA and its
 // CI status, using the cache for terminal states. Runs per-repo in a goroutine.
-func (s *Server) pollDefaultBranchCI(ctx context.Context, info repoInfo) { //nolint:gocritic // repoInfo passed by value intentionally for goroutine safety
-	gh := &github.Client{Token: s.githubToken}
+func (s *Server) pollDefaultBranchCI(ctx context.Context, info repoInfo, f forge.Forge) { //nolint:gocritic // repoInfo passed by value intentionally for goroutine safety
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 	// Poll immediately on start, then on each tick.
@@ -1327,28 +1327,28 @@ func (s *Server) pollDefaultBranchCI(ctx context.Context, info repoInfo) { //nol
 			case <-ticker.C:
 			}
 		}
-		if s.isCINoAccess(info.GitHubOwner, info.GitHubRepo) {
+		if s.isCINoAccess(info.ForgeOwner, info.ForgeRepo) {
 			return
 		}
-		sha, err := gh.GetDefaultBranchSHA(ctx, info.GitHubOwner, info.GitHubRepo, info.BaseBranch)
+		sha, err := f.GetDefaultBranchSHA(ctx, info.ForgeOwner, info.ForgeRepo, info.BaseBranch)
 		if err != nil {
-			if errors.Is(err, github.ErrNotFound) {
-				s.markCINoAccess(info.GitHubOwner, info.GitHubRepo)
+			if errors.Is(err, forge.ErrNotFound) {
+				s.markCINoAccess(info.ForgeOwner, info.ForgeRepo)
 				return
 			}
 			slog.Warn("pollDefaultBranchCI: get SHA", "repo", info.RelPath, "err", err)
 			continue
 		}
 		// Cache hit: use stored terminal result directly.
-		if cached, ok := s.ciCache.Get(info.GitHubOwner, info.GitHubRepo, sha); ok {
+		if cached, ok := s.ciCache.Get(info.ForgeOwner, info.ForgeRepo, sha); ok {
 			s.setRepoCIStatus(info.RelPath, cached)
 			continue
 		}
 		// Fetch check-runs for the new SHA.
-		runs, err := gh.GetCheckRuns(ctx, info.GitHubOwner, info.GitHubRepo, sha)
+		runs, err := f.GetCheckRuns(ctx, info.ForgeOwner, info.ForgeRepo, sha)
 		if err != nil {
-			if errors.Is(err, github.ErrNotFound) {
-				s.markCINoAccess(info.GitHubOwner, info.GitHubRepo)
+			if errors.Is(err, forge.ErrNotFound) {
+				s.markCINoAccess(info.ForgeOwner, info.ForgeRepo)
 				return
 			}
 			slog.Warn("pollDefaultBranchCI: get check-runs", "repo", info.RelPath, "err", err)
@@ -1357,13 +1357,13 @@ func (s *Server) pollDefaultBranchCI(ctx context.Context, info repoInfo) { //nol
 		if len(runs) == 0 {
 			continue
 		}
-		result, done := evaluateCheckRuns(info.GitHubOwner, info.GitHubRepo, runs)
+		result, done := evaluateCheckRuns(info.ForgeOwner, info.ForgeRepo, runs)
 		if !done {
 			// Still pending — store pending status without caching.
 			s.setRepoCIStatus(info.RelPath, cicache.Result{Status: cicache.StatusPending})
 			continue
 		}
-		if err := s.ciCache.Put(info.GitHubOwner, info.GitHubRepo, sha, result); err != nil {
+		if err := s.ciCache.Put(info.ForgeOwner, info.ForgeRepo, sha, result); err != nil {
 			slog.Warn("pollDefaultBranchCI: cache put", "repo", info.RelPath, "err", err)
 		}
 		s.setRepoCIStatus(info.RelPath, result)
@@ -1373,9 +1373,9 @@ func (s *Server) pollDefaultBranchCI(ctx context.Context, info repoInfo) { //nol
 // setRepoCIStatus updates the in-memory CI state for a repo and notifies
 // SSE subscribers if the status changed.
 func (s *Server) setRepoCIStatus(relPath string, result cicache.Result) {
-	checks := make([]v1.GitHubCheck, len(result.Checks))
+	checks := make([]v1.ForgeCheck, len(result.Checks))
 	for i, c := range result.Checks {
-		checks[i] = v1.GitHubCheck{Name: c.Name, Owner: c.Owner, Repo: c.Repo, RunID: c.RunID, JobID: c.JobID, Conclusion: v1.CheckConclusion(c.Conclusion)}
+		checks[i] = v1.ForgeCheck{Name: c.Name, Owner: c.Owner, Repo: c.Repo, RunID: c.RunID, JobID: c.JobID, Conclusion: v1.CheckConclusion(c.Conclusion)}
 	}
 	next := repoCIState{Status: result.Status, Checks: checks}
 	s.mu.Lock()
@@ -1418,18 +1418,20 @@ func (s *Server) repoHasActiveTasksLocked(relPath string) bool {
 // updateRepoCIPolling starts or stops the default-branch CI poller for relPath
 // based on whether it currently has active (non-terminal) tasks.
 func (s *Server) updateRepoCIPolling(relPath string) {
-	if s.githubToken == "" {
-		return
-	}
 	s.mu.Lock()
 	var info *repoInfo
 	for i := range s.repos {
-		if s.repos[i].RelPath == relPath && s.repos[i].GitHubOwner != "" {
+		if s.repos[i].RelPath == relPath && s.repos[i].ForgeOwner != "" {
 			info = &s.repos[i]
 			break
 		}
 	}
 	if info == nil {
+		s.mu.Unlock()
+		return
+	}
+	f := s.forgeForInfo(info)
+	if f == nil {
 		s.mu.Unlock()
 		return
 	}
@@ -1447,8 +1449,35 @@ func (s *Server) updateRepoCIPolling(relPath string) {
 	infoCopy := *info
 	s.mu.Unlock()
 	if startCancel != nil {
-		go s.pollDefaultBranchCI(startCtx, infoCopy)
+		go s.pollDefaultBranchCI(startCtx, infoCopy, f)
 	}
+}
+
+// repoInfoFor returns the repoInfo for relPath, or nil if not found.
+// Safe to call without the mutex (s.repos is immutable after construction).
+func (s *Server) repoInfoFor(relPath string) *repoInfo {
+	for i := range s.repos {
+		if s.repos[i].RelPath == relPath {
+			return &s.repos[i]
+		}
+	}
+	return nil
+}
+
+// forgeForInfo returns the appropriate forge.Forge for the repo's remote, using
+// the configured tokens. Returns nil if no matching token is set.
+func (s *Server) forgeForInfo(info *repoInfo) forge.Forge {
+	switch info.ForgeKind {
+	case forge.KindGitHub:
+		if s.githubToken != "" {
+			return &github.Client{Token: s.githubToken}
+		}
+	case forge.KindGitLab:
+		if s.gitlabToken != "" {
+			return &gitlab.Client{Token: s.gitlabToken}
+		}
+	}
+	return nil
 }
 
 func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
@@ -2183,9 +2212,9 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	} else {
 		j.DiffStat = toV1DiffStat(snap.DiffStat)
 	}
-	j.GitHubOwner = snap.GitHubOwner
-	j.GitHubRepo = snap.GitHubRepo
-	j.GitHubPR = snap.GitHubPR
+	j.ForgeOwner = snap.ForgeOwner
+	j.ForgeRepo = snap.ForgeRepo
+	j.ForgePR = snap.ForgePR
 	j.CIStatus = v1.CIStatus(snap.CIStatus)
 	return j
 }

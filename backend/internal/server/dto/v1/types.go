@@ -49,7 +49,7 @@ type Config struct {
 	DisplayAvailable   bool `json:"displayAvailable"`
 }
 
-// CIStatus is the GitHub CI check state for a task or repo default branch.
+// CIStatus is the CI check state for a task or repo default branch.
 type CIStatus string
 
 // CI status values.
@@ -59,10 +59,10 @@ const (
 	CIStatusFailure CIStatus = "failure"
 )
 
-// CheckConclusion is the conclusion of a completed GitHub check run.
+// CheckConclusion is the conclusion of a completed CI check run.
 type CheckConclusion string
 
-// GitHub check-run conclusion values.
+// CI check-run conclusion values.
 const (
 	CheckConclusionSuccess        CheckConclusion = "success"
 	CheckConclusionFailure        CheckConclusion = "failure"
@@ -74,25 +74,23 @@ const (
 	CheckConclusionStale          CheckConclusion = "stale"
 )
 
-// GitHubCheck describes a GitHub Actions check run with its conclusion.
-// Job URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}/job/{jobID}
-// Run URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}
-type GitHubCheck struct {
+// ForgeCheck describes a CI check run with its conclusion, from any supported forge.
+type ForgeCheck struct {
 	Name       string          `json:"name"`
 	Owner      string          `json:"owner"`
 	Repo       string          `json:"repo"`
-	RunID      int64           `json:"runID"` // Workflow run ID.
+	RunID      int64           `json:"runID"` // Pipeline/workflow run ID.
 	JobID      int64           `json:"jobID"` // Check run / job ID.
 	Conclusion CheckConclusion `json:"conclusion"`
 }
 
 // Repo is the JSON representation of a discovered repo.
 type Repo struct {
-	Path                  string        `json:"path"`
-	BaseBranch            string        `json:"baseBranch"`
-	RemoteURL             string        `json:"remoteURL,omitempty"`
-	DefaultBranchCIStatus CIStatus      `json:"defaultBranchCIStatus,omitempty"`
-	DefaultBranchChecks   []GitHubCheck `json:"defaultBranchChecks,omitempty"`
+	Path                  string       `json:"path"`
+	BaseBranch            string       `json:"baseBranch"`
+	RemoteURL             string       `json:"remoteURL,omitempty"`
+	DefaultBranchCIStatus CIStatus     `json:"defaultBranchCIStatus,omitempty"`
+	DefaultBranchChecks   []ForgeCheck `json:"defaultBranchChecks,omitempty"`
 }
 
 // Task is the JSON representation sent to the frontend.
@@ -120,9 +118,9 @@ type Task struct {
 	ContextWindowLimit                 int      `json:"contextWindowLimit"`    // Model context window limit (tokens).
 	Error                              string   `json:"error,omitempty"`
 	Result                             string   `json:"result,omitempty"`
-	GitHubOwner                        string   `json:"gitHubOwner,omitempty"`
-	GitHubRepo                         string   `json:"gitHubRepo,omitempty"`
-	GitHubPR                           int      `json:"gitHubPR,omitempty"`
+	ForgeOwner                         string   `json:"forgeOwner,omitempty"`
+	ForgeRepo                          string   `json:"forgeRepo,omitempty"`
+	ForgePR                            int      `json:"forgePR,omitempty"`
 	CIStatus                           CIStatus `json:"ciStatus,omitempty"`
 	// Per-task harness/container metadata.
 	Harness       Harness `json:"harness"`

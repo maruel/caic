@@ -34,7 +34,8 @@ All configuration is via environment variables. Flags take precedence when set. 
 | `CAIC_LLM_PROVIDER` | — | No | — | AI provider for LLM features (title generation, commit descriptions). E.g. `anthropic`, `gemini`, `openaichat`. See [genai providers](https://pkg.go.dev/github.com/maruel/genai/providers). |
 | `CAIC_LLM_MODEL` | — | No | — | Model name for LLM features (e.g. `claude-haiku-4-5-20251001`). |
 | `GEMINI_API_KEY` | — | No | — | Gemini API key for the Gemini agent backend. |
-| `GITHUB_TOKEN` | — | No | — | GitHub token for automatic PR creation and CI monitoring. [Create a fine-grained token](https://github.com/settings/personal-access-tokens/new?name=caic&description=caic+PR+creation+and+CI+monitoring&pull_requests=write&checks=read&expires_in=365) with `pull_requests: write` and `checks: read`. |
+| `GITHUB_TOKEN` | — | No | — | GitHub token for automatic PR creation and CI monitoring on github.com repositories. [Create a fine-grained token](https://github.com/settings/personal-access-tokens/new?name=caic&description=caic+PR+creation+and+CI+monitoring&pull_requests=write&checks=read&expires_in=365) with `pull_requests: write` and `checks: read`. |
+| `GITLAB_TOKEN` | — | No | — | GitLab personal access token for automatic MR creation and CI monitoring on gitlab.com repositories. [Create a token](https://gitlab.com/-/user_settings/personal_access_tokens?name=caic&scopes=api) with `api` scope. |
 | `TAILSCALE_API_KEY` | — | No | — | Tailscale API key for Tailscale integration. Get one at [login.tailscale.com/admin/settings/keys](https://login.tailscale.com/admin/settings/keys). |
 
 ## Running

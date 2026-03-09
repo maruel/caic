@@ -538,9 +538,16 @@ private fun CloneRepoDialog(
 private val nonPassingConclusions = setOf("failure", "cancelled", "timed_out", "action_required", "stale")
 
 private fun ciDotUrl(repo: Repo): String? {
+    val isGitLab = repo.remoteURL?.contains("gitlab.com") == true
     if (repo.defaultBranchCIStatus == "failure") {
         val failed = repo.defaultBranchChecks?.find { it.conclusion in nonPassingConclusions }
-        if (failed != null) return "https://github.com/${failed.owner}/${failed.repo}/actions/runs/${failed.runID}/job/${failed.jobID}"
+        if (failed != null) {
+            return if (isGitLab) {
+                "https://gitlab.com/${failed.owner}/${failed.repo}/-/jobs/${failed.jobID}"
+            } else {
+                "https://github.com/${failed.owner}/${failed.repo}/actions/runs/${failed.runID}/job/${failed.jobID}"
+            }
+        }
     }
-    return repo.remoteURL?.let { "$it/actions" }
+    return repo.remoteURL?.let { url -> if (isGitLab) "$url/-/pipelines" else "$url/actions" }
 }

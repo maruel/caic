@@ -74,7 +74,7 @@ data class HarnessInfo(
 )
 
 @Serializable
-data class GitHubCheck(
+data class ForgeCheck(
     val name: String,
     val owner: String,
     val repo: String,
@@ -89,7 +89,7 @@ data class Repo(
     val baseBranch: String,
     @SerialName("remoteURL") val remoteURL: String? = null,
     @SerialName("defaultBranchCIStatus") val defaultBranchCIStatus: String? = null,
-    val defaultBranchChecks: List<GitHubCheck>? = null,
+    val defaultBranchChecks: List<ForgeCheck>? = null,
 )
 
 @Serializable
@@ -135,9 +135,9 @@ data class Task(
     val contextWindowLimit: Int,
     val error: String? = null,
     val result: String? = null,
-    val gitHubOwner: String? = null,
-    val gitHubRepo: String? = null,
-    @SerialName("gitHubPR") val gitHubPR: Int? = null,
+    val forgeOwner: String? = null,
+    val forgeRepo: String? = null,
+    @SerialName("forgePR") val forgePR: Int? = null,
     val ciStatus: String? = null,
     val harness: Harness,
     val model: String? = null,

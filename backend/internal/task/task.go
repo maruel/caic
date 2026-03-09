@@ -70,7 +70,7 @@ func (s State) String() string {
 	}
 }
 
-// CIStatus represents the GitHub CI check state for a task.
+// CIStatus represents the CI check state for a task.
 type CIStatus string
 
 // CI status values.
@@ -138,9 +138,9 @@ type Task struct {
 	lastUsage      agent.Usage    // Most recent ResultMessage usage (active context).
 	lastAPIUsage   agent.Usage    // Most recent per-API-call usage from AssistantMessage (context window fill).
 	liveDiffStat   agent.DiffStat // Updated by DiffStatMessage from relay.
-	gitHubOwner    string
-	gitHubRepo     string
-	gitHubPR       int
+	forgeOwner     string
+	forgeRepo      string
+	forgePR        int
 	ciStatus       CIStatus
 }
 
@@ -258,12 +258,12 @@ func (t *Task) SetLiveDiffStat(ds agent.DiffStat) {
 	t.liveDiffStat = ds
 }
 
-// SetPR stores the GitHub org, repo, and PR number. Does not change task state.
-func (t *Task) SetPR(org, repo string, pr int) {
+// SetPR stores the forge owner, repo, and PR/MR number. Does not change task state.
+func (t *Task) SetPR(owner, repo string, pr int) {
 	t.mu.Lock()
-	t.gitHubOwner = org
-	t.gitHubRepo = repo
-	t.gitHubPR = pr
+	t.forgeOwner = owner
+	t.forgeRepo = repo
+	t.forgePR = pr
 	t.mu.Unlock()
 }
 
@@ -302,9 +302,9 @@ type Snapshot struct {
 	LastUsage      agent.Usage
 	LastAPIUsage   agent.Usage
 	DiffStat       agent.DiffStat
-	GitHubOwner    string
-	GitHubRepo     string
-	GitHubPR       int
+	ForgeOwner     string
+	ForgeRepo      string
+	ForgePR        int
 	CIStatus       CIStatus
 }
 
@@ -334,9 +334,9 @@ func (t *Task) Snapshot() Snapshot {
 		LastUsage:      t.lastUsage,
 		LastAPIUsage:   t.lastAPIUsage,
 		DiffStat:       t.liveDiffStat,
-		GitHubOwner:    t.gitHubOwner,
-		GitHubRepo:     t.gitHubRepo,
-		GitHubPR:       t.gitHubPR,
+		ForgeOwner:     t.forgeOwner,
+		ForgeRepo:      t.forgeRepo,
+		ForgePR:        t.forgePR,
 		CIStatus:       t.ciStatus,
 	}
 }

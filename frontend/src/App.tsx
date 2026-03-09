@@ -653,9 +653,9 @@ export default function App() {
                   remoteURL={selectedTask()?.remoteURL}
                   branch={selectedTask()?.branch ?? ""}
                   baseBranch={repos().find((r) => r.path === selectedTask()?.repo)?.baseBranch ?? "main"}
-                  gitHubOwner={selectedTask()?.gitHubOwner}
-                  gitHubRepo={selectedTask()?.gitHubRepo}
-                  gitHubPR={selectedTask()?.gitHubPR}
+                  forgeOwner={selectedTask()?.forgeOwner}
+                  forgeRepo={selectedTask()?.forgeRepo}
+                  forgePR={selectedTask()?.forgePR}
                   ciStatus={selectedTask()?.ciStatus}
                   diffStat={selectedTask()?.diffStat}
                   supportsImages={harnesses().find((h) => h.name === (selectedTask()?.harness ?? ""))?.supportsImages}

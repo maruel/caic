@@ -16,6 +16,7 @@ import CloseIcon from "@material-symbols/svg-400/outlined/close.svg?solid";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
 import SyncIcon from "@material-symbols/svg-400/outlined/sync.svg?solid";
 import GitHubIcon from "./github.svg?solid";
+import GitLabIcon from "./gitlab.svg?solid";
 import styles from "./TaskDetail.module.css";
 
 // Module-level store for <details> open/closed state (tool calls, thinking blocks).
@@ -39,9 +40,9 @@ interface Props {
   remoteURL?: string;
   branch: string;
   baseBranch: string;
-  gitHubOwner?: string;
-  gitHubRepo?: string;
-  gitHubPR?: number;
+  forgeOwner?: string;
+  forgeRepo?: string;
+  forgePR?: number;
   ciStatus?: string;
   diffStat?: DiffFileStat[];
   supportsImages?: boolean;
@@ -362,6 +363,29 @@ export default function TaskDetail(props: Props) {
 
   const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking" || props.taskState === "has_plan";
   const isGitHub = () => !!props.remoteURL?.includes("github.com");
+  const isGitLab = () => !!props.remoteURL?.includes("gitlab.com");
+
+  const branchCompareURL = () => {
+    const url = props.remoteURL;
+    if (!url) return undefined;
+    if (isGitLab()) return `${url}/-/compare/${props.branch}?expand=1`;
+    return `${url}/compare/${props.branch}?expand=1`; // GitHub default
+  };
+
+  const prURL = () => {
+    const owner = props.forgeOwner;
+    const repo = props.forgeRepo;
+    const pr = props.forgePR;
+    if (!owner || !repo || !pr) return undefined;
+    if (isGitLab()) return `https://gitlab.com/${owner}/${repo}/-/merge_requests/${pr}`;
+    return `https://github.com/${owner}/${repo}/pull/${pr}`;
+  };
+
+  const prLabel = () => {
+    const pr = props.forgePR;
+    if (!pr) return undefined;
+    return isGitLab() ? `MR #${pr}` : `PR #${pr}`;
+  };
 
   function clearAndExecutePlan() {
     const prompt = props.inputDraft.trim();
@@ -415,11 +439,11 @@ export default function TaskDetail(props: Props) {
           <Show when={props.remoteURL} fallback={<span class={styles.headerRepo}>{props.repo}</span>}>
             <a class={styles.headerRepo} href={props.remoteURL} target="_blank" rel="noopener">{props.repo}</a>
           </Show>
-          <Show when={isGitHub()} fallback={<span class={styles.headerBranch}>{props.branch}</span>}>
-            <a class={styles.headerBranch} href={`${props.remoteURL}/compare/${props.branch}?expand=1`} target="_blank" rel="noopener">{props.branch}</a>
+          <Show when={branchCompareURL()} fallback={<span class={styles.headerBranch}>{props.branch}</span>}>
+            <a class={styles.headerBranch} href={branchCompareURL()} target="_blank" rel="noopener">{props.branch}</a>
           </Show>
-          <Show when={props.gitHubOwner && props.gitHubRepo && props.gitHubPR}>
-            <a class={styles.headerPR} href={`https://github.com/${props.gitHubOwner}/${props.gitHubRepo}/pull/${props.gitHubPR}`} target="_blank" rel="noopener">PR #{props.gitHubPR}</a>
+          <Show when={prURL()}>
+            <a class={styles.headerPR} href={prURL()} target="_blank" rel="noopener">{prLabel()}</a>
           </Show>
           <Show when={props.ciStatus && props.ciStatus in CI_STATUS_CLASS}>
             {(() => {
@@ -533,9 +557,14 @@ export default function TaskDetail(props: Props) {
             <Button type="submit" disabled={sending() || (!props.inputDraft.trim() && props.inputImages.length === 0)} title="Send"><SendIcon width="1.1em" height="1.1em" /></Button>
             <div class={styles.syncButtonGroup}>
               <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => doSync(false)} title={`Push to ${props.branch}`}>
-                <Show when={isGitHub()} fallback={<SyncIcon width="1.1em" height="1.1em" />}>
-                  <GitHubIcon width="1.1em" height="1.1em" style={{ color: "black" }} />
-                </Show>
+                <Switch fallback={<SyncIcon width="1.1em" height="1.1em" />}>
+                  <Match when={isGitHub()}>
+                    <GitHubIcon width="1.1em" height="1.1em" style={{ color: "black" }} />
+                  </Match>
+                  <Match when={isGitLab()}>
+                    <GitLabIcon width="1.1em" height="1.1em" style={{ color: "#e24329" }} />
+                  </Match>
+                </Switch>
               </Button>
               <button type="button" class={styles.syncDropdownToggle} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => setSyncMenuOpen((v) => !v)} aria-label="Sync options">&#9660;</button>
               <Show when={syncMenuOpen()}>

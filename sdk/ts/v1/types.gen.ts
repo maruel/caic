@@ -339,7 +339,7 @@ export interface Config {
   displayAvailable: boolean;
 }
 /**
- * CIStatus is the GitHub CI check state for a task or repo default branch.
+ * CIStatus is the CI check state for a task or repo default branch.
  */
 export type CIStatus = string;
 /**
@@ -355,51 +355,49 @@ export const CIStatusSuccess: CIStatus = "success";
  */
 export const CIStatusFailure: CIStatus = "failure";
 /**
- * CheckConclusion is the conclusion of a completed GitHub check run.
+ * CheckConclusion is the conclusion of a completed CI check run.
  */
 export type CheckConclusion = string;
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionSuccess: CheckConclusion = "success";
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionFailure: CheckConclusion = "failure";
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionNeutral: CheckConclusion = "neutral";
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionSkipped: CheckConclusion = "skipped";
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionCancelled: CheckConclusion = "cancelled";
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionTimedOut: CheckConclusion = "timed_out";
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionActionRequired: CheckConclusion = "action_required";
 /**
- * GitHub check-run conclusion values.
+ * CI check-run conclusion values.
  */
 export const CheckConclusionStale: CheckConclusion = "stale";
 /**
- * GitHubCheck describes a GitHub Actions check run with its conclusion.
- * Job URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}/job/{jobID}
- * Run URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}
+ * ForgeCheck describes a CI check run with its conclusion, from any supported forge.
  */
-export interface GitHubCheck {
+export interface ForgeCheck {
   name: string;
   owner: string;
   repo: string;
-  runID: number /* int64 */; // Workflow run ID.
+  runID: number /* int64 */; // Pipeline/workflow run ID.
   jobID: number /* int64 */; // Check run / job ID.
   conclusion: CheckConclusion;
 }
@@ -411,7 +409,7 @@ export interface Repo {
   baseBranch: string;
   remoteURL?: string;
   defaultBranchCIStatus?: CIStatus;
-  defaultBranchChecks?: GitHubCheck[];
+  defaultBranchChecks?: ForgeCheck[];
 }
 /**
  * Task is the JSON representation sent to the frontend.
@@ -440,9 +438,9 @@ export interface Task {
   contextWindowLimit: number /* int */; // Model context window limit (tokens).
   error?: string;
   result?: string;
-  gitHubOwner?: string;
-  gitHubRepo?: string;
-  gitHubPR?: number /* int */;
+  forgeOwner?: string;
+  forgeRepo?: string;
+  forgePR?: number /* int */;
   ciStatus?: CIStatus;
   /**
    * Per-task harness/container metadata.

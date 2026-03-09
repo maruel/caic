@@ -174,10 +174,13 @@ fun InputBar(
                 Box {
                     Tip("Sync") {
                         IconButton(onClick = onSync, enabled = !busy) {
-                            if (remoteURL?.contains("github.com") == true) {
-                                Icon(painterResource(R.drawable.ic_github), contentDescription = "Sync")
-                            } else {
-                                Icon(Icons.Default.Sync, contentDescription = "Sync")
+                            when {
+                                remoteURL?.contains("github.com") == true ->
+                                    Icon(painterResource(R.drawable.ic_github), contentDescription = "Sync")
+                                remoteURL?.contains("gitlab.com") == true ->
+                                    Icon(painterResource(R.drawable.ic_gitlab), contentDescription = "Sync")
+                                else ->
+                                    Icon(Icons.Default.Sync, contentDescription = "Sync")
                             }
                         }
                     }

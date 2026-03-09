@@ -337,8 +337,13 @@ fun TaskDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                val branchURL = it.remoteURL?.takeIf { url -> "github.com" in url }
-                                    ?.let { url -> "$url/compare/${it.branch}?expand=1" }
+                                val branchURL = it.remoteURL?.let { url ->
+                                    when {
+                                        "gitlab.com" in url -> "$url/-/compare/${it.branch}?expand=1"
+                                        "github.com" in url -> "$url/compare/${it.branch}?expand=1"
+                                        else -> null
+                                    }
+                                }
                                 Text(
                                     text = it.branch,
                                     style = MaterialTheme.typography.bodySmall,
@@ -363,18 +368,24 @@ fun TaskDetailScreen(
                                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                                     )
                                 }
-                                val gitHubOwner = it.gitHubOwner
-                                val gitHubRepo = it.gitHubRepo
-                                val gitHubPR = it.gitHubPR
-                                if (gitHubOwner != null && gitHubRepo != null && gitHubPR != null && gitHubPR > 0) {
-                                    val prURL = "https://github.com/$gitHubOwner/$gitHubRepo/pull/$gitHubPR"
+                                val forgeOwner = it.forgeOwner
+                                val forgeRepo = it.forgeRepo
+                                val forgePR = it.forgePR
+                                if (forgeOwner != null && forgeRepo != null && forgePR != null && forgePR > 0) {
+                                    val isGitLab = it.remoteURL?.let { url -> "gitlab.com" in url } == true
+                                    val prURL = if (isGitLab) {
+                                        "https://gitlab.com/$forgeOwner/$forgeRepo/-/merge_requests/$forgePR"
+                                    } else {
+                                        "https://github.com/$forgeOwner/$forgeRepo/pull/$forgePR"
+                                    }
+                                    val prLabel = if (isGitLab) "MR #$forgePR" else "PR #$forgePR"
                                     Text(
                                         text = "·",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                     Text(
-                                        text = "PR #$gitHubPR",
+                                        text = prLabel,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.clickable { uriHandler.openUri(prURL) },

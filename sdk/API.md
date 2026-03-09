@@ -105,7 +105,7 @@ All errors return:
 | `models` | `string[]` | yes |
 | `supportsImages` | `boolean` | yes |
 
-### GitHubCheck
+### ForgeCheck
 
 | Field | Type | Required |
 |-------|------|----------|
@@ -124,7 +124,7 @@ All errors return:
 | `baseBranch` | `string` | yes |
 | `remoteURL` | `string` |  |
 | `defaultBranchCIStatus` | `string` |  |
-| `defaultBranchChecks` | `GitHubCheck[]` |  |
+| `defaultBranchChecks` | `ForgeCheck[]` |  |
 
 ### CloneRepoReq
 
@@ -176,9 +176,9 @@ All errors return:
 | `contextWindowLimit` | `number` | yes |
 | `error` | `string` |  |
 | `result` | `string` |  |
-| `gitHubOwner` | `string` |  |
-| `gitHubRepo` | `string` |  |
-| `gitHubPR` | `number` |  |
+| `forgeOwner` | `string` |  |
+| `forgeRepo` | `string` |  |
+| `forgePR` | `number` |  |
 | `ciStatus` | `string` |  |
 | `harness` | `string` | yes |
 | `model` | `string` |  |

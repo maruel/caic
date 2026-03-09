@@ -46,11 +46,16 @@ const NON_PASSING = new Set(["failure", "cancelled", "timed_out", "action_requir
 
 function ciDotURL(repo: Repo): string | undefined {
   if (!repo.defaultBranchCIStatus) return undefined;
+  const isGitLab = !!repo.remoteURL?.includes("gitlab.com");
   if (repo.defaultBranchCIStatus === "failure") {
     const failed = repo.defaultBranchChecks?.find((c) => NON_PASSING.has(c.conclusion));
-    if (failed) return `https://github.com/${failed.owner}/${failed.repo}/actions/runs/${failed.runID}/job/${failed.jobID}`;
+    if (failed) {
+      if (isGitLab) return `https://gitlab.com/${failed.owner}/${failed.repo}/-/jobs/${failed.jobID}`;
+      if (failed.runID && failed.jobID) return `https://github.com/${failed.owner}/${failed.repo}/actions/runs/${failed.runID}/job/${failed.jobID}`;
+    }
   }
-  return repo.remoteURL ? repo.remoteURL + "/actions" : undefined;
+  if (!repo.remoteURL) return undefined;
+  return isGitLab ? repo.remoteURL + "/-/pipelines" : repo.remoteURL + "/actions";
 }
 
 const CI_DOT_COLOR: Record<string, string> = {
