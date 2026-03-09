@@ -84,8 +84,10 @@ type Config struct {
 	LLMModel string
 	// TailscaleAPIKey is necessary to support Tailscale networking inside the container.
 	TailscaleAPIKey string
-	// PreferencesPath is the path to the persistent user preferences file.
-	PreferencesPath string
+	// ConfigDir is the root directory for persistent server state (e.g. ~/.config/caic).
+	ConfigDir string
+	// CacheDir is the root directory for cache and log files (e.g. ~/.cache/caic).
+	CacheDir string
 	// GitHubToken is used to create pull requests and poll CI check-runs after sync
 	// for github.com repositories. Leave empty to disable.
 	GitHubToken string
@@ -188,9 +190,10 @@ type taskEntry struct {
 //     (runs parallel within after repos are discovered).
 //  4. Adopt containers using pre-fetched list and logs. If a container's relay
 //     is alive, auto-attach to resume streaming.
-func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *Config) (*Server, error) {
+func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Server, error) {
+	logDir := cfg.CacheDir
 	if logDir == "" {
-		return nil, errors.New("logDir is required")
+		return nil, errors.New("CacheDir is required")
 	}
 
 	absRoot, err := filepath.Abs(rootDir)
@@ -247,24 +250,18 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 		return nil, fmt.Errorf("no git repos found under %s", rootDir)
 	}
 
-	prefs, err := preferences.Open(cfg.PreferencesPath)
+	prefs, err := preferences.Open(filepath.Join(cfg.ConfigDir, "preferences.json"))
 	if err != nil {
 		return nil, fmt.Errorf("open preferences: %w", err)
 	}
 
 	backend := &mdBackend{client: mdClient, llmProvider: cfg.LLMProvider, llmModel: cfg.LLMModel}
 
-	var cache *cicache.Cache
-	if cacheDir, err := os.UserCacheDir(); err != nil {
-		slog.Warn("cannot determine cache dir; CI cache will be in-memory only", "err", err)
+	cachePath := filepath.Join(cfg.CacheDir, "ci_results.json")
+	cache, err := cicache.Open(cachePath)
+	if err != nil {
+		slog.Warn("cannot open CI cache; falling back to in-memory", "path", cachePath, "err", err)
 		cache, _ = cicache.Open("")
-	} else {
-		cachePath := filepath.Join(cacheDir, "caic", "ci_results.json")
-		var err error
-		if cache, err = cicache.Open(cachePath); err != nil {
-			slog.Warn("cannot open CI cache; falling back to in-memory", "path", cachePath, "err", err)
-			cache, _ = cicache.Open("")
-		}
 	}
 
 	s := &Server{

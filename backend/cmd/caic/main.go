@@ -110,7 +110,8 @@ See contrib/caic.env for a template with all variables and documentation.
 		TailscaleAPIKey: os.Getenv("TAILSCALE_API_KEY"),
 		LLMProvider:     os.Getenv("CAIC_LLM_PROVIDER"),
 		LLMModel:        os.Getenv("CAIC_LLM_MODEL"),
-		PreferencesPath: configPath("preferences.json"),
+		ConfigDir:       configDir(),
+		CacheDir:        cacheDir(),
 		GitHubToken:     os.Getenv("GITHUB_TOKEN"),
 	}
 
@@ -145,13 +146,11 @@ See contrib/caic.env for a template with all variables and documentation.
 		return errors.New("root directory is required: set -root flag or CAIC_ROOT env var")
 	}
 
-	logDir := cacheDir()
-
 	// Exit when executable is rebuilt (systemd restarts the service).
 	if err := watchExecutable(ctx, cancel); err != nil {
 		slog.Warn("failed to watch executable", "err", err)
 	}
-	return serveHTTP(ctx, *addr, *root, *maxTurns, logDir, cfg)
+	return serveHTTP(ctx, *addr, *root, *maxTurns, cfg)
 }
 
 // initLogging configures slog with tint for colored, concise output.
@@ -207,8 +206,8 @@ func initLogging(level string) {
 	})))
 }
 
-func serveHTTP(ctx context.Context, addr, rootDir string, maxTurns int, logDir string, cfg *server.Config) error {
-	srv, err := server.New(ctx, rootDir, maxTurns, logDir, cfg)
+func serveHTTP(ctx context.Context, addr, rootDir string, maxTurns int, cfg *server.Config) error {
+	srv, err := server.New(ctx, rootDir, maxTurns, cfg)
 	if err != nil {
 		return err
 	}
@@ -259,8 +258,15 @@ func serveFake(ctx context.Context, addr, rootDir string, cfg *server.Config) er
 	if err := os.Setenv("XDG_CONFIG_HOME", mdConfigDir); err != nil {
 		return fmt.Errorf("set XDG_CONFIG_HOME: %w", err)
 	}
-	logDir := filepath.Join(os.TempDir(), "caic-e2e-logs")
-	srv, err := server.New(ctx, rootDir, 1, logDir, cfg)
+	// Override config/cache dirs for the fake server.
+	fakeConfigDir, err := os.MkdirTemp("", "caic-e2e-cfg-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(fakeConfigDir) }()
+	cfg.ConfigDir = fakeConfigDir
+	cfg.CacheDir = filepath.Join(os.TempDir(), "caic-e2e-logs")
+	srv, err := server.New(ctx, rootDir, 1, cfg)
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}
@@ -396,9 +402,9 @@ func cacheDir() string {
 	return filepath.Join(base, "caic")
 }
 
-// configPath returns a file path under $XDG_CONFIG_HOME/caic/ with a fallback
+// configDir returns the caic config directory: $XDG_CONFIG_HOME/caic/ with a fallback
 // to ~/.config/caic/.
-func configPath(name string) string {
+func configDir() string {
 	base := os.Getenv("XDG_CONFIG_HOME")
 	if base == "" {
 		home, err := os.UserHomeDir()
@@ -407,7 +413,7 @@ func configPath(name string) string {
 		}
 		base = filepath.Join(home, ".config")
 	}
-	return filepath.Join(base, "caic", name)
+	return filepath.Join(base, "caic")
 }
 
 // watchExecutable watches the current executable for modifications and calls
