@@ -69,6 +69,9 @@ type systemWire struct {
 	Status          json.RawMessage `json:"status,omitempty"`
 	UsageExtra      json.RawMessage `json:"usage,omitempty"`
 	CompactMetadata json.RawMessage `json:"compact_metadata,omitempty"`
+	OutputFile      json.RawMessage `json:"output_file,omitempty"`
+	Summary         json.RawMessage `json:"summary,omitempty"`
+	Prompt          json.RawMessage `json:"prompt,omitempty"`
 
 	jsonutil.Overflow
 }
