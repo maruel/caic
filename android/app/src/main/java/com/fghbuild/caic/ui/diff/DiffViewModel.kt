@@ -112,6 +112,8 @@ class DiffViewModel @Inject constructor(
         private val MINUS_RE = Regex("^--- (?:[a-z]/)?(.+)", RegexOption.MULTILINE)
         // Fallback for binary/empty files: extract from "diff --git" header, with or without a/b/ prefix.
         private val GIT_RE = Regex("^diff --git (?:[a-z]/)?(.+?) (?:[a-z]/)?(.+)$", RegexOption.MULTILINE)
+        // Renames: "rename to <path>" gives the destination path.
+        private val RENAME_RE = Regex("^rename to (.+)", RegexOption.MULTILINE)
 
         /** Extract the file path from a single diff section. */
         private fun extractPath(section: String): String {
@@ -119,6 +121,7 @@ class DiffViewModel @Inject constructor(
                 ?.takeIf { it != "/dev/null" }?.let { return it }
             MINUS_RE.find(section)?.groupValues?.get(1)
                 ?.takeIf { it != "/dev/null" }?.let { return it }
+            RENAME_RE.find(section)?.groupValues?.get(1)?.let { return it }
             GIT_RE.find(section)?.let {
                 val a = it.groupValues[1]; val b = it.groupValues[2]
                 if (a == b) return a

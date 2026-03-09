@@ -19,6 +19,9 @@ function extractDiffPath(section: string): string {
   // Deleted files: use --- line.
   const minus = section.match(/^--- (?:[a-z]\/)?(.+)/m);
   if (minus && minus[1] !== "/dev/null") return minus[1];
+  // Renames: "rename to <path>" gives the destination path.
+  const renameTo = section.match(/^rename to (.+)/m);
+  if (renameTo) return renameTo[1];
   // Last resort: diff --git header (binary/empty files). Handles both "a/b/" prefixed and no-prefix formats.
   const git = section.match(/^diff --git (?:[a-z]\/)?(.+?) (?:[a-z]\/)?(.+)$/m);
   if (git && git[1] === git[2]) return git[1];
