@@ -365,14 +365,18 @@ export default function App() {
       };
     }
 
-    connectTasks();
-    connectUsage();
+    const isAuthenticated = () => auth.ready() && (auth.providers().length === 0 || auth.user() !== null);
 
-    onCleanup(() => {
-      taskES?.close();
-      usageES?.close();
-      if (taskTimer !== null) clearTimeout(taskTimer);
-      if (usageTimer !== null) clearTimeout(usageTimer);
+    createEffect(() => {
+      if (!isAuthenticated()) return;
+      connectTasks();
+      connectUsage();
+      onCleanup(() => {
+        taskES?.close();
+        usageES?.close();
+        if (taskTimer !== null) clearTimeout(taskTimer);
+        if (usageTimer !== null) clearTimeout(usageTimer);
+      });
     });
   }
 
