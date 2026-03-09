@@ -8,6 +8,7 @@ import com.caic.sdk.v1.EventToolResult
 import com.caic.sdk.v1.EventToolUse
 import com.caic.sdk.v1.EventAsk
 import com.caic.sdk.v1.AskQuestion
+import com.caic.sdk.v1.EventInit
 import com.caic.sdk.v1.EventResult
 import com.caic.sdk.v1.EventUsage
 import com.caic.sdk.v1.EventUserInput
@@ -389,6 +390,25 @@ class GroupingTest {
             val state2 = nextGrouped(state1, live)
             assertEquals(2, state2.currentSessionCompletedTurns.size)
             assertEquals(null, state2.currentTurn)
+        }
+
+        t.run("pre-init userInput does not appear as Compacted session in completedSessions") {
+            // When the message stream starts with a userInput before the first init,
+            // the userInput must not be placed in a null-boundary completedSession
+            // and rendered as a phantom "Compacted session".
+            val msgs = listOf(
+                userInputEvent("initial prompt", ts = 0),
+                EventMessage(
+                    kind = EventKinds.Init, ts = 1L,
+                    init = EventInit(sessionID = "s1", model = "m", agentVersion = "1", tools = emptyList(), cwd = "/", harness = "claude"),
+                ),
+                textDeltaEvent("response", ts = 2),
+                resultEvent(ts = 3),
+            )
+            val state = nextGrouped(IncrementalGrouped(), msgs)
+            // completedSessions must contain no null-boundary sessions
+            assertTrue("null-boundary session must not appear in completedSessions",
+                state.completedSessions.none { it.boundaryEvent == null })
         }
 
         t.run("reset on shrinking message list clears completed turns") {

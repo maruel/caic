@@ -517,8 +517,13 @@ fun nextGrouped(prev: IncrementalGrouped, msgs: List<EventMessage>): Incremental
     if (sessionChanged) {
 
         // Past sessions: all messages before the last boundary.
+        // Filter out null-boundary sessions: these are pre-init messages (e.g. the initial
+        // userInput) that arrived before any session event. They should not be shown as
+        // a phantom "Compacted session" — they belong conceptually to the first real session.
         val pastMsgs = if (lastBoundaryGlobalIdx > 0) msgs.subList(0, lastBoundaryGlobalIdx) else emptyList()
-        val completedSessions = if (lastBoundaryGlobalIdx >= 0) groupSessions(pastMsgs) else emptyList()
+        val completedSessions = if (lastBoundaryGlobalIdx >= 0) {
+            groupSessions(pastMsgs).filter { it.boundaryEvent != null }
+        } else emptyList()
 
         // Current session starts after the boundary event.
         val newCurrentSessionStart = lastBoundaryGlobalIdx + 1
