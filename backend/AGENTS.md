@@ -9,7 +9,7 @@ Go backend for caic. Packages under `internal/` are private.
 ## Conventions
 
 - Pass `context.Context` through all call chains.
-- Serialize git operations that touch the working directory (branch checkout, push).
+- Serialize branch creation (branchMu guards nextID and git branch to avoid duplicate names).
 - Use subtests (`t.Run`) to group related test cases under a single `Test*` function.
 
 ## Container Adoption

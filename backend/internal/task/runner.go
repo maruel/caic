@@ -72,7 +72,7 @@ type Runner struct {
 
 	log      *slog.Logger
 	initOnce sync.Once
-	branchMu sync.Mutex // Serializes operations that need a specific branch checked out (md commands).
+	branchMu sync.Mutex // Serializes branch creation (nextID + git branch) to avoid duplicate names.
 	nextID   int        // Next branch sequence number (protected by branchMu).
 }
 
@@ -258,11 +258,9 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	}
 	t.SetState(StateBranching)
 
-	// 1. Create branch + start container (serialized).
+	// 1. Create branch (serialized) + start container (concurrent).
 	r.log.Info("setup task")
-	r.branchMu.Lock()
 	sr, err := r.setup(ctx, t, []string{"caic=" + t.ID.String(), "harness=" + string(t.Harness)})
-	r.branchMu.Unlock()
 	if err != nil {
 		t.SetState(StateFailed)
 		return nil, err
@@ -416,16 +414,15 @@ type setupResult struct {
 	TailscaleFQDN string
 }
 
-// setup creates the branch and starts the container. Must be called under
-// branchMu.
-func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResult, error) {
+// allocateBranchLocked fetches origin, resolves the start point, and creates
+// the task branch. Must be called under branchMu.
+func (r *Runner) allocateBranchLocked(ctx context.Context, t *Task) (string, error) {
 	detached := context.WithoutCancel(ctx)
-
 	gitCtx, gitCancel := context.WithTimeout(detached, r.GitTimeout)
 	defer gitCancel()
 	// Fetch so that origin/<base> is up to date.
 	if err := gitutil.Fetch(gitCtx, r.Dir); err != nil {
-		return setupResult{}, fmt.Errorf("fetch: %w", err)
+		return "", fmt.Errorf("fetch: %w", err)
 	}
 	// Resolve effective base branch: use task override if provided.
 	effectiveBase := r.BaseBranch
@@ -443,7 +440,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 	var err error
 	for range 100 {
 		if gitCtx.Err() != nil {
-			return setupResult{}, gitCtx.Err()
+			return "", gitCtx.Err()
 		}
 		branch = fmt.Sprintf("caic-%d", r.nextID)
 		r.nextID++
@@ -454,10 +451,22 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 		}
 	}
 	if err != nil {
-		return setupResult{}, fmt.Errorf("create branch: %w", err)
+		return "", fmt.Errorf("create branch: %w", err)
+	}
+	return branch, nil
+}
+
+// setup allocates a branch and starts the container.
+func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResult, error) {
+	r.branchMu.Lock()
+	branch, err := r.allocateBranchLocked(ctx, t)
+	r.branchMu.Unlock()
+	if err != nil {
+		return setupResult{}, err
 	}
 
 	t.SetState(StateProvisioning)
+	detached := context.WithoutCancel(ctx)
 	r.log.Info("starting container", "br", branch, "img", t.DockerImage, "hns", t.Harness, "ts", t.Tailscale, "usb", t.USB, "dpy", t.Display)
 	startCtx, startCancel := context.WithTimeout(detached, r.ContainerStartTimeout)
 	defer startCancel()
@@ -469,14 +478,6 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 		return setupResult{}, fmt.Errorf("start container: %w", err)
 	}
 	r.log.Info("container started", "br", branch)
-
-	// Switch back to the base branch so the next task can create its branch.
-	// Fresh timeout since the previous gitCtx likely expired during container start.
-	gitCtx, gitCancel = context.WithTimeout(detached, r.GitTimeout)
-	defer gitCancel()
-	if err := gitutil.CheckoutBranch(gitCtx, r.Dir, r.BaseBranch); err != nil {
-		return setupResult{}, fmt.Errorf("checkout base: %w", err)
-	}
 	return setupResult{Branch: branch, Container: name, TailscaleFQDN: tailscaleFQDN}, nil
 }
 

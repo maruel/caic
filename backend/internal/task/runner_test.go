@@ -157,9 +157,7 @@ func TestRunner(t *testing.T) {
 				Harness:       agent.Claude,
 			}
 
-			r.branchMu.Lock()
 			sr, err := r.setup(t.Context(), tk, nil)
-			r.branchMu.Unlock()
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -204,9 +202,7 @@ func TestRunner(t *testing.T) {
 				Harness:       agent.Claude,
 			}
 
-			r.branchMu.Lock()
 			sr, err := r.setup(t.Context(), tk, nil)
-			r.branchMu.Unlock()
 			if err != nil {
 				t.Fatal(err)
 			}
