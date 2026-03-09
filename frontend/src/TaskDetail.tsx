@@ -36,7 +36,7 @@ interface Props {
   inPlanMode?: boolean;
   planContent?: string;
   repo: string;
-  repoURL?: string;
+  remoteURL?: string;
   branch: string;
   baseBranch: string;
   gitHubOwner?: string;
@@ -355,7 +355,7 @@ export default function TaskDetail(props: Props) {
   };
 
   const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking" || props.taskState === "has_plan";
-  const isGitHub = () => !!props.repoURL?.includes("github.com");
+  const isGitHub = () => !!props.remoteURL?.includes("github.com");
 
   function clearAndExecutePlan() {
     const prompt = props.inputDraft.trim();
@@ -406,11 +406,11 @@ export default function TaskDetail(props: Props) {
       <div class={styles.header}>
         <button class={styles.closeBtn} onClick={() => props.onClose()} title="Close"><CloseIcon width={20} height={20} /></button>
         <span class={styles.headerMeta}>
-          <Show when={props.repoURL} fallback={<span class={styles.headerRepo}>{props.repo}</span>}>
-            <a class={styles.headerRepo} href={props.repoURL} target="_blank" rel="noopener">{props.repo}</a>
+          <Show when={props.remoteURL} fallback={<span class={styles.headerRepo}>{props.repo}</span>}>
+            <a class={styles.headerRepo} href={props.remoteURL} target="_blank" rel="noopener">{props.repo}</a>
           </Show>
           <Show when={isGitHub()} fallback={<span class={styles.headerBranch}>{props.branch}</span>}>
-            <a class={styles.headerBranch} href={`${props.repoURL}/compare/${props.branch}?expand=1`} target="_blank" rel="noopener">{props.branch}</a>
+            <a class={styles.headerBranch} href={`${props.remoteURL}/compare/${props.branch}?expand=1`} target="_blank" rel="noopener">{props.branch}</a>
           </Show>
           <Show when={props.gitHubOwner && props.gitHubRepo && props.gitHubPR}>
             <a class={styles.headerPR} href={`https://github.com/${props.gitHubOwner}/${props.gitHubRepo}/pull/${props.gitHubPR}`} target="_blank" rel="noopener">PR #{props.gitHubPR}</a>

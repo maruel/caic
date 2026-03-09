@@ -339,12 +339,79 @@ export interface Config {
   displayAvailable: boolean;
 }
 /**
+ * CIStatus is the GitHub CI check state for a task or repo default branch.
+ */
+export type CIStatus = string;
+/**
+ * CI status values.
+ */
+export const CIStatusPending: CIStatus = "pending";
+/**
+ * CI status values.
+ */
+export const CIStatusSuccess: CIStatus = "success";
+/**
+ * CI status values.
+ */
+export const CIStatusFailure: CIStatus = "failure";
+/**
+ * CheckConclusion is the conclusion of a completed GitHub check run.
+ */
+export type CheckConclusion = string;
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionSuccess: CheckConclusion = "success";
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionFailure: CheckConclusion = "failure";
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionNeutral: CheckConclusion = "neutral";
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionSkipped: CheckConclusion = "skipped";
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionCancelled: CheckConclusion = "cancelled";
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionTimedOut: CheckConclusion = "timed_out";
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionActionRequired: CheckConclusion = "action_required";
+/**
+ * GitHub check-run conclusion values.
+ */
+export const CheckConclusionStale: CheckConclusion = "stale";
+/**
+ * GitHubCheck describes a GitHub Actions check run with its conclusion.
+ * Job URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}/job/{jobID}
+ * Run URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}
+ */
+export interface GitHubCheck {
+  name: string;
+  owner: string;
+  repo: string;
+  runID: number /* int64 */; // Workflow run ID.
+  jobID: number /* int64 */; // Check run / job ID.
+  conclusion: CheckConclusion;
+}
+/**
  * Repo is the JSON representation of a discovered repo.
  */
 export interface Repo {
   path: string;
   baseBranch: string;
-  repoURL?: string;
+  remoteURL?: string;
+  defaultBranchCIStatus?: CIStatus;
+  defaultBranchChecks?: GitHubCheck[];
 }
 /**
  * Task is the JSON representation sent to the frontend.
@@ -354,7 +421,7 @@ export interface Task {
   initialPrompt: string;
   title: string;
   repo: string;
-  repoURL?: string;
+  remoteURL?: string;
   baseBranch?: string; // branch the task was forked from
   branch: string;
   container: string;
@@ -376,7 +443,7 @@ export interface Task {
   gitHubOwner?: string;
   gitHubRepo?: string;
   gitHubPR?: number /* int */;
-  ciStatus?: string;
+  ciStatus?: CIStatus;
   /**
    * Per-task harness/container metadata.
    */
@@ -398,6 +465,7 @@ export interface Task {
  * kind=="upsert":   Task holds a newly created task.
  * kind=="patch":    Patch holds only the changed fields (always includes "id") for an existing task.
  * kind=="delete":   ID holds the string ID of the removed task.
+ * kind=="repos":    Repos holds the updated repo list (emitted when default-branch CI status changes).
  */
 export interface TaskListEvent {
   kind: string;
@@ -405,6 +473,7 @@ export interface TaskListEvent {
   task?: Task;
   patch?: { [key: string]: any /* json.RawMessage */};
   id?: string;
+  repos?: Repo[];
 }
 /**
  * TaskToolInputResp is the response for GET /api/v1/tasks/{id}/tool/{toolUseID}.

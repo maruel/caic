@@ -105,13 +105,26 @@ All errors return:
 | `models` | `string[]` | yes |
 | `supportsImages` | `boolean` | yes |
 
+### GitHubCheck
+
+| Field | Type | Required |
+|-------|------|----------|
+| `name` | `string` | yes |
+| `owner` | `string` | yes |
+| `repo` | `string` | yes |
+| `runID` | `number` | yes |
+| `jobID` | `number` | yes |
+| `conclusion` | `string` | yes |
+
 ### Repo
 
 | Field | Type | Required |
 |-------|------|----------|
 | `path` | `string` | yes |
 | `baseBranch` | `string` | yes |
-| `repoURL` | `string` |  |
+| `remoteURL` | `string` |  |
+| `defaultBranchCIStatus` | `string` |  |
+| `defaultBranchChecks` | `GitHubCheck[]` |  |
 
 ### CloneRepoReq
 
@@ -144,7 +157,7 @@ All errors return:
 | `initialPrompt` | `string` | yes |
 | `title` | `string` | yes |
 | `repo` | `string` | yes |
-| `repoURL` | `string` |  |
+| `remoteURL` | `string` |  |
 | `baseBranch` | `string` |  |
 | `branch` | `string` | yes |
 | `container` | `string` | yes |
@@ -465,6 +478,7 @@ All errors return:
 | `task` | `Task` |  |
 | `patch` | `Record<string, unknown>` |  |
 | `id` | `string` |  |
+| `repos` | `Repo[]` |  |
 
 ### UsageWindow
 

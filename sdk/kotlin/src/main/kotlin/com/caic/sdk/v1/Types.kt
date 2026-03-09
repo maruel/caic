@@ -74,10 +74,22 @@ data class HarnessInfo(
 )
 
 @Serializable
+data class GitHubCheck(
+    val name: String,
+    val owner: String,
+    val repo: String,
+    @SerialName("runID") val runID: Long,
+    @SerialName("jobID") val jobID: Long,
+    val conclusion: String,
+)
+
+@Serializable
 data class Repo(
     val path: String,
     val baseBranch: String,
-    @SerialName("repoURL") val repoURL: String? = null,
+    @SerialName("remoteURL") val remoteURL: String? = null,
+    @SerialName("defaultBranchCIStatus") val defaultBranchCIStatus: String? = null,
+    val defaultBranchChecks: List<GitHubCheck>? = null,
 )
 
 @Serializable
@@ -104,7 +116,7 @@ data class Task(
     val initialPrompt: String,
     val title: String,
     val repo: String,
-    @SerialName("repoURL") val repoURL: String? = null,
+    @SerialName("remoteURL") val remoteURL: String? = null,
     val baseBranch: String? = null,
     val branch: String,
     val container: String,
@@ -349,6 +361,7 @@ data class TaskListEvent(
     val task: Task? = null,
     val patch: Map<String, JsonElement>? = null,
     val id: String? = null,
+    val repos: List<Repo>? = null,
 )
 
 @Serializable

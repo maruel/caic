@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os/exec"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -53,7 +54,8 @@ const (
 
 // CheckRun describes a single GitHub Actions check run.
 type CheckRun struct {
-	ID         int64
+	JobID      int64 // Check run / job ID (the "id" field in the API response).
+	RunID      int64 // Workflow run ID parsed from html_url; 0 if not a GitHub Actions check run.
 	Name       string
 	Status     CheckRunStatus
 	Conclusion CheckRunConclusion
@@ -75,6 +77,13 @@ type createPRResponse struct {
 	} `json:"head"`
 }
 
+// refResponse is the relevant subset of the GitHub git ref response.
+type refResponse struct {
+	Object struct {
+		SHA string `json:"sha"`
+	} `json:"object"`
+}
+
 // checkRunsResponse is the relevant subset of the GitHub check-runs list response.
 type checkRunsResponse struct {
 	CheckRuns []struct {
@@ -82,8 +91,12 @@ type checkRunsResponse struct {
 		Name       string             `json:"name"`
 		Status     CheckRunStatus     `json:"status"`
 		Conclusion CheckRunConclusion `json:"conclusion"`
+		HTMLURL    string             `json:"html_url"` // e.g. https://github.com/owner/repo/actions/runs/{runID}/job/{jobID}
 	} `json:"check_runs"`
 }
+
+// actionsRunRe extracts the workflow run ID from a GitHub Actions job URL.
+var actionsRunRe = regexp.MustCompile(`/actions/runs/(\d+)/job/\d+`)
 
 // CreatePR creates a pull request on GitHub and returns its metadata.
 func (c *Client) CreatePR(ctx context.Context, owner, repo, head, base, title, body string) (PR, error) {
@@ -116,6 +129,34 @@ func (c *Client) CreatePR(ctx context.Context, owner, repo, head, base, title, b
 	return PR{Number: r.Number, HeadSHA: r.Head.SHA}, nil
 }
 
+// GetDefaultBranchSHA returns the HEAD commit SHA of branch in the given repo.
+// Uses the lightweight git refs API — no full commit data is fetched.
+func (c *Client) GetDefaultBranchSHA(ctx context.Context, owner, repo, branch string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/git/ref/heads/%s", owner, repo, branch)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return "", err
+	}
+	c.setHeaders(req)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("github get ref: status %d: %s", resp.StatusCode, data)
+	}
+	var r refResponse
+	if err := json.Unmarshal(data, &r); err != nil {
+		return "", err
+	}
+	return r.Object.SHA, nil
+}
+
 // GetCheckRuns returns all check runs for the given commit SHA.
 func (c *Client) GetCheckRuns(ctx context.Context, owner, repo, sha string) ([]CheckRun, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/check-runs", owner, repo, sha)
@@ -142,8 +183,13 @@ func (c *Client) GetCheckRuns(ctx context.Context, owner, repo, sha string) ([]C
 	}
 	runs := make([]CheckRun, len(r.CheckRuns))
 	for i, cr := range r.CheckRuns {
+		var runID int64
+		if m := actionsRunRe.FindStringSubmatch(cr.HTMLURL); m != nil {
+			runID, _ = strconv.ParseInt(m[1], 10, 64)
+		}
 		runs[i] = CheckRun{
-			ID:         cr.ID,
+			JobID:      cr.ID,
+			RunID:      runID,
 			Name:       cr.Name,
 			Status:     cr.Status,
 			Conclusion: cr.Conclusion,

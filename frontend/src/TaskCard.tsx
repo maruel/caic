@@ -17,7 +17,7 @@ export interface TaskCardProps {
   state: string;
   stateUpdatedAt: number;
   repo: string;
-  repoURL?: string;
+  remoteURL?: string;
   baseBranch?: string;
   branch: string;
   harness?: string;

@@ -35,9 +35,9 @@ vi.stubGlobal("EventSource", FakeEventSource);
 import App from "./App";
 import * as api from "@sdk/api.gen";
 
-const repoA: Repo = { path: "repos/a", baseBranch: "main", repoURL: "" };
-const repoB: Repo = { path: "repos/b", baseBranch: "main", repoURL: "" };
-const newRepo: Repo = { path: "repos/new", baseBranch: "main", repoURL: "" };
+const repoA: Repo = { path: "repos/a", baseBranch: "main", remoteURL: "" };
+const repoB: Repo = { path: "repos/b", baseBranch: "main", remoteURL: "" };
+const newRepo: Repo = { path: "repos/new", baseBranch: "main", remoteURL: "" };
 
 beforeEach(() => {
   navigateMock.mockClear();

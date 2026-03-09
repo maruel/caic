@@ -304,15 +304,15 @@ fun TaskDetailScreen(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            val repoURL = task?.repoURL
+                            val remoteURL = task?.remoteURL
                             Text(
                                 text = task?.repo ?: taskId,
                                 style = MaterialTheme.typography.titleMedium,
-                                color = if (repoURL != null) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                                color = if (remoteURL != null) MaterialTheme.colorScheme.primary else Color.Unspecified,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                modifier = if (repoURL != null) {
-                                    Modifier.clickable { uriHandler.openUri(repoURL) }
+                                modifier = if (remoteURL != null) {
+                                    Modifier.clickable { uriHandler.openUri(remoteURL) }
                                 } else {
                                     Modifier
                                 },
@@ -337,7 +337,7 @@ fun TaskDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                val branchURL = it.repoURL?.takeIf { url -> "github.com" in url }
+                                val branchURL = it.remoteURL?.takeIf { url -> "github.com" in url }
                                     ?.let { url -> "$url/compare/${it.branch}?expand=1" }
                                 Text(
                                     text = it.branch,
@@ -459,7 +459,7 @@ fun TaskDetailScreen(
                         taskBaseBranch = task?.baseBranch ?: "",
                         sending = state.sending,
                         pendingAction = state.pendingAction,
-                        repoURL = task?.repoURL,
+                        remoteURL = task?.remoteURL,
                         pendingImages = state.pendingImages,
                         supportsImages = state.supportsImages,
                         onAttachGallery = {

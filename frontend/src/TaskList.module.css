@@ -73,10 +73,26 @@
 }
 
 .repoGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 0.75rem;
   color: var(--color-text-muted);
   font-weight: 600;
   padding: 4px 0 2px;
+}
+
+.ciDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+
+a.ciDot:hover {
+  opacity: 0.75;
 }
 
 /* Mobile: <=768px */

@@ -49,11 +49,50 @@ type Config struct {
 	DisplayAvailable   bool `json:"displayAvailable"`
 }
 
+// CIStatus is the GitHub CI check state for a task or repo default branch.
+type CIStatus string
+
+// CI status values.
+const (
+	CIStatusPending CIStatus = "pending"
+	CIStatusSuccess CIStatus = "success"
+	CIStatusFailure CIStatus = "failure"
+)
+
+// CheckConclusion is the conclusion of a completed GitHub check run.
+type CheckConclusion string
+
+// GitHub check-run conclusion values.
+const (
+	CheckConclusionSuccess        CheckConclusion = "success"
+	CheckConclusionFailure        CheckConclusion = "failure"
+	CheckConclusionNeutral        CheckConclusion = "neutral"
+	CheckConclusionSkipped        CheckConclusion = "skipped"
+	CheckConclusionCancelled      CheckConclusion = "cancelled"
+	CheckConclusionTimedOut       CheckConclusion = "timed_out"
+	CheckConclusionActionRequired CheckConclusion = "action_required"
+	CheckConclusionStale          CheckConclusion = "stale"
+)
+
+// GitHubCheck describes a GitHub Actions check run with its conclusion.
+// Job URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}/job/{jobID}
+// Run URL:  https://github.com/{owner}/{repo}/actions/runs/{runID}
+type GitHubCheck struct {
+	Name       string          `json:"name"`
+	Owner      string          `json:"owner"`
+	Repo       string          `json:"repo"`
+	RunID      int64           `json:"runID"` // Workflow run ID.
+	JobID      int64           `json:"jobID"` // Check run / job ID.
+	Conclusion CheckConclusion `json:"conclusion"`
+}
+
 // Repo is the JSON representation of a discovered repo.
 type Repo struct {
-	Path       string `json:"path"`
-	BaseBranch string `json:"baseBranch"`
-	RepoURL    string `json:"repoURL,omitempty"`
+	Path                  string        `json:"path"`
+	BaseBranch            string        `json:"baseBranch"`
+	RemoteURL             string        `json:"remoteURL,omitempty"`
+	DefaultBranchCIStatus CIStatus      `json:"defaultBranchCIStatus,omitempty"`
+	DefaultBranchChecks   []GitHubCheck `json:"defaultBranchChecks,omitempty"`
 }
 
 // Task is the JSON representation sent to the frontend.
@@ -62,7 +101,7 @@ type Task struct {
 	InitialPrompt                      string   `json:"initialPrompt"`
 	Title                              string   `json:"title"`
 	Repo                               string   `json:"repo"`
-	RepoURL                            string   `json:"repoURL,omitempty"`
+	RemoteURL                          string   `json:"remoteURL,omitempty"`
 	BaseBranch                         string   `json:"baseBranch,omitempty"` // branch the task was forked from
 	Branch                             string   `json:"branch"`
 	Container                          string   `json:"container"`
@@ -84,7 +123,7 @@ type Task struct {
 	GitHubOwner                        string   `json:"gitHubOwner,omitempty"`
 	GitHubRepo                         string   `json:"gitHubRepo,omitempty"`
 	GitHubPR                           int      `json:"gitHubPR,omitempty"`
-	CIStatus                           string   `json:"ciStatus,omitempty"`
+	CIStatus                           CIStatus `json:"ciStatus,omitempty"`
 	// Per-task harness/container metadata.
 	Harness       Harness `json:"harness"`
 	Model         string  `json:"model,omitempty"`
@@ -104,12 +143,14 @@ type Task struct {
 // kind=="upsert":   Task holds a newly created task.
 // kind=="patch":    Patch holds only the changed fields (always includes "id") for an existing task.
 // kind=="delete":   ID holds the string ID of the removed task.
+// kind=="repos":    Repos holds the updated repo list (emitted when default-branch CI status changes).
 type TaskListEvent struct {
 	Kind  string                     `json:"kind"`
 	Tasks []Task                     `json:"tasks,omitempty"`
 	Task  *Task                      `json:"task,omitempty"`
 	Patch map[string]json.RawMessage `json:"patch,omitempty"`
 	ID    string                     `json:"id,omitempty"`
+	Repos []Repo                     `json:"repos,omitempty"`
 }
 
 // TaskToolInputResp is the response for GET /api/v1/tasks/{id}/tool/{toolUseID}.

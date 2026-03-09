@@ -46,7 +46,7 @@ describe("TaskDetail", () => {
     taskId: "abc",
     taskState: "running",
     repo: "my-repo",
-    repoURL: "https://github.com/org/my-repo",
+    remoteURL: "https://github.com/org/my-repo",
     branch: "feature-branch",
     baseBranch: "main",
     onClose: () => {},

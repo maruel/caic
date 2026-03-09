@@ -69,9 +69,11 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.ImageData
+import com.caic.sdk.v1.Repo
 import com.fghbuild.caic.ui.common.AttachMenu
 import com.fghbuild.caic.util.ScreenshotService
 import com.fghbuild.caic.util.bitmapToImageData
@@ -198,13 +200,36 @@ private fun MainContent(
         val repoGroups = activeTasks.groupBy { it.repo }
         for ((repo, tasksInRepo) in repoGroups) {
             item(key = "repo_header_$repo") {
-                Text(
-                    text = repo,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold,
+                val uriHandler = LocalUriHandler.current
+                val repoMeta = state.repos.find { it.path == repo }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.padding(top = 4.dp),
-                )
+                ) {
+                    Text(
+                        text = repo,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    val ciStatus = repoMeta?.defaultBranchCIStatus
+                    if (ciStatus != null) {
+                        val dotColor = when (ciStatus) {
+                            "success" -> Color(0xFF28A745)
+                            "failure" -> Color(0xFFDC3545)
+                            else -> Color(0xFFFFC107)
+                        }
+                        val ciUrl = ciDotUrl(repoMeta)
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(dotColor)
+                                .then(if (ciUrl != null) Modifier.clickable { uriHandler.openUri(ciUrl) } else Modifier),
+                        )
+                    }
+                }
             }
             items(items = tasksInRepo, key = { it.id }) { task ->
                 TaskCard(task = task, onClick = { onNavigateToTask(task.id) })
@@ -508,4 +533,14 @@ private fun CloneRepoDialog(
             }
         },
     )
+}
+
+private val nonPassingConclusions = setOf("failure", "cancelled", "timed_out", "action_required", "stale")
+
+private fun ciDotUrl(repo: Repo): String? {
+    if (repo.defaultBranchCIStatus == "failure") {
+        val failed = repo.defaultBranchChecks?.find { it.conclusion in nonPassingConclusions }
+        if (failed != null) return "https://github.com/${failed.owner}/${failed.repo}/actions/runs/${failed.runID}/job/${failed.jobID}"
+    }
+    return repo.remoteURL?.let { "$it/actions" }
 }

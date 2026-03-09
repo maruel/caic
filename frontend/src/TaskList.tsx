@@ -1,7 +1,7 @@
 // Sidebar task list with collapsible panel, grouped by repo for active tasks.
 import { For, Index, Show } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { Task } from "@sdk/types.gen";
+import type { Repo, Task } from "@sdk/types.gen";
 import TaskCard from "./TaskCard";
 import styles from "./TaskList.module.css";
 import LeftPanelClose from "@material-symbols/svg-400/outlined/left_panel_close.svg?solid";
@@ -9,6 +9,7 @@ import LeftPanelOpen from "@material-symbols/svg-400/outlined/left_panel_open.sv
 
 export interface TaskListProps {
   tasks: Accessor<Task[]>;
+  repos: Accessor<Repo[]>;
   selectedId: string | null;
   sidebarOpen: Accessor<boolean>;
   setSidebarOpen: (open: boolean) => void;
@@ -40,6 +41,23 @@ interface RepoGroup {
   repo: string;
   tasks: Task[];
 }
+
+const NON_PASSING = new Set(["failure", "cancelled", "timed_out", "action_required", "stale"]);
+
+function ciDotURL(repo: Repo): string | undefined {
+  if (!repo.defaultBranchCIStatus) return undefined;
+  if (repo.defaultBranchCIStatus === "failure") {
+    const failed = repo.defaultBranchChecks?.find((c) => NON_PASSING.has(c.conclusion));
+    if (failed) return `https://github.com/${failed.owner}/${failed.repo}/actions/runs/${failed.runID}/job/${failed.jobID}`;
+  }
+  return repo.remoteURL ? repo.remoteURL + "/actions" : undefined;
+}
+
+const CI_DOT_COLOR: Record<string, string> = {
+  pending: "var(--color-warning-border)",
+  success: "var(--color-success)",
+  failure: "var(--color-danger)",
+};
 
 export default function TaskList(props: TaskListProps) {
   const isTerminal = (s: string) => s === "failed" || s === "terminated";
@@ -73,7 +91,7 @@ export default function TaskList(props: TaskListProps) {
       state={t().state}
       stateUpdatedAt={t().stateUpdatedAt}
       repo={t().repo}
-      repoURL={t().repoURL}
+      remoteURL={t().remoteURL}
       baseBranch={t().baseBranch}
       branch={t().branch}
       harness={t().harness}
@@ -118,12 +136,30 @@ export default function TaskList(props: TaskListProps) {
           <p class={styles.placeholder}>No tasks yet.</p>
         </Show>
         <For each={grouped().groups}>
-          {(group) => (
+          {(group) => {
+            const repoMeta = () => props.repos().find((r) => r.path === group.repo);
+            return (
             <div class={styles.repoGroup}>
-              <div class={styles.repoGroupHeader}>{group.repo}</div>
+              <div class={styles.repoGroupHeader}>
+                {group.repo}
+                <Show when={repoMeta()} keyed>
+                  {(meta) => (
+                    <Show when={meta.defaultBranchCIStatus} keyed>
+                      {(status) => {
+                        const url = ciDotURL(meta);
+                        const label = `Default branch CI: ${status}`;
+                        return url
+                          ? <a class={styles.ciDot} style={{ background: CI_DOT_COLOR[status] }} href={url} target="_blank" rel="noopener" title={label} onClick={(e) => e.stopPropagation()} />
+                          : <span class={styles.ciDot} style={{ background: CI_DOT_COLOR[status] }} title={label} />;
+                      }}
+                    </Show>
+                  )}
+                </Show>
+              </div>
               <Index each={group.tasks}>{renderTask}</Index>
             </div>
-          )}
+            );
+          }}
         </For>
         <Index each={grouped().terminal}>{renderTask}</Index>
       </div>

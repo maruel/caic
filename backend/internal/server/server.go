@@ -27,6 +27,7 @@ import (
 	"github.com/caic-xyz/caic/backend/frontend"
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
+	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/container"
 	"github.com/caic-xyz/caic/backend/internal/github"
 	"github.com/caic-xyz/caic/backend/internal/preferences"
@@ -41,10 +42,18 @@ import (
 )
 
 type repoInfo struct {
-	RelPath    string // e.g. "github/caic" — used as API ID.
-	AbsPath    string
-	BaseBranch string
-	RepoURL    string // HTTPS browse URL derived from origin remote.
+	RelPath     string // e.g. "github/caic" — used as API ID.
+	AbsPath     string
+	BaseBranch  string
+	Remote      string // Raw git remote URL (origin).
+	GitHubOwner string // empty if not a GitHub remote
+	GitHubRepo  string // empty if not a GitHub remote
+}
+
+// repoCIState holds the live default-branch CI status for one repo.
+type repoCIState struct {
+	Status cicache.Status
+	Checks []v1.GitHubCheck
 }
 
 // CreateAuthTokenConfig is the request for POST /v1alpha/auth_tokens.
@@ -81,22 +90,28 @@ type Config struct {
 
 // Server is the HTTP server for the caic web UI.
 type Server struct {
+	// Immutable after construction.
 	ctx          context.Context // server-lifetime context; outlives individual HTTP requests
 	absRoot      string          // absolute path to the root repos directory
 	repos        []repoInfo
 	runners      map[string]*task.Runner // keyed by RelPath
 	mdClient     *md.Client
-	mu           sync.Mutex
-	tasks        map[string]*taskEntry
-	changed      chan struct{} // closed on task mutation; replaced under mu
 	maxTurns     int
 	logDir       string
 	prefs        *preferences.Store
 	usage        *usageFetcher // nil if no OAuth token available
 	geminiAPIKey string
 	githubToken  string
+	ciCache      *cicache.Cache
 	provider     genai.Provider
 	backend      *mdBackend // container backend for runner creation
+
+	// Guarded by mu.
+	mu            sync.Mutex
+	tasks         map[string]*taskEntry
+	repoCIStatus  map[string]repoCIState        // keyed by repoInfo.RelPath
+	repoCIPollers map[string]context.CancelFunc // keyed by repoInfo.RelPath
+	changed       chan struct{}                 // closed on task mutation; replaced under mu
 }
 
 // mdBackend adapts *md.Client to task.ContainerBackend.
@@ -231,20 +246,36 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 
 	backend := &mdBackend{client: mdClient, llmProvider: cfg.LLMProvider, llmModel: cfg.LLMModel}
 
+	var cache *cicache.Cache
+	if cacheDir, err := os.UserCacheDir(); err != nil {
+		slog.Warn("cannot determine cache dir; CI cache will be in-memory only", "err", err)
+		cache, _ = cicache.Open("")
+	} else {
+		cachePath := filepath.Join(cacheDir, "caic", "ci_results.json")
+		var err error
+		if cache, err = cicache.Open(cachePath); err != nil {
+			slog.Warn("cannot open CI cache; falling back to in-memory", "path", cachePath, "err", err)
+			cache, _ = cicache.Open("")
+		}
+	}
+
 	s := &Server{
-		ctx:          ctx,
-		absRoot:      absRoot,
-		runners:      make(map[string]*task.Runner, len(repoRes.paths)),
-		tasks:        make(map[string]*taskEntry),
-		changed:      make(chan struct{}),
-		maxTurns:     maxTurns,
-		logDir:       logDir,
-		prefs:        prefs,
-		usage:        newUsageFetcher(ctx),
-		geminiAPIKey: cfg.GeminiAPIKey,
-		githubToken:  cfg.GitHubToken,
-		mdClient:     mdClient,
-		backend:      backend,
+		ctx:           ctx,
+		absRoot:       absRoot,
+		runners:       make(map[string]*task.Runner, len(repoRes.paths)),
+		mdClient:      mdClient,
+		maxTurns:      maxTurns,
+		logDir:        logDir,
+		prefs:         prefs,
+		usage:         newUsageFetcher(ctx),
+		geminiAPIKey:  cfg.GeminiAPIKey,
+		githubToken:   cfg.GitHubToken,
+		ciCache:       cache,
+		backend:       backend,
+		tasks:         make(map[string]*taskEntry),
+		repoCIStatus:  make(map[string]repoCIState),
+		repoCIPollers: make(map[string]context.CancelFunc),
+		changed:       make(chan struct{}),
 	}
 	if cfg.LLMProvider != "" {
 		if c, ok := providers.All[cfg.LLMProvider]; !ok || c.Factory == nil {
@@ -283,7 +314,7 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 				slog.Warn("skipping repo, cannot determine default branch", "path", abs, "err", err)
 				return
 			}
-			repoURL := gitutil.RemoteToHTTPS(gitutil.RemoteOriginURL(ctx, abs))
+			remote := gitutil.RemoteOriginURL(ctx, abs)
 			runner := &task.Runner{
 				BaseBranch: branch,
 				Dir:        abs,
@@ -294,8 +325,15 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 			if err := runner.Init(ctx); err != nil {
 				slog.Warn("runner init failed", "path", abs, "err", err)
 			}
+			var ghOwner, ghRepo string
+			if rawURL, err := github.RemoteURL(ctx, abs); err == nil {
+				ghOwner, ghRepo, _ = github.ParseRemoteURL(rawURL)
+			}
 			results[i] = repoResult{
-				info:   repoInfo{RelPath: rel, AbsPath: abs, BaseBranch: branch, RepoURL: repoURL},
+				info: repoInfo{
+					RelPath: rel, AbsPath: abs, BaseBranch: branch, Remote: remote,
+					GitHubOwner: ghOwner, GitHubRepo: ghRepo,
+				},
 				runner: runner,
 			}
 			slog.Info("discovered repo", "path", rel, "br", branch)
@@ -334,6 +372,13 @@ func New(ctx context.Context, rootDir string, maxTurns int, logDir string, cfg *
 
 	s.watchContainerEvents(ctx)
 	go s.discoverKiloModels()
+	if cfg.GitHubToken != "" {
+		for _, info := range s.repos {
+			if info.GitHubOwner != "" {
+				s.updateRepoCIPolling(info.RelPath) //nolint:contextcheck // uses server context intentionally
+			}
+		}
+	}
 	return s, nil
 }
 
@@ -462,11 +507,24 @@ func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]v1.Harnes
 }
 
 func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]v1.Repo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reposLocked(), nil
+}
+
+// reposLocked builds the current repo list including live CI status.
+// Must be called with s.mu held.
+func (s *Server) reposLocked() *[]v1.Repo {
 	out := make([]v1.Repo, len(s.repos))
 	for i, r := range s.repos {
-		out[i] = v1.Repo{Path: r.RelPath, BaseBranch: r.BaseBranch, RepoURL: r.RepoURL}
+		repo := v1.Repo{Path: r.RelPath, BaseBranch: r.BaseBranch, RemoteURL: gitutil.RemoteToHTTPS(r.Remote)}
+		if ci, ok := s.repoCIStatus[r.RelPath]; ok {
+			repo.DefaultBranchCIStatus = v1.CIStatus(ci.Status)
+			repo.DefaultBranchChecks = ci.Checks
+		}
+		out[i] = repo
 	}
-	return &out, nil
+	return &out
 }
 
 func (s *Server) handleListRepoBranches(w http.ResponseWriter, r *http.Request) {
@@ -544,7 +602,7 @@ func (s *Server) cloneRepo(ctx context.Context, req *v1.CloneRepoReq) (*v1.Repo,
 		_ = os.RemoveAll(absTarget)
 		return nil, dto.InternalError("cannot determine default branch: " + err.Error())
 	}
-	repoURL := gitutil.RemoteToHTTPS(gitutil.RemoteOriginURL(ctx, absTarget))
+	remote := gitutil.RemoteOriginURL(ctx, absTarget)
 
 	// Create and init runner.
 	runner := &task.Runner{
@@ -559,12 +617,12 @@ func (s *Server) cloneRepo(ctx context.Context, req *v1.CloneRepoReq) (*v1.Repo,
 		return nil, dto.InternalError("failed to init runner: " + err.Error())
 	}
 
-	info := repoInfo{RelPath: targetPath, AbsPath: absTarget, BaseBranch: branch, RepoURL: repoURL}
+	info := repoInfo{RelPath: targetPath, AbsPath: absTarget, BaseBranch: branch, Remote: remote}
 	s.repos = append(s.repos, info)
 	s.runners[targetPath] = runner
 	slog.Info("cloned repo", "url", req.URL, "path", targetPath)
 
-	return &v1.Repo{Path: targetPath, BaseBranch: branch, RepoURL: repoURL}, nil
+	return &v1.Repo{Path: targetPath, BaseBranch: branch, RemoteURL: gitutil.RemoteToHTTPS(remote)}, nil
 }
 
 func (s *Server) listTasks(_ context.Context, _ *dto.EmptyReq) (*[]v1.Task, error) {
@@ -607,9 +665,10 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 	s.tasks[t.ID.String()] = entry
 	s.taskChanged()
 	s.mu.Unlock()
+	s.updateRepoCIPolling(req.Repo) //nolint:contextcheck // uses server context intentionally
 
 	// Run in background using the server context, not the request context.
-	go func() {
+	go func() { //nolint:contextcheck // goroutine uses server context intentionally
 		h, err := runner.Start(s.ctx, t)
 		if err != nil {
 			result := task.Result{State: task.StateFailed, Err: err}
@@ -618,6 +677,7 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 			s.taskChanged()
 			s.mu.Unlock()
 			close(entry.done)
+			s.updateRepoCIPolling(req.Repo)
 			return
 		}
 		s.watchSession(entry, runner, h)
@@ -750,7 +810,7 @@ func (s *Server) handleTaskToolInput(w http.ResponseWriter, r *http.Request) {
 }
 
 // emitTaskListEvent marshals ev and writes it as an SSE message event.
-func emitTaskListEvent(w http.ResponseWriter, flusher http.Flusher, ev v1.TaskListEvent) error {
+func emitTaskListEvent(w http.ResponseWriter, flusher http.Flusher, ev v1.TaskListEvent) error { //nolint:gocritic // struct size grew with Repos field; refactor not worth it
 	data, err := json.Marshal(ev)
 	if err != nil {
 		return err
@@ -782,6 +842,7 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 
 	// prevByID tracks the last marshalled JSON for each task ID.
 	prevByID := map[string][]byte{}
+	var prevReposJSON []byte
 	first := true
 
 	for {
@@ -790,18 +851,26 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 		for _, e := range s.tasks {
 			out = append(out, s.toJSON(e))
 		}
+		repos := s.reposLocked()
 		ch := s.changed
 		s.mu.Unlock()
+
+		reposJSON, _ := json.Marshal(repos)
 
 		if first {
 			if err := emitTaskListEvent(w, flusher, v1.TaskListEvent{Kind: "snapshot", Tasks: out}); err != nil {
 				slog.Warn("marshal task list snapshot", "err", err)
 				return
 			}
+			if err := emitTaskListEvent(w, flusher, v1.TaskListEvent{Kind: "repos", Repos: *repos}); err != nil {
+				slog.Warn("marshal repos snapshot", "err", err)
+				return
+			}
 			for i := range out {
 				data, _ := json.Marshal(&out[i])
 				prevByID[out[i].ID.String()] = data
 			}
+			prevReposJSON = reposJSON
 			first = false
 		} else {
 			// Emit upserts/patches for new or changed tasks.
@@ -845,6 +914,14 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 						return
 					}
 					delete(prevByID, id)
+				}
+			}
+			// Emit repos update when default-branch CI status has changed.
+			if !bytes.Equal(reposJSON, prevReposJSON) {
+				prevReposJSON = reposJSON
+				if err := emitTaskListEvent(w, flusher, v1.TaskListEvent{Kind: "repos", Repos: *repos}); err != nil {
+					slog.Warn("marshal repos update", "err", err)
+					return
 				}
 			}
 		}
@@ -1013,7 +1090,7 @@ func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.Empty
 	s.taskChanged()
 	s.mu.Unlock()
 	runner := s.runners[entry.task.Repo]
-	go s.cleanupTask(entry, runner, task.StateTerminated)
+	go s.cleanupTask(entry, runner, task.StateTerminated) //nolint:contextcheck // uses server context intentionally
 	return &v1.StatusResp{Status: "terminating"}, nil
 }
 
@@ -1112,6 +1189,13 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, base
 // then injects a summary into the agent via SendInput.
 func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, gh *github.Client, owner, repo, sha string) {
 	t := entry.task
+
+	// Fast path: result already cached (e.g. after a server restart).
+	if cached, ok := s.ciCache.Get(owner, repo, sha); ok {
+		s.applyMonitorCIResult(ctx, entry, owner, repo, sha, cached)
+		return
+	}
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -1133,44 +1217,201 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, gh *github.Cli
 		if len(runs) == 0 {
 			continue
 		}
-		allDone := true
-		for _, r := range runs {
-			if r.Status != github.CheckRunStatusCompleted {
-				allDone = false
-				break
-			}
-		}
-		if !allDone {
+		result, done := evaluateCheckRuns(owner, repo, runs)
+		if !done {
 			t.SetCIStatus(task.CIStatusPending)
 			s.notifyTaskChange()
 			continue
 		}
-		// All checks completed — build summary and resume agent.
-		var failed []github.CheckRun
-		for _, r := range runs {
-			if r.Conclusion != github.CheckRunConclusionSuccess && r.Conclusion != github.CheckRunConclusionNeutral && r.Conclusion != github.CheckRunConclusionSkipped {
-				failed = append(failed, r)
-			}
+		if err := s.ciCache.Put(owner, repo, sha, result); err != nil {
+			slog.Warn("monitorCI: cache put", "err", err)
 		}
-		ciStatus := task.CIStatusSuccess
-		var summary string
-		if len(failed) == 0 {
-			summary = fmt.Sprintf("GitHub CI: %d/%d checks passed.", len(runs), len(runs))
-		} else {
-			ciStatus = task.CIStatusFailure
-			var sb strings.Builder
-			fmt.Fprintf(&sb, "GitHub CI: %d/%d checks passed, %d failed:\n", len(runs)-len(failed), len(runs), len(failed))
-			for _, r := range failed {
-				fmt.Fprintf(&sb, "- %s: https://github.com/%s/%s/runs/%d\n", r.Name, owner, repo, r.ID)
-			}
-			summary = strings.TrimRight(sb.String(), "\n")
-		}
-		t.SetCIStatus(ciStatus)
-		s.notifyTaskChange()
-		if err := t.SendInput(ctx, agent.Prompt{Text: summary}); err != nil {
-			slog.Warn("monitorCI: send input", "task", t.ID, "err", err)
-		}
+		s.applyMonitorCIResult(ctx, entry, owner, repo, sha, result)
 		return
+	}
+}
+
+// applyMonitorCIResult updates the task CI status and injects the CI summary
+// into the agent.
+func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, owner, repo, sha string, result cicache.Result) {
+	t := entry.task
+	ciStatus := task.CIStatusSuccess
+	var summary string
+	if result.Status == cicache.StatusFailure {
+		ciStatus = task.CIStatusFailure
+		var sb strings.Builder
+		var numFailed int
+		for _, c := range result.Checks {
+			if c.Conclusion != cicache.CheckConclusionSuccess &&
+				c.Conclusion != cicache.CheckConclusionNeutral &&
+				c.Conclusion != cicache.CheckConclusionSkipped {
+				numFailed++
+			}
+		}
+		fmt.Fprintf(&sb, "GitHub CI: %d check(s) failed:\n", numFailed)
+		for _, c := range result.Checks {
+			if c.Conclusion != cicache.CheckConclusionSuccess &&
+				c.Conclusion != cicache.CheckConclusionNeutral &&
+				c.Conclusion != cicache.CheckConclusionSkipped {
+				if c.RunID > 0 && c.JobID > 0 {
+					fmt.Fprintf(&sb, "- %s (%s): https://github.com/%s/%s/actions/runs/%d/job/%d\n", c.Name, c.Conclusion, c.Owner, c.Repo, c.RunID, c.JobID)
+				} else {
+					fmt.Fprintf(&sb, "- %s (%s)\n", c.Name, c.Conclusion)
+				}
+			}
+		}
+		summary = strings.TrimRight(sb.String(), "\n")
+	} else {
+		summary = fmt.Sprintf("GitHub CI: all checks passed for %s/%s@%s.", owner, repo, sha[:min(7, len(sha))])
+	}
+	t.SetCIStatus(ciStatus)
+	s.notifyTaskChange()
+	if err := t.SendInput(ctx, agent.Prompt{Text: summary}); err != nil {
+		slog.Warn("monitorCI: send input", "task", t.ID, "err", err)
+	}
+}
+
+// evaluateCheckRuns inspects runs for a SHA and returns a cicache.Result plus
+// whether all checks have completed (done=true). Only call with len(runs)>0.
+func evaluateCheckRuns(owner, repo string, runs []github.CheckRun) (cicache.Result, bool) {
+	for _, r := range runs {
+		if r.Status != github.CheckRunStatusCompleted {
+			return cicache.Result{}, false
+		}
+	}
+	checks := make([]cicache.GitHubCheck, 0, len(runs))
+	anyFailed := false
+	for _, r := range runs {
+		checks = append(checks, cicache.GitHubCheck{
+			Name:       r.Name,
+			Owner:      owner,
+			Repo:       repo,
+			RunID:      r.RunID,
+			JobID:      r.JobID,
+			Conclusion: cicache.CheckConclusion(r.Conclusion),
+		})
+		if r.Conclusion != github.CheckRunConclusionSuccess &&
+			r.Conclusion != github.CheckRunConclusionNeutral &&
+			r.Conclusion != github.CheckRunConclusionSkipped {
+			anyFailed = true
+		}
+	}
+	status := cicache.StatusSuccess
+	if anyFailed {
+		status = cicache.StatusFailure
+	}
+	return cicache.Result{Status: status, Checks: checks}, true
+}
+
+// pollDefaultBranchCI periodically checks the default branch HEAD SHA and its
+// CI status, using the cache for terminal states. Runs per-repo in a goroutine.
+func (s *Server) pollDefaultBranchCI(ctx context.Context, info repoInfo) { //nolint:gocritic // repoInfo passed by value intentionally for goroutine safety
+	gh := &github.Client{Token: s.githubToken}
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	// Poll immediately on start, then on each tick.
+	for first := true; ; first = false {
+		if !first {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+		sha, err := gh.GetDefaultBranchSHA(ctx, info.GitHubOwner, info.GitHubRepo, info.BaseBranch)
+		if err != nil {
+			slog.Warn("pollDefaultBranchCI: get SHA", "repo", info.RelPath, "err", err)
+			continue
+		}
+		// Cache hit: use stored terminal result directly.
+		if cached, ok := s.ciCache.Get(info.GitHubOwner, info.GitHubRepo, sha); ok {
+			s.setRepoCIStatus(info.RelPath, cached)
+			continue
+		}
+		// Fetch check-runs for the new SHA.
+		runs, err := gh.GetCheckRuns(ctx, info.GitHubOwner, info.GitHubRepo, sha)
+		if err != nil {
+			slog.Warn("pollDefaultBranchCI: get check-runs", "repo", info.RelPath, "err", err)
+			continue
+		}
+		if len(runs) == 0 {
+			continue
+		}
+		result, done := evaluateCheckRuns(info.GitHubOwner, info.GitHubRepo, runs)
+		if !done {
+			// Still pending — store pending status without caching.
+			s.setRepoCIStatus(info.RelPath, cicache.Result{Status: cicache.StatusPending})
+			continue
+		}
+		if err := s.ciCache.Put(info.GitHubOwner, info.GitHubRepo, sha, result); err != nil {
+			slog.Warn("pollDefaultBranchCI: cache put", "repo", info.RelPath, "err", err)
+		}
+		s.setRepoCIStatus(info.RelPath, result)
+	}
+}
+
+// setRepoCIStatus updates the in-memory CI state for a repo and notifies
+// SSE subscribers if the status changed.
+func (s *Server) setRepoCIStatus(relPath string, result cicache.Result) {
+	checks := make([]v1.GitHubCheck, len(result.Checks))
+	for i, c := range result.Checks {
+		checks[i] = v1.GitHubCheck{Name: c.Name, Owner: c.Owner, Repo: c.Repo, RunID: c.RunID, JobID: c.JobID, Conclusion: v1.CheckConclusion(c.Conclusion)}
+	}
+	next := repoCIState{Status: result.Status, Checks: checks}
+	s.mu.Lock()
+	prev := s.repoCIStatus[relPath]
+	changed := prev.Status != next.Status
+	s.repoCIStatus[relPath] = next
+	s.mu.Unlock()
+	if changed {
+		s.notifyTaskChange()
+	}
+}
+
+// repoHasActiveTasksLocked returns true if relPath has any non-terminal tasks.
+// Must be called with mu held.
+func (s *Server) repoHasActiveTasksLocked(relPath string) bool {
+	for _, e := range s.tasks {
+		if e.task.Repo == relPath && e.result == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// updateRepoCIPolling starts or stops the default-branch CI poller for relPath
+// based on whether it currently has active (non-terminal) tasks.
+func (s *Server) updateRepoCIPolling(relPath string) {
+	if s.githubToken == "" {
+		return
+	}
+	s.mu.Lock()
+	var info *repoInfo
+	for i := range s.repos {
+		if s.repos[i].RelPath == relPath && s.repos[i].GitHubOwner != "" {
+			info = &s.repos[i]
+			break
+		}
+	}
+	if info == nil {
+		s.mu.Unlock()
+		return
+	}
+	hasActive := s.repoHasActiveTasksLocked(relPath)
+	_, polling := s.repoCIPollers[relPath]
+	var startCtx context.Context
+	var startCancel context.CancelFunc
+	if hasActive && !polling {
+		startCtx, startCancel = context.WithCancel(s.ctx) //nolint:gosec // cancel stored in repoCIPollers; called on poller stop
+		s.repoCIPollers[relPath] = startCancel
+	} else if !hasActive && polling {
+		s.repoCIPollers[relPath]()
+		delete(s.repoCIPollers, relPath)
+	}
+	infoCopy := *info
+	s.mu.Unlock()
+	if startCancel != nil {
+		go s.pollDefaultBranchCI(startCtx, infoCopy)
 	}
 }
 
@@ -1447,7 +1688,7 @@ func (s *Server) adoptContainers(ctx context.Context, containers []*md.Container
 // whether the relay is alive, and registers the task. If the relay is
 // alive, it spawns a background goroutine to reattach. allLogs is the
 // pre-loaded set of JSONL log files (shared across all adoptOne calls).
-func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, c *md.Container, branch string, branchID map[string]string, allLogs []*task.LoadedTask) error {
+func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner, c *md.Container, branch string, branchID map[string]string, allLogs []*task.LoadedTask) error { //nolint:gocritic // repoInfo size increase from GitHub fields; refactor not worth it
 	// Only adopt containers that caic started. The caic label is set at
 	// container creation and is the authoritative proof of ownership.
 	labelVal, err := container.LabelValue(ctx, c.Name, "caic")
@@ -1644,6 +1885,7 @@ func (s *Server) cleanupTask(entry *taskEntry, runner *task.Runner, reason task.
 		s.taskChanged()
 		s.mu.Unlock()
 		close(entry.done)
+		s.updateRepoCIPolling(entry.task.Repo)
 	})
 }
 
@@ -1705,7 +1947,7 @@ func (s *Server) watchContainerEvents(ctx context.Context) {
 				}
 			}
 			for ev := range ch {
-				s.handleContainerDeath(ev.Name)
+				s.handleContainerDeath(ev.Name) //nolint:contextcheck // uses server context intentionally
 			}
 			// Stream ended. Reconnect unless context cancelled.
 			if ctx.Err() != nil {
@@ -1811,7 +2053,7 @@ func (s *Server) notifyTaskChange() {
 func (s *Server) repoURL(rel string) string {
 	for _, r := range s.repos {
 		if r.RelPath == rel {
-			return r.RepoURL
+			return gitutil.RemoteToHTTPS(r.Remote)
 		}
 	}
 	return ""
@@ -1859,7 +2101,7 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 		InitialPrompt:  e.task.InitialPrompt.Text,
 		Title:          snap.Title,
 		Repo:           e.task.Repo,
-		RepoURL:        s.repoURL(e.task.Repo),
+		RemoteURL:      s.repoURL(e.task.Repo),
 		BaseBranch:     s.effectiveBaseBranch(e.task),
 		Branch:         e.task.Branch,
 		Container:      e.task.Container,
@@ -1908,7 +2150,7 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	j.GitHubOwner = snap.GitHubOwner
 	j.GitHubRepo = snap.GitHubRepo
 	j.GitHubPR = snap.GitHubPR
-	j.CIStatus = string(snap.CIStatus)
+	j.CIStatus = v1.CIStatus(snap.CIStatus)
 	return j
 }
 

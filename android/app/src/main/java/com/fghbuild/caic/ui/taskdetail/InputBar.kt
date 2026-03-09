@@ -78,7 +78,7 @@ fun InputBar(
     taskBaseBranch: String = "",
     sending: Boolean,
     pendingAction: String?,
-    repoURL: String? = null,
+    remoteURL: String? = null,
     pendingImages: List<ImageData> = emptyList(),
     supportsImages: Boolean = false,
     onAttachGallery: () -> Unit = {},
@@ -174,7 +174,7 @@ fun InputBar(
                 Box {
                     Tip("Sync") {
                         IconButton(onClick = onSync, enabled = !busy) {
-                            if (repoURL?.contains("github.com") == true) {
+                            if (remoteURL?.contains("github.com") == true) {
                                 Icon(painterResource(R.drawable.ic_github), contentDescription = "Sync")
                             } else {
                                 Icon(Icons.Default.Sync, contentDescription = "Sync")

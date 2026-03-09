@@ -320,6 +320,13 @@ export default function App() {
           } else if (event.kind === "delete" && event.id) {
             prevStates.delete(event.id);
             setTasks((prev) => prev.filter((t) => t.id !== event.id));
+          } else if (event.kind === "repos" && event.repos) {
+            const updatedRepos = event.repos;
+            setRepos((prev) => {
+              // Merge updated CI status into existing repo order.
+              const byPath = new Map(updatedRepos.map((r) => [r.path, r]));
+              return prev.map((r) => byPath.get(r.path) ?? r);
+            });
           }
         } catch {
           // Ignore unparseable messages.
@@ -596,6 +603,7 @@ export default function App() {
       <div class={styles.layout}>
         <TaskList
           tasks={tasks}
+          repos={repos}
           selectedId={selectedId()}
           sidebarOpen={sidebarOpen}
           setSidebarOpen={setSidebarOpen}
@@ -642,7 +650,7 @@ export default function App() {
                   inPlanMode={selectedTask()?.inPlanMode}
                   planContent={selectedTask()?.planContent}
                   repo={selectedTask()?.repo ?? ""}
-                  repoURL={selectedTask()?.repoURL}
+                  remoteURL={selectedTask()?.remoteURL}
                   branch={selectedTask()?.branch ?? ""}
                   baseBranch={repos().find((r) => r.path === selectedTask()?.repo)?.baseBranch ?? "main"}
                   gitHubOwner={selectedTask()?.gitHubOwner}
