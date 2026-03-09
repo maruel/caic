@@ -57,8 +57,17 @@ fun ResultCard(result: EventResult, onNavigateToDiff: (() -> Unit)? = null) {
                     } else {
                         Modifier.fillMaxWidth()
                     }
-                    Column(modifier = clickModifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        stats.forEach { f -> DiffFileRow(f) }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.small,
+                        color = MaterialTheme.colorScheme.scrim.copy(alpha = 0.05f),
+                    ) {
+                        Column(
+                            modifier = clickModifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            stats.forEach { f -> DiffFileRow(f) }
+                        }
                     }
                 }
             }

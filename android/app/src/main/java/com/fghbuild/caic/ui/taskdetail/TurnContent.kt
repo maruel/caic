@@ -52,14 +52,16 @@ fun MessageGroupContent(
                 val thinkingEvents = group.events.filter {
                     it.kind == EventKinds.Thinking || it.kind == EventKinds.ThinkingDelta
                 }
-                if (thinkingEvents.isNotEmpty()) {
-                    ThinkingCard(events = thinkingEvents)
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (thinkingEvents.isNotEmpty()) {
+                        ThinkingCard(events = thinkingEvents)
+                    }
+                    ToolMessageGroup(
+                        toolCalls = group.toolCalls,
+                        onLoadInput = onLoadToolInput,
+                        onClearAndExecutePlan = onClearAndExecutePlan,
+                    )
                 }
-                ToolMessageGroup(
-                    toolCalls = group.toolCalls,
-                    onLoadInput = onLoadToolInput,
-                    onClearAndExecutePlan = onClearAndExecutePlan,
-                )
             }
         }
         GroupKind.TEXT -> TextMessageGroup(events = group.events)

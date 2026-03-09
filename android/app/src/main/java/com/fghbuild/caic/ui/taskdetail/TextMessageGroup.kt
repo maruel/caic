@@ -1,6 +1,8 @@
 // Renders a text group: combines textDelta fragments, renders markdown.
 package com.fghbuild.caic.ui.taskdetail
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -18,9 +20,6 @@ fun TextMessageGroup(events: List<EventMessage>) {
     val thinkingEvents = remember(events) {
         events.filter { it.kind == EventKinds.Thinking || it.kind == EventKinds.ThinkingDelta }
     }
-    if (thinkingEvents.isNotEmpty()) {
-        ThinkingCard(events = thinkingEvents)
-    }
     val text = remember(events) {
         val finalEv = events.lastOrNull { it.kind == EventKinds.Text }
         if (finalEv?.text != null) {
@@ -31,14 +30,21 @@ fun TextMessageGroup(events: List<EventMessage>) {
                 .joinToString("") { it.textDelta!!.text }
         }
     }
-    if (text.isBlank()) return
-    Markdown(
-        content = text,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-        typography = markdownTypography(),
-        colors = com.mikepenz.markdown.m3.markdownColor(
-            text = MaterialTheme.colorScheme.onSurface,
-            codeBackground = MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    )
+    if (thinkingEvents.isEmpty() && text.isBlank()) return
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (thinkingEvents.isNotEmpty()) {
+            ThinkingCard(events = thinkingEvents)
+        }
+        if (text.isNotBlank()) {
+            Markdown(
+                content = text,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                typography = markdownTypography(),
+                colors = com.mikepenz.markdown.m3.markdownColor(
+                    text = MaterialTheme.colorScheme.onSurface,
+                    codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+            )
+        }
+    }
 }

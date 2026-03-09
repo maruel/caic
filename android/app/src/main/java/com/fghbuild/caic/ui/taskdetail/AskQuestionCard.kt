@@ -165,7 +165,7 @@ fun AskQuestionCard(
             }
             if (answered) {
                 Text(
-                    text = "Answered: $answerText",
+                    text = answerText ?: "",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.appColors.success,
                 )

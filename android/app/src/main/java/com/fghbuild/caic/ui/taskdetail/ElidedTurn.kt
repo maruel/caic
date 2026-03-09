@@ -26,7 +26,7 @@ fun ElidedTurn(turn: Turn, onExpand: () -> Unit) {
         color = MaterialTheme.appColors.elidedBg,
     ) {
         Text(
-            text = summary,
+            text = "▶ $summary",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.appColors.elidedText,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),

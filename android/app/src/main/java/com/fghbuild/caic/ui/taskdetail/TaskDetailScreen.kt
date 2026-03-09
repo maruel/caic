@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.fghbuild.caic.ui.theme.markdownTypography
 import com.mikepenz.markdown.m3.Markdown
@@ -720,7 +721,7 @@ private fun MessageList(
 private fun ExpandedTurnHeader(turn: Turn, onCollapse: () -> Unit) {
     val summary = remember(turn) { turnSummary(turn) }
     Text(
-        text = summary,
+        text = "▼ $summary",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier
@@ -735,7 +736,7 @@ private fun ExpandedTurnHeader(turn: Turn, onCollapse: () -> Unit) {
 private fun ElidedSession(session: Session, onExpand: () -> Unit) {
     val summary = remember(session) { sessionSummary(session) }
     Text(
-        text = summary,
+        text = "▶ $summary",
         style = MaterialTheme.typography.bodySmall,
         fontWeight = FontWeight.Medium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -751,7 +752,7 @@ private fun ElidedSession(session: Session, onExpand: () -> Unit) {
 private fun SessionHeader(session: Session, onCollapse: () -> Unit) {
     val summary = remember(session) { sessionSummary(session) }
     Text(
-        text = summary,
+        text = "▼ $summary",
         style = MaterialTheme.typography.bodySmall,
         fontWeight = FontWeight.Medium,
         color = MaterialTheme.colorScheme.primary,
@@ -765,13 +766,36 @@ private fun SessionHeader(session: Session, onCollapse: () -> Unit) {
 /** Inline separator for a session boundary (init or compact_boundary) in the current session. */
 @Composable
 private fun SessionBoundaryRow(event: com.caic.sdk.v1.EventMessage) {
-    val label = if (event.kind == SdkEventKinds.Init) "Session started" else "Conversation compacted"
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.outline,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 4.dp),
-    )
+    if (event.kind == SdkEventKinds.Init) {
+        val init = event.init
+        val label = if (init != null) {
+            "Session started \u00b7 ${init.model} \u00b7 ${init.agentVersion} \u00b7 ${init.sessionID}"
+        } else {
+            "Session started"
+        }
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        )
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+        ) {
+            HorizontalDivider()
+            Text(
+                text = "Conversation compacted",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            )
+        }
+    }
 }
