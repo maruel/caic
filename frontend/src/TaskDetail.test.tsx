@@ -9,6 +9,18 @@ const navigateMock = vi.fn();
 vi.mock("@solidjs/router", () => ({
   useNavigate: () => navigateMock,
   useLocation: () => ({ pathname: "/task/@abc+test-task" }),
+  A: (props: Record<string, unknown>) => (
+    <a
+      href={props.href as string}
+      class={props.class as string}
+      onClick={(e: MouseEvent) => {
+        e.preventDefault();
+        navigateMock(props.href);
+      }}
+    >
+      {props.children as unknown}
+    </a>
+  ),
 }));
 
 // Mock the API module to stub out EventSource (SSE) and other network calls.
