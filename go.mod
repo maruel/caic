@@ -25,6 +25,7 @@ require (
 	github.com/mailru/easyjson v0.9.1 // indirect
 	github.com/maruel/httpjson v0.5.0 // indirect
 	github.com/maruel/roundtrippers v0.5.0 // indirect
+	github.com/oschwald/maxminddb-golang/v2 v2.1.1 // indirect
 	github.com/spf13/cobra v1.3.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect

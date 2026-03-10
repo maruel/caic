@@ -230,6 +230,61 @@ are complementary.
    GITLAB_WEBHOOK_SECRET=<the secret you generated>
    ```
 
+## IP geolocation and country allowlist
+
+caic can optionally resolve client IP addresses to ISO 3166-1 alpha-2 country
+codes using a [MaxMind](https://www.maxmind.com/) MMDB file, and enforce a
+country-based connection allowlist.
+
+### Getting the MMDB file
+
+MaxMind offers a free GeoLite2-Country database. It requires a free account:
+
+1. Register at [maxmind.com](https://www.maxmind.com/en/geolite2/signup).
+2. In **My Account → Download Files**, download **GeoLite2 Country** in
+   **MaxMind DB** format and extract `GeoLite2-Country.mmdb`.
+3. Place it in `~/.config/caic/`:
+   ```bash
+   cp GeoLite2-Country.mmdb ~/.config/caic/
+   ```
+
+The database is updated weekly. To keep it current, use
+[geoipupdate](https://github.com/maxmind/geoipupdate) or a cron job.
+
+### Configuration
+
+| Variable | Description |
+|---|---|
+| `CAIC_IPGEO_DB` | Path to MMDB file. Relative paths resolve against `~/.config/caic/`. When set, every request log line includes `cc=<country-code>`. |
+| `CAIC_IPGEO_ALLOWLIST` | Comma-separated list of permitted values. Requests from unlisted IPs are rejected with HTTP 403. Requires `CAIC_IPGEO_DB` when country codes are present. |
+
+**Allowlist values:**
+
+| Value | Meaning |
+|---|---|
+| `local` | Loopback and RFC-1918 private addresses (127.x, 10.x, 192.168.x, 172.16–31.x) |
+| `tailscale` | Tailscale CGNAT range (100.64.0.0/10) |
+| `CA`, `US`, … | ISO 3166-1 alpha-2 country code as resolved by the MMDB file |
+
+**Example** — enable logging only (no blocking):
+
+```
+CAIC_IPGEO_DB=GeoLite2-Country.mmdb
+```
+
+**Example** — allow only Tailscale and Canadian connections:
+
+```
+CAIC_IPGEO_DB=GeoLite2-Country.mmdb
+CAIC_IPGEO_ALLOWLIST=tailscale,CA
+```
+
+**Example** — allow only Tailscale and local connections (no MMDB needed):
+
+```
+CAIC_IPGEO_ALLOWLIST=tailscale,local
+```
+
 ## HTTPS exposure options
 
 OAuth login and webhooks require `CAIC_EXTERNAL_URL` to be set. Webhooks

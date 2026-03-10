@@ -112,6 +112,10 @@ Environment variables (flags take precedence when set):
     GEMINI_API_KEY              Gemini API key for the Gemini Live voice agent
     TAILSCALE_API_KEY           Tailscale API key for Tailscale ephemeral node
 
+  IP geolocation (optional):
+    CAIC_IPGEO_DB               Path to a MaxMind MMDB file; relative paths resolve against ~/.config/caic/ (e.g. GeoLite2-Country.mmdb)
+    CAIC_IPGEO_ALLOWLIST        Comma-separated allowlist: ISO country codes (e.g. CA,US), "local", "tailscale"; requires CAIC_IPGEO_DB when country codes are present
+
 See contrib/caic.env for a template with all variables and documentation.
 `)
 	}
@@ -150,6 +154,8 @@ See contrib/caic.env for a template with all variables and documentation.
 		GitHubAppPrivateKeyPEM:  []byte(readFileFromEnv("GITHUB_APP_PRIVATE_KEY_PEM")),
 		GitHubAppAllowedOwners:  os.Getenv("GITHUB_APP_ALLOWED_OWNERS"),
 		GitLabWebhookSecret:     []byte(os.Getenv("GITLAB_WEBHOOK_SECRET")),
+		IPGeoDB:                 resolvePathFromEnv("CAIC_IPGEO_DB"),
+		IPGeoAllowlist:          os.Getenv("CAIC_IPGEO_ALLOWLIST"),
 	}
 
 	if key := cfg.GeminiAPIKey; key != "" {
@@ -466,6 +472,20 @@ func parseInt64(s string) int64 {
 		return 0
 	}
 	return id
+}
+
+// resolvePathFromEnv returns the path stored in the given env var, resolving
+// relative paths against the config directory (~/.config/caic/).
+// Returns "" if the env var is unset.
+func resolvePathFromEnv(envVar string) string {
+	v := os.Getenv(envVar)
+	if v == "" {
+		return ""
+	}
+	if !filepath.IsAbs(v) {
+		return filepath.Join(configDir(), v)
+	}
+	return v
 }
 
 // readFileFromEnv reads the file path stored in the given env var and returns its

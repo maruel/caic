@@ -37,6 +37,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/preferences"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
 	v1 "github.com/caic-xyz/caic/backend/internal/server/dto/v1"
+	"github.com/caic-xyz/caic/backend/internal/server/ipgeo"
 	"github.com/caic-xyz/caic/backend/internal/task"
 	"github.com/caic-xyz/md"
 	"github.com/caic-xyz/md/gitutil"
@@ -121,6 +122,16 @@ type Config struct {
 	// ExternalURL is the public base URL (e.g. https://caic.example.com).
 	// Required for OAuth login and webhook delivery.
 	ExternalURL string
+
+	// IP geolocation (optional).
+	// IPGeoDB is the path to a MaxMind MMDB file (e.g. GeoLite2-Country.mmdb).
+	// When set, country codes are resolved and logged for every request.
+	IPGeoDB string
+	// IPGeoAllowlist is a comma-separated list of permitted country codes and
+	// special values "local" and "tailscale". When set, requests from IPs that
+	// do not resolve to an allowed value are rejected with 403. Requires
+	// IPGeoDB when any token is not "local" or "tailscale".
+	IPGeoAllowlist string
 }
 
 // Validate returns an error if the configuration is invalid.
@@ -170,6 +181,9 @@ func (c *Config) Validate() error {
 	if c.GitLabOAuthClientID != "" && c.GitLabOAuthAllowedUsers == "" {
 		return errors.New("GITLAB_OAUTH_ALLOWED_USERS is required when GitLab OAuth login is configured")
 	}
+	if ipgeo.ParseAllowlist(c.IPGeoAllowlist).NeedsDB() && c.IPGeoDB == "" {
+		return errors.New("CAIC_IPGEO_DB is required when CAIC_IPGEO_ALLOWLIST contains country codes")
+	}
 	return nil
 }
 
@@ -210,6 +224,10 @@ type Server struct {
 	sessionSecret []byte      // nil when auth disabled
 	allowedHost   string      // hostname from ExternalURL; empty disables host checking
 	usage         *usageFetcher
+
+	// IP geolocation.
+	ipgeoChecker   *ipgeo.Checker   // nil when CAIC_IPGEO_DB not set
+	ipgeoAllowlist *ipgeo.Allowlist // nil when CAIC_IPGEO_ALLOWLIST not set
 
 	// User preferences.
 	prefsDir    string   // directory for per-user preference files
@@ -565,6 +583,19 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 		}
 	}
 
+	if cfg.IPGeoDB != "" {
+		checker, err := ipgeo.Open(cfg.IPGeoDB)
+		if err != nil {
+			return nil, fmt.Errorf("open ipgeo db: %w", err)
+		}
+		s.ipgeoChecker = checker
+		slog.Info("ipgeo database loaded", "path", cfg.IPGeoDB)
+	}
+	if cfg.IPGeoAllowlist != "" {
+		s.ipgeoAllowlist = ipgeo.ParseAllowlist(cfg.IPGeoAllowlist)
+		slog.Info("ipgeo allowlist configured", "list", cfg.IPGeoAllowlist)
+	}
+
 	s.watchContainerEvents(ctx)
 	go s.discoverKiloModels()
 	return s, nil
@@ -638,6 +669,13 @@ func (s *Server) buildHandler() (http.Handler, error) {
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := ipgeo.GetClientIP(r)
+		cc := s.ipgeoChecker.CountryCode(clientIP)
+		if !s.ipgeoAllowlist.Allowed(cc) {
+			http.Error(w, "forbidden: country not allowed", http.StatusForbidden)
+			slog.Info("http blocked", "m", r.Method, "p", r.URL.Path, "s", http.StatusForbidden, "ip", clientIP, "cc", cc) //nolint:gosec // G706: request metadata logged for audit; not used in security decisions
+			return
+		}
 		start := time.Now()
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}
 		inner.ServeHTTP(rw, r)
@@ -647,6 +685,8 @@ func (s *Server) buildHandler() (http.Handler, error) {
 			"s", rw.status,
 			"d", roundDuration(time.Since(start)),
 			"b", rw.size,
+			"ip", clientIP,
+			"cc", cc,
 		)
 	}), nil
 }
