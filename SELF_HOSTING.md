@@ -155,9 +155,11 @@ When the task completes, caic posts a comment on the originating issue or PR.
    ```
    GITHUB_WEBHOOK_SECRET=<webhook-secret>
    GITHUB_APP_ID=<app-id>
-   GITHUB_APP_PRIVATE_KEY_PEM=/path/to/private-key.pem
+   GITHUB_APP_PRIVATE_KEY_PEM=private-key.pem
    ```
-   Or set `GITHUB_APP_PRIVATE_KEY_PEM` to the PEM content directly.
+   Relative paths are resolved against `~/.config/caic/`, so
+   `private-key.pem` reads `~/.config/caic/private-key.pem`.
+   Absolute paths are used as-is.
    Optionally, restrict which owners/orgs can install the app — installs from other accounts are deleted automatically:
    ```
    GITHUB_APP_ALLOWED_OWNERS=my-org,my-username

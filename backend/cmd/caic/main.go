@@ -96,7 +96,7 @@ Environment variables (flags take precedence when set):
     GITHUB_OAUTH_CLIENT_SECRET  OAuth app client secret
     GITHUB_OAUTH_ALLOWED_USERS  Comma-separated GitHub usernames allowed to log in (required with OAuth)
     GITHUB_APP_ID               GitHub App ID for org-wide webhooks and installation tokens
-    GITHUB_APP_PRIVATE_KEY_PEM  Path to RSA private key PEM file, or the PEM content directly
+    GITHUB_APP_PRIVATE_KEY_PEM  Path to PEM file (relative to ~/.config/caic/)
     GITHUB_APP_ALLOWED_OWNERS   Comma-separated owners/orgs allowed to install the app; rejects others
     GITHUB_WEBHOOK_SECRET       HMAC-SHA256 secret; enables POST /webhooks/github
 
@@ -147,7 +147,7 @@ See contrib/caic.env for a template with all variables and documentation.
 		GitLabOAuthAllowedUsers: os.Getenv("GITLAB_OAUTH_ALLOWED_USERS"),
 		GitHubWebhookSecret:     []byte(os.Getenv("GITHUB_WEBHOOK_SECRET")),
 		GitHubAppID:             parseInt64(os.Getenv("GITHUB_APP_ID")),
-		GitHubAppPrivateKeyPEM:  []byte(readFileOrEnv("GITHUB_APP_PRIVATE_KEY_PEM")),
+		GitHubAppPrivateKeyPEM:  []byte(readFileFromEnv("GITHUB_APP_PRIVATE_KEY_PEM")),
 		GitHubAppAllowedOwners:  os.Getenv("GITHUB_APP_ALLOWED_OWNERS"),
 		GitLabWebhookSecret:     []byte(os.Getenv("GITLAB_WEBHOOK_SECRET")),
 	}
@@ -468,17 +468,22 @@ func parseInt64(s string) int64 {
 	return id
 }
 
-// readFileOrEnv returns the contents of the file at path if it exists,
-// otherwise returns path itself (allowing the env var to hold the PEM directly).
-func readFileOrEnv(envVar string) string {
+// readFileFromEnv reads the file path stored in the given env var and returns its
+// contents. Relative paths are resolved against the config directory
+// (~/.config/caic/).
+func readFileFromEnv(envVar string) string {
 	v := os.Getenv(envVar)
 	if v == "" {
 		return ""
 	}
-	data, err := os.ReadFile(v) //nolint:gosec // path from trusted env var
+	path := v
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(configDir(), path)
+	}
+	data, err := os.ReadFile(path) //nolint:gosec // path from trusted env var
 	if err != nil {
-		// Not a file path — treat the env var value as the PEM content directly.
-		return v
+		slog.Error("failed to read file from env var", "env", envVar, "path", path, "err", err) //nolint:gosec // path from trusted env var
+		return ""
 	}
 	return string(data)
 }
