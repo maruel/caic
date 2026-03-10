@@ -181,7 +181,24 @@ def test_ssh_drop_keeps_subprocess():
         # Send data.
         proc.stdin.write(b"test\n")
         proc.stdin.flush()
-        time.sleep(0.3)
+
+        # Wait until output.jsonl contains the echoed data before killing.
+        # proc.kill() sends SIGKILL, which may race with the attach_client
+        # forwarding the data from its stdin pipe to the daemon socket.  If we
+        # kill before the forward completes, the data is lost and output.jsonl
+        # stays empty, causing conn.recv() below to block indefinitely.
+        output_path = os.path.join(relay_dir, "output.jsonl")
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                with open(output_path, "rb") as f:
+                    if b"test\n" in f.read():
+                        break
+            except FileNotFoundError:
+                pass
+            time.sleep(0.05)
+        else:
+            raise AssertionError("data did not appear in output.jsonl before kill")
 
         # Kill the attach client abruptly (simulates SSH drop).
         proc.kill()
@@ -199,7 +216,7 @@ def test_ssh_drop_keeps_subprocess():
         conn.sendall(hs.encode())
 
         # Read replayed data.
-        time.sleep(0.3)
+        conn.settimeout(5.0)
         data = conn.recv(65536)
         assert b"test\n" in data, f"expected replayed 'test\\n', got: {data!r}"
 
