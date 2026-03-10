@@ -87,6 +87,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fghbuild.caic.util.createCameraPhotoUri
 import com.fghbuild.caic.util.imageDataToBitmap
+import com.fghbuild.caic.ui.common.rememberNotificationPermissionRequester
 import com.fghbuild.caic.ui.theme.activeStates
 import com.fghbuild.caic.util.uriToImageData
 
@@ -332,6 +333,7 @@ private fun MainContent(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel) {
+    val requestNotificationPermission = rememberNotificationPermissionRequester()
     val context = LocalContext.current
     val contentResolver = context.contentResolver
     val photoPicker = rememberLauncherForActivityResult(
@@ -476,7 +478,7 @@ private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel)
                     if (it.key == Key.Enter && it.type == KeyEventType.KeyUp &&
                         hasContent && state.selectedRepo.isNotBlank() && !state.submitting
                     ) {
-                        viewModel.createTask(); true
+                        requestNotificationPermission(); viewModel.createTask(); true
                     } else false
                 },
             maxLines = 6,
@@ -486,7 +488,7 @@ private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel)
                     CircularProgressIndicator(modifier = Modifier.size(24.dp))
                 } else {
                     IconButton(
-                        onClick = viewModel::createTask,
+                        onClick = { requestNotificationPermission(); viewModel.createTask() },
                         enabled = hasContent && state.selectedRepo.isNotBlank(),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Create task")

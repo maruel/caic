@@ -11,6 +11,7 @@ import { Marked } from "marked";
 import AutoResizeTextarea from "./AutoResizeTextarea";
 import PromptInput from "./PromptInput";
 import Button from "./Button";
+import { requestNotificationPermission } from "./notifications";
 import ProgressPanel from "./ProgressPanel";
 import CloseIcon from "@material-symbols/svg-400/outlined/close.svg?solid";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
@@ -333,6 +334,7 @@ export default function TaskDetail(props: Props) {
     const text = props.inputDraft.trim();
     const imgs = props.inputImages;
     if (!text && imgs.length === 0) return;
+    requestNotificationPermission();
     setSending(true);
     try {
       await apiSendInput(props.taskId, { prompt: { text, ...(imgs.length > 0 ? { images: imgs } : {}) } });

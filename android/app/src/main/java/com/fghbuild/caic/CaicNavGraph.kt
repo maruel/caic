@@ -77,21 +77,6 @@ fun CaicNavGraph(voiceViewModel: VoiceViewModel = hiltViewModel()) {
         onMicGranted = null
     }
 
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { _ -> /* Best-effort; notifications work without it but silently drop. */ }
-
-    LaunchedEffect(Unit) {
-        // Request notification permission on first launch.
-        if (ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        }
-    }
-
     LaunchedEffect(voiceState.errorId) {
         val error = voiceState.error ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(error)

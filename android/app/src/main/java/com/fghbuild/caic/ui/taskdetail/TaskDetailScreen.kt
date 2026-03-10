@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.fghbuild.caic.ui.common.rememberNotificationPermissionRequester
 import com.fghbuild.caic.ui.theme.markdownTypography
 import com.mikepenz.markdown.m3.Markdown
 import androidx.compose.material3.Icon
@@ -260,6 +261,7 @@ fun TaskDetailScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val task = state.task
+    val requestNotificationPermission = rememberNotificationPermissionRequester()
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
     val contentResolver = context.contentResolver
@@ -483,7 +485,7 @@ fun TaskDetailScreen(
                     InputBar(
                         draft = state.inputDraft,
                         onDraftChange = viewModel::updateInputDraft,
-                        onSend = viewModel::sendInput,
+                        onSend = { requestNotificationPermission(); viewModel.sendInput() },
                         onSync = { viewModel.syncTask() },
                         onSyncToBaseBranch = { viewModel.syncTask(target = "default") },
                         onTerminate = viewModel::terminateTask,

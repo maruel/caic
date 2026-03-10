@@ -197,7 +197,6 @@ export default function App() {
   createEffect(() => {
     if (!isAuthenticated() || dataLoaded) return;
     dataLoaded = true;
-    requestNotificationPermission();
     void (async () => {
       try {
         const [data, prefs, h, config, usageData] = await Promise.all([
@@ -411,6 +410,7 @@ export default function App() {
     const imgs = pendingImages();
     const repo = selectedRepo();
     if ((!p && imgs.length === 0) || !repo) return;
+    requestNotificationPermission();
     setSubmitting(true);
     {
       // Optimistic reorder: move the selected repo to the front.
