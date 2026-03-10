@@ -32,6 +32,11 @@ func VerifySignature(secret, body []byte, sig string) error {
 	return nil
 }
 
+// WebhookInstallation carries the GitHub App installation ID from a webhook payload.
+type WebhookInstallation struct {
+	ID int64 `json:"id"`
+}
+
 // WebhookRepo carries repository identity from a webhook payload.
 type WebhookRepo struct {
 	FullName string `json:"full_name"` // "owner/repo"
@@ -82,22 +87,37 @@ type WebhookComment struct {
 
 // IssuesEvent is the payload for X-GitHub-Event: issues.
 type IssuesEvent struct {
-	Action     string       `json:"action"`
-	Issue      WebhookIssue `json:"issue"`
-	Repository WebhookRepo  `json:"repository"`
+	Action       string              `json:"action"`
+	Issue        WebhookIssue        `json:"issue"`
+	Repository   WebhookRepo         `json:"repository"`
+	Installation WebhookInstallation `json:"installation"`
 }
 
 // PullRequestEvent is the payload for X-GitHub-Event: pull_request.
 type PullRequestEvent struct {
-	Action      string      `json:"action"`
-	PullRequest WebhookPR   `json:"pull_request"`
-	Repository  WebhookRepo `json:"repository"`
+	Action       string              `json:"action"`
+	PullRequest  WebhookPR           `json:"pull_request"`
+	Repository   WebhookRepo         `json:"repository"`
+	Installation WebhookInstallation `json:"installation"`
 }
 
 // IssueCommentEvent is the payload for X-GitHub-Event: issue_comment.
 type IssueCommentEvent struct {
-	Action     string         `json:"action"`
-	Issue      WebhookIssue   `json:"issue"`
-	Comment    WebhookComment `json:"comment"`
-	Repository WebhookRepo    `json:"repository"`
+	Action       string              `json:"action"`
+	Issue        WebhookIssue        `json:"issue"`
+	Comment      WebhookComment      `json:"comment"`
+	Repository   WebhookRepo         `json:"repository"`
+	Installation WebhookInstallation `json:"installation"`
+}
+
+// CheckSuiteEvent is the payload for X-GitHub-Event: check_suite.
+type CheckSuiteEvent struct {
+	Action     string `json:"action"`
+	CheckSuite struct {
+		HeadSHA    string `json:"head_sha"`
+		HeadBranch string `json:"head_branch"`
+		Conclusion string `json:"conclusion"` // "success", "failure", "neutral", etc.
+	} `json:"check_suite"`
+	Repository   WebhookRepo         `json:"repository"`
+	Installation WebhookInstallation `json:"installation"`
 }

@@ -59,6 +59,13 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.handleIssueCommentEvent(r.Context(), &ev)
+	case "check_suite":
+		var ev github.CheckSuiteEvent
+		if err := json.Unmarshal(body, &ev); err != nil {
+			http.Error(w, "bad payload", http.StatusBadRequest)
+			return
+		}
+		s.handleCheckSuiteEvent(r.Context(), &ev)
 	default:
 		// Unknown event — silently ignore, return 200.
 	}
@@ -86,10 +93,10 @@ func (s *Server) handleIssuesEvent(ctx context.Context, ev *github.IssuesEvent) 
 		slog.Warn("webhook: no repo for", "full_name", ev.Repository.FullName)
 		return
 	}
+	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
 	prompt := fmt.Sprintf("Fix the following GitHub issue:\n\nTitle: %s\nURL: %s\n\n%s",
 		ev.Issue.Title, ev.Issue.HTMLURL, ev.Issue.Body)
-	installationID := int64(0) // not used for comment if app not configured
-	s.createWebhookTask(ctx, repo, prompt, installationID, ev.Repository.FullName, ev.Issue.Number)
+	s.createWebhookTask(ctx, repo, prompt, ev.Installation.ID, ev.Repository.FullName, ev.Issue.Number)
 }
 
 // handlePullRequestEvent creates a task when a PR is opened or reopened.
@@ -103,6 +110,7 @@ func (s *Server) handlePullRequestEvent(ctx context.Context, ev *github.PullRequ
 		slog.Warn("webhook: no repo for", "full_name", ev.Repository.FullName)
 		return
 	}
+	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
 	prompt := fmt.Sprintf("Review and fix the following pull request:\n\nTitle: %s\nBranch: %s → %s\nURL: %s\n\n%s",
 		ev.PullRequest.Title,
 		ev.PullRequest.Head.Ref,
@@ -126,12 +134,74 @@ func (s *Server) handleIssueCommentEvent(ctx context.Context, ev *github.IssueCo
 		slog.Warn("webhook: no repo for", "full_name", ev.Repository.FullName)
 		return
 	}
+	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
 	prompt := fmt.Sprintf("A user mentioned @caic in a comment on issue #%d:\n\nIssue: %s\nComment URL: %s\n\n%s",
 		ev.Issue.Number,
 		ev.Issue.Title,
 		ev.Comment.HTMLURL,
 		ev.Comment.Body)
 	s.createWebhookTask(ctx, repo, prompt, 0, "", 0)
+}
+
+// handleCheckSuiteEvent updates CI status when a check suite completes.
+// It caches the result, updates default-branch repo CI status, and delivers
+// the terminal result to any task that was monitoring that SHA.
+func (s *Server) handleCheckSuiteEvent(ctx context.Context, ev *github.CheckSuiteEvent) {
+	if ev.Action != "completed" {
+		return
+	}
+	repo := s.repoByForge(ev.Repository.FullName)
+	if repo == nil {
+		return // not a repo we manage
+	}
+	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
+
+	sha := ev.CheckSuite.HeadSHA
+	client, err := s.githubApp.ForgeClient(ctx, ev.Installation.ID)
+	if err != nil {
+		slog.Warn("handleCheckSuiteEvent: forge client", "err", err)
+		return
+	}
+
+	runs, err := client.GetCheckRuns(ctx, repo.ForgeOwner, repo.ForgeRepo, sha)
+	if err != nil {
+		slog.Warn("handleCheckSuiteEvent: get check-runs", "sha", sha, "err", err)
+		return
+	}
+	result, done := evaluateCheckRuns(repo.ForgeOwner, repo.ForgeRepo, runs)
+	if !done {
+		return
+	}
+	if err := s.ciCache.Put(repo.ForgeOwner, repo.ForgeRepo, sha, result); err != nil {
+		slog.Warn("handleCheckSuiteEvent: cache put", "err", err)
+	}
+
+	// Update default-branch CI status if this SHA is on the default branch.
+	if ev.CheckSuite.HeadBranch == repo.BaseBranch || repo.BaseBranch == "" {
+		s.setRepoCIStatus(repo.RelPath, result)
+	}
+
+	// Deliver the result to any task monitoring this SHA.
+	s.mu.Lock()
+	var waiting []*taskEntry
+	for _, entry := range s.tasks {
+		if entry.ciSHA == sha {
+			waiting = append(waiting, entry)
+		}
+	}
+	s.mu.Unlock()
+	for _, entry := range waiting {
+		go s.applyMonitorCIResult(s.ctx, entry, client, repo.ForgeOwner, repo.ForgeRepo, sha, result) //nolint:contextcheck // fire-and-forget; must outlive webhook request
+	}
+}
+
+// storeInstallationIDFromFullName extracts the owner from "owner/repo" and
+// stores the installation ID for that owner.
+func (s *Server) storeInstallationIDFromFullName(fullName string, id int64) {
+	owner, _, ok := strings.Cut(fullName, "/")
+	if ok {
+		s.storeInstallationID(owner, id)
+	}
 }
 
 // repoByForge finds the repoInfo whose forge matches "owner/repo".

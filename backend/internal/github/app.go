@@ -150,6 +150,51 @@ func (a *AppClient) InstallationToken(ctx context.Context, installationID int64)
 	return tokenResp.Token, nil
 }
 
+// RepoInstallation returns the installation ID for the app on the given repository.
+// This is used to obtain an installation token when no installation ID is cached.
+func (a *AppClient) RepoInstallation(ctx context.Context, owner, repo string) (int64, error) {
+	jwt, err := a.generateJWT()
+	if err != nil {
+		return 0, err
+	}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/installation", owner, repo)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Authorization", "Bearer "+jwt)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return 0, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return 0, fmt.Errorf("github app repo installation: status %d: %s", resp.StatusCode, data)
+	}
+	var installResp struct {
+		ID int64 `json:"id"`
+	}
+	if err := json.Unmarshal(data, &installResp); err != nil {
+		return 0, fmt.Errorf("github app repo installation: parse response: %w", err)
+	}
+	return installResp.ID, nil
+}
+
+// ForgeClient returns a forge Client authenticated with an installation access token.
+func (a *AppClient) ForgeClient(ctx context.Context, installationID int64) (*Client, error) {
+	token, err := a.InstallationToken(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	return &Client{Token: token}, nil
+}
+
 // PostComment posts a comment on the given issue or pull request using an installation token.
 func (a *AppClient) PostComment(ctx context.Context, installationID int64, owner, repo string, issueNumber int, body string) error {
 	token, err := a.InstallationToken(ctx, installationID)

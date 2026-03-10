@@ -202,10 +202,11 @@ type Server struct {
 	prefsStores sync.Map // map[string]*preferences.Store, keyed by userID
 
 	// Guarded by mu.
-	mu           sync.Mutex
-	tasks        map[string]*taskEntry
-	repoCIStatus map[string]repoCIState // keyed by repoInfo.RelPath
-	changed      chan struct{}          // closed on task mutation; replaced under mu
+	mu                  sync.Mutex
+	tasks               map[string]*taskEntry
+	repoCIStatus        map[string]repoCIState // keyed by repoInfo.RelPath
+	changed             chan struct{}          // closed on task mutation; replaced under mu
+	githubInstallations map[string]int64       // owner (lowercase) → installation ID
 }
 
 // mdBackend adapts *md.Client to task.ContainerBackend.
@@ -272,6 +273,9 @@ type taskEntry struct {
 	result      *task.Result
 	done        chan struct{}
 	cleanupOnce sync.Once // ensures exactly one cleanup runs per task
+	// CI monitoring: set when a PR is created; used by check_suite webhook handler to
+	// find the task waiting for CI results.
+	ciSHA string // PR head SHA being monitored; empty when no CI monitoring active
 	// Webhook callback: when set, post a comment on the originating issue after task terminates.
 	webhookInstallationID int64  // 0 when no app configured
 	webhookForgeFullName  string // "owner/repo"
@@ -417,28 +421,29 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 	}
 
 	s := &Server{
-		ctx:                ctx,
-		absRoot:            absRoot,
-		runners:            make(map[string]*task.Runner, len(repoRes.paths)),
-		mdClient:           mdClient,
-		logDir:             logDir,
-		prefsDir:           prefsDir,
-		authStore:          authStore,
-		sessionSecret:      sessionSecret,
-		githubOAuth:        githubOAuth,
-		gitlabOAuth:        gitlabOAuth,
-		githubAllowedUsers: githubAllowedUsers,
-		gitlabAllowedUsers: gitlabAllowedUsers,
-		allowedHost:        allowedHost,
-		usage:              newUsageFetcher(ctx),
-		geminiAPIKey:       cfg.GeminiAPIKey,
-		githubToken:        cfg.GitHubToken,
-		gitlabToken:        cfg.GitLabToken,
-		ciCache:            cache,
-		backend:            backend,
-		tasks:              make(map[string]*taskEntry),
-		repoCIStatus:       make(map[string]repoCIState),
-		changed:            make(chan struct{}),
+		ctx:                 ctx,
+		absRoot:             absRoot,
+		runners:             make(map[string]*task.Runner, len(repoRes.paths)),
+		mdClient:            mdClient,
+		logDir:              logDir,
+		prefsDir:            prefsDir,
+		authStore:           authStore,
+		sessionSecret:       sessionSecret,
+		githubOAuth:         githubOAuth,
+		gitlabOAuth:         gitlabOAuth,
+		githubAllowedUsers:  githubAllowedUsers,
+		gitlabAllowedUsers:  gitlabAllowedUsers,
+		allowedHost:         allowedHost,
+		usage:               newUsageFetcher(ctx),
+		geminiAPIKey:        cfg.GeminiAPIKey,
+		githubToken:         cfg.GitHubToken,
+		gitlabToken:         cfg.GitLabToken,
+		ciCache:             cache,
+		backend:             backend,
+		tasks:               make(map[string]*taskEntry),
+		repoCIStatus:        make(map[string]repoCIState),
+		changed:             make(chan struct{}),
+		githubInstallations: make(map[string]int64),
 	}
 	if len(cfg.GitHubWebhookSecret) > 0 {
 		s.githubWebhookSecret = cfg.GitHubWebhookSecret
@@ -1066,10 +1071,17 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
-	ciTicker := time.NewTicker(5 * time.Minute)
-	defer ciTicker.Stop()
+	// With GitHub App configured, CI updates arrive via check_suite webhooks;
+	// use a nil channel so the ticker case is never selected.
+	var ciTickerC <-chan time.Time
+	if s.githubApp == nil {
+		t := time.NewTicker(5 * time.Minute)
+		defer t.Stop()
+		ciTickerC = t.C
+	}
 
-	// Poll CI immediately on connect, then every 5 minutes via ciTicker.
+	// Seed CI status immediately on connect (once); subsequent updates come from
+	// webhooks (App) or the ciTicker (polling).
 	go s.pollCIForActiveRepos(r.Context())
 
 	// prevByID tracks the last marshalled JSON for each task ID.
@@ -1163,7 +1175,7 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ch:
 		case <-ticker.C:
-		case <-ciTicker.C:
+		case <-ciTickerC:
 			go s.pollCIForActiveRepos(r.Context())
 		}
 	}
@@ -1470,12 +1482,19 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, base
 	}
 	slog.Info("PR created", "task", t.ID, "forge", f.Name(), "owner", info.ForgeOwner, "repo", info.ForgeRepo, "pr", pr.Number)
 	t.SetPR(info.ForgeOwner, info.ForgeRepo, pr.Number)
+	s.mu.Lock()
+	entry.ciSHA = pr.HeadSHA
+	s.mu.Unlock()
 	s.notifyTaskChange()
 	go s.monitorCI(ctx, entry, f, info.ForgeOwner, info.ForgeRepo, pr.HeadSHA)
 }
 
-// monitorCI polls CI check-runs every 30 s until all checks complete,
-// then injects a summary into the agent via SendInput.
+// monitorCI watches CI check-runs for a task's PR head SHA until all checks
+// complete, then injects a summary into the agent via SendInput.
+//
+// With a GitHub App configured, it performs a single initial check and returns;
+// subsequent updates are delivered via check_suite webhook events.
+// Without an App, it polls every 30 s.
 func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string) {
 	t := entry.task
 
@@ -1485,6 +1504,32 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 		return
 	}
 
+	// With GitHub App: do one initial check to seed pending state, then rely on
+	// check_suite webhook events for the terminal result.
+	if s.githubApp != nil {
+		runs, err := f.GetCheckRuns(ctx, owner, repo, sha)
+		if err != nil {
+			if !errors.Is(err, forge.ErrNotFound) {
+				slog.Warn("monitorCI: initial check-runs", "task", t.ID, "err", err)
+			}
+			return // webhook will handle completion
+		}
+		if len(runs) > 0 {
+			result, done := evaluateCheckRuns(owner, repo, runs)
+			if done {
+				if err := s.ciCache.Put(owner, repo, sha, result); err != nil {
+					slog.Warn("monitorCI: cache put", "err", err)
+				}
+				s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, result)
+				return
+			}
+			t.SetCIStatus(task.CIStatusPending, nil)
+			s.notifyTaskChange()
+		}
+		return // check_suite webhook delivers the terminal result
+	}
+
+	// Without App: poll every 30 s.
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -1707,9 +1752,49 @@ func (s *Server) repoInfoFor(relPath string) *repoInfo {
 }
 
 // forgeForInfo returns the appropriate forge.Forge for the repo's remote, using
-// the configured tokens. Returns nil if no matching token is set.
+// the configured tokens. Falls back to a GitHub App installation token when no
+// user OAuth token or PAT is available. Returns nil if no token is available.
 func (s *Server) forgeForInfo(ctx context.Context, info *repoInfo) forge.Forge {
-	return s.forgeFor(ctx, info.ForgeKind)
+	if f := s.forgeFor(ctx, info.ForgeKind); f != nil {
+		return f
+	}
+	if info.ForgeKind == forge.KindGitHub && s.githubApp != nil {
+		installID := s.installationID(info.ForgeOwner)
+		if installID == 0 {
+			id, err := s.githubApp.RepoInstallation(ctx, info.ForgeOwner, info.ForgeRepo)
+			if err != nil {
+				slog.Warn("forgeForInfo: discover installation", "owner", info.ForgeOwner, "err", err)
+				return nil
+			}
+			s.storeInstallationID(info.ForgeOwner, id)
+			installID = id
+		}
+		client, err := s.githubApp.ForgeClient(ctx, installID)
+		if err != nil {
+			slog.Warn("forgeForInfo: app forge client", "err", err)
+			return nil
+		}
+		return client
+	}
+	return nil
+}
+
+// storeInstallationID caches the GitHub App installation ID for the given owner.
+func (s *Server) storeInstallationID(owner string, id int64) {
+	if id == 0 {
+		return
+	}
+	s.mu.Lock()
+	s.githubInstallations[strings.ToLower(owner)] = id
+	s.mu.Unlock()
+}
+
+// installationID returns the cached installation ID for the given owner, or 0 if unknown.
+func (s *Server) installationID(owner string) int64 {
+	s.mu.Lock()
+	id := s.githubInstallations[strings.ToLower(owner)]
+	s.mu.Unlock()
+	return id
 }
 
 // forgeFor returns a Forge client for the given kind.

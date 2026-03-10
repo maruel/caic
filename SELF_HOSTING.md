@@ -92,13 +92,13 @@ automatic task creation independently.
 | **Token scope** | Server-wide single token | Per-user, per-session | Per-installation |
 | **Env vars** | `GITHUB_TOKEN` | `CAIC_EXTERNAL_URL` + `GITHUB_OAUTH_CLIENT_ID` + `GITHUB_OAUTH_CLIENT_SECRET` + `GITHUB_OAUTH_ALLOWED_USERS` | `CAIC_EXTERNAL_URL` + `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY_PEM` + `GITHUB_WEBHOOK_SECRET` |
 | **Mutually exclusive with** | GitHub OAuth | GitHub PAT | Neither — combines with PAT or OAuth |
-| **Token creation** | [Fine-grained token](https://github.com/settings/personal-access-tokens/new?name=my+caic+instance&description=caic+PR+creation+and+CI+monitoring&pull_requests=write&checks=read&expires_in=365) (`pull_requests: write`, `checks: read`) | [GitHub OAuth app](https://github.com/settings/applications/new) | [GitHub App](https://github.com/settings/apps/new?name=my+caic+instance&webhook_active=true&issues=write&pull_requests=write&checks=read&events[]=issues&events[]=pull_request&events[]=issue_comment) (generate private key from app settings) |
+| **Token creation** | [Fine-grained token](https://github.com/settings/personal-access-tokens/new?name=my+caic+instance&description=caic+PR+creation+and+CI+monitoring&pull_requests=write&checks=read&expires_in=365) (`pull_requests: write`, `checks: read`) | [GitHub OAuth app](https://github.com/settings/applications/new) | [GitHub App](https://github.com/settings/apps/new?name=my+caic+instance&webhook_active=true&issues=write&pull_requests=write&checks=read&events[]=issues&events[]=pull_request&events[]=issue_comment&events[]=check_suite) (generate private key from app settings) |
 
 PAT and OAuth are mutually exclusive per provider. GitHub App is independent
 and can be layered on top of either. The server refuses to start if both PAT
 and OAuth are set for the same provider.
 
-### OAuth setup
+### GitHub OAuth setup
 
 When OAuth is enabled, users must sign in before accessing the UI. A session
 secret is generated automatically on first startup and stored in
@@ -125,7 +125,7 @@ A GitHub App receives webhooks from all repositories in an org in real time,
 enabling automatic task creation the moment an issue is opened, a PR is
 created, or a comment mentions `@caic`. It uses short-lived installation
 tokens instead of a PAT. GitHub must be able to reach caic to deliver
-webhooks — see [Exposure options](#exposure-options).
+webhooks — see [HTTPS exposure options](#https-exposure-options).
 
 Once configured, caic creates tasks automatically for:
 
@@ -145,7 +145,7 @@ When the task completes, caic posts a comment on the originating issue or PR.
    - **Webhook URL**: `https://<your-domain>/api/v1/github/webhook`
    - **Webhook secret**: a random string (same value as `GITHUB_WEBHOOK_SECRET`)
    - **Permissions**: Issues (read/write), Pull requests (read/write), Checks (read)
-   - **Subscribe to events**: Issues, Pull requests, Issue comments
+   - **Subscribe to events**: Issues, Pull requests, Issue comments, Check suites
 3. Click **Create GitHub App**, then **Generate a private key** (downloads a `.pem` file).
 4. Note the **App ID** shown on the app's settings page.
 5. Install the app on your org or specific repositories.
@@ -176,7 +176,7 @@ to GitHub App for webhook delivery.
 
 PAT and OAuth are mutually exclusive. The server refuses to start if both are set.
 
-### OAuth setup
+### GitLab OAuth setup
 
 When OAuth is enabled, users must sign in before accessing the UI. A session
 secret is generated automatically on first startup and stored in
@@ -205,7 +205,7 @@ Follow the same steps on your instance, then also set:
 GITLAB_URL=https://<your-gitlab-instance>
 ```
 
-## Exposure options
+## HTTPS exposure options
 
 OAuth login and webhooks require `CAIC_EXTERNAL_URL` to be set. Webhooks
 additionally require GitHub to reach caic from the internet. OAuth login only
