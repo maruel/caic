@@ -72,16 +72,19 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun testConnection() {
-        val url = _state.value.settings.serverURL
+        val url = _state.value.settings.serverURL.trimEnd('/')
         if (url.isBlank()) {
             _state.update { it.copy(connectionStatus = ConnectionStatus.Failed) }
             return
         }
-        _state.update { it.copy(connectionStatus = ConnectionStatus.Testing) }
+        // Persist the trimmed URL immediately so subsequent navigations use it.
+        serverURLDraft.value = url
+        _state.update { it.copy(settings = it.settings.copy(serverURL = url), connectionStatus = ConnectionStatus.Testing) }
         viewModelScope.launch {
+            settingsRepository.updateServerURL(url)
             try {
                 val client = ApiClient(url, tokenProvider = { settingsRepository.settings.value.authToken })
-                client.listHarnesses()
+                client.getConfig()
                 _state.update { it.copy(connectionStatus = ConnectionStatus.Success) }
             } catch (_: Exception) {
                 _state.update { it.copy(connectionStatus = ConnectionStatus.Failed) }
