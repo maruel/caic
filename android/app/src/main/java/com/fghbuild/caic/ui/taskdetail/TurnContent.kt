@@ -214,6 +214,29 @@ fun TurnContent(
     }
 }
 
+/** Renders plan content with an optional "Clear and execute plan" button. */
+@Composable
+fun PlanContent(planContent: String, onExecute: (() -> Unit)?) {
+    if (onExecute != null) {
+        PlanApprovalSection(planContent = planContent, onExecute = onExecute)
+    } else {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 4.dp)
+                .border(1.dp, MaterialTheme.appColors.planBorder, RoundedCornerShape(6.dp)),
+            shape = RoundedCornerShape(6.dp),
+            color = MaterialTheme.appColors.planSurface,
+        ) {
+            Markdown(
+                content = planContent,
+                modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                typography = markdownTypography(),
+            )
+        }
+    }
+}
+
 @Composable
 fun PlanApprovalSection(planContent: String, onExecute: () -> Unit) {
     Column(

@@ -2,7 +2,6 @@
 package com.fghbuild.caic.ui.taskdetail
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -33,11 +31,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.fghbuild.caic.ui.theme.appColors
-import com.fghbuild.caic.ui.theme.markdownTypography
 import com.fghbuild.caic.util.ToolCall
 import com.fghbuild.caic.util.formatDuration
 import com.fghbuild.caic.util.toolCallDetail
-import com.mikepenz.markdown.m3.Markdown
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -48,6 +44,7 @@ fun ToolCallCard(
     call: ToolCall,
     onLoadInput: (suspend () -> JsonElement?)? = null,
     onClearAndExecutePlan: (() -> Unit)? = null,
+    suppressPlanContent: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable(call.use.toolUseID) { mutableStateOf(false) }
@@ -134,24 +131,9 @@ fun ToolCallCard(
                 }
             }
         }
-        call.use.planContent?.let { plan ->
-            if (onClearAndExecutePlan != null) {
-                PlanApprovalSection(planContent = plan, onExecute = onClearAndExecutePlan)
-            } else {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 4.dp)
-                        .border(1.dp, MaterialTheme.appColors.planBorder, RoundedCornerShape(6.dp)),
-                    shape = RoundedCornerShape(6.dp),
-                    color = MaterialTheme.appColors.planSurface,
-                ) {
-                    Markdown(
-                        content = plan,
-                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                        typography = markdownTypography(),
-                    )
-                }
+        if (!suppressPlanContent) {
+            call.use.planContent?.let { plan ->
+                PlanContent(planContent = plan, onExecute = onClearAndExecutePlan)
             }
         }
     }

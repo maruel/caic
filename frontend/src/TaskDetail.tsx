@@ -830,24 +830,40 @@ function ToolMessageGroup(props: { toolCalls: ToolCall[]; taskId: string; events
           onClearAndExecutePlan={props.onClearAndExecutePlan}
           pendingAction={props.pendingAction} />
       }>
-        <details class={styles.toolGroup} open={isOpen()}
-          onToggle={(e) => detailsOpenState.set(groupKey(), e.currentTarget.open)}>
-          <summary>
-            {calls().filter((c) => c.done).length}/{calls().length} tools: {toolCountSummary(calls())}
-          </summary>
-          <div class={styles.toolGroupInner}>
-            <Show when={thinkingEvents().length > 0}>
-              <ThinkingCard events={thinkingEvents()} />
-            </Show>
-            <Index each={calls()}>
-              {(call) => <ToolCallCard call={call()} taskId={props.taskId}
-                open={detailsOpenState.get(call().use.toolUseID) ?? false}
-                onToggle={(v) => detailsOpenState.set(call().use.toolUseID, v)}
-                onClearAndExecutePlan={props.onClearAndExecutePlan}
-                pendingAction={props.pendingAction} />}
-            </Index>
-          </div>
-        </details>
+        <>
+          <details class={styles.toolGroup} open={isOpen()}
+            onToggle={(e) => detailsOpenState.set(groupKey(), e.currentTarget.open)}>
+            <summary>
+              {calls().filter((c) => c.done).length}/{calls().length} tools: {toolCountSummary(calls())}
+            </summary>
+            <div class={styles.toolGroupInner}>
+              <Show when={thinkingEvents().length > 0}>
+                <ThinkingCard events={thinkingEvents()} />
+              </Show>
+              <Index each={calls()}>
+                {(call) => <ToolCallCard call={call()} taskId={props.taskId}
+                  open={detailsOpenState.get(call().use.toolUseID) ?? false}
+                  onToggle={(v) => detailsOpenState.set(call().use.toolUseID, v)}
+                  suppressPlanContent={true}
+                  pendingAction={props.pendingAction} />}
+              </Index>
+            </div>
+          </details>
+          <Show when={calls().find((c) => c.use.planContent)?.use.planContent} keyed>
+            {(plan) => (
+              <div class={styles.planAction}>
+                <div class={styles.planContent}>
+                  <Markdown text={plan} />
+                </div>
+                <Show when={props.onClearAndExecutePlan}>
+                  <Button variant="gray" loading={props.pendingAction?.() === "restart"} disabled={!!props.pendingAction?.()} onClick={props.onClearAndExecutePlan}>
+                    Clear and execute plan
+                  </Button>
+                </Show>
+              </div>
+            )}
+          </Show>
+        </>
       </Show>
     </Show>
   );
@@ -944,7 +960,7 @@ function ToolCallInput(props: { input: Record<string, unknown> }) {
   );
 }
 
-function ToolCallCard(props: { call: ToolCall; taskId: string; open: boolean; onToggle: (open: boolean) => void; thinkingEvents?: EventMessage[]; onClearAndExecutePlan?: () => void; pendingAction?: () => string | null }) {
+function ToolCallCard(props: { call: ToolCall; taskId: string; open: boolean; onToggle: (open: boolean) => void; thinkingEvents?: EventMessage[]; onClearAndExecutePlan?: () => void; pendingAction?: () => string | null; suppressPlanContent?: boolean }) {
   const [loadedInput, setLoadedInput] = createSignal<Record<string, unknown> | null>(null);
   const [loading, setLoading] = createSignal(false);
 
@@ -996,7 +1012,7 @@ function ToolCallCard(props: { call: ToolCall; taskId: string; open: boolean; on
           <pre class={styles.toolErrorPre}>{error()}</pre>
         </Show>
       </details>
-      <Show when={props.call.use.planContent} keyed>
+      <Show when={!props.suppressPlanContent && props.call.use.planContent} keyed>
         {(plan) => (
           <div class={styles.planAction}>
             <div class={styles.planContent}>

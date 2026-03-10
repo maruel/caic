@@ -128,6 +128,8 @@ private sealed interface MsgItem {
     data class ToolCallItem(val call: ToolCall, override val key: String, val indent: Indent? = null) : MsgItem
     /** Thinking block inside an expanded multi-call tool group. */
     data class ThinkingItem(val events: List<com.caic.sdk.v1.EventMessage>, override val key: String, val indent: Indent? = null) : MsgItem
+    /** Plan content hoisted out of a collapsed multi-call tool group. */
+    data class PlanApproval(val plan: String, override val key: String, val indent: Indent? = null) : MsgItem
 }
 
 /**
@@ -203,6 +205,10 @@ private fun emitTurns(
             if (group.kind == GroupKind.ACTION && group.toolCalls.size > 1) {
                 val toolGroupKey = group.toolCalls.first().use.toolUseID
                 result.add(MsgItem.ToolGroupHeader(group.toolCalls, toolGroupKey, "${base}h", indent = groupIndent))
+                val planCall = group.toolCalls.firstOrNull { it.use.planContent != null }
+                if (planCall != null) {
+                    result.add(MsgItem.PlanApproval(planCall.use.planContent!!, "${base}plan", indent = groupIndent))
+                }
                 if (toolGroupKey in expandedToolGroups) {
                     val thinkingEvents = group.events.filter {
                         it.kind == SdkEventKinds.Thinking || it.kind == SdkEventKinds.ThinkingDelta
@@ -232,6 +238,10 @@ private fun buildLiveItems(liveTurn: Turn?, expandedToolGroups: Set<String>): Li
         if (group.kind == GroupKind.ACTION && group.toolCalls.size > 1) {
             val toolGroupKey = group.toolCalls.first().use.toolUseID
             result.add(MsgItem.ToolGroupHeader(group.toolCalls, toolGroupKey, "${base}h"))
+            val planCall = group.toolCalls.firstOrNull { it.use.planContent != null }
+            if (planCall != null) {
+                result.add(MsgItem.PlanApproval(planCall.use.planContent!!, "${base}plan"))
+            }
             if (toolGroupKey in expandedToolGroups) {
                 val thinkingEvents = group.events.filter {
                     it.kind == SdkEventKinds.Thinking || it.kind == SdkEventKinds.ThinkingDelta
@@ -745,6 +755,13 @@ private fun MessageList(
                                 onLoadInput = onLoadToolInput?.takeIf { item.call.use.inputTruncated == true }
                                     ?.let { loader -> { loader(item.call.use.toolUseID) } },
                                 onClearAndExecutePlan = if (isWaiting) onClearAndExecutePlan else null,
+                                suppressPlanContent = true,
+                            )
+                        }
+                        is MsgItem.PlanApproval -> IndentBorder(item.indent) {
+                            PlanContent(
+                                planContent = item.plan,
+                                onExecute = if (isWaiting) onClearAndExecutePlan else null,
                             )
                         }
                     }
