@@ -54,7 +54,7 @@ func (s *Server) handleAuthStart(provider string) http.HandlerFunc {
 			Value:    cookieValue,
 			MaxAge:   600,
 			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
+			SameSite: http.SameSiteLaxMode,
 			Secure:   s.useSecureCookies(),
 			Path:     "/",
 		})
@@ -78,7 +78,7 @@ func (s *Server) handleAuthCallback(provider string) http.HandlerFunc {
 			Value:    "",
 			MaxAge:   -1,
 			HttpOnly: true,
-			SameSite: http.SameSiteStrictMode,
+			SameSite: http.SameSiteLaxMode,
 			Secure:   s.useSecureCookies(),
 			Path:     "/",
 		})
