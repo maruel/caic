@@ -128,6 +128,21 @@ class TaskListViewModel @Inject constructor(
         taskRepository.start(viewModelScope)
         taskNotifier.start(viewModelScope)
         loadFormData()
+        observeAuthTokenChanges()
+    }
+
+    /** Re-runs [loadFormData] when the auth token changes (e.g. after OAuth deep link or logout). */
+    private fun observeAuthTokenChanges() {
+        viewModelScope.launch {
+            var previous: String? = settingsRepository.settings.value.authToken
+            settingsRepository.settings.collect { settings ->
+                val current = settings.authToken
+                if (current != previous) {
+                    previous = current
+                    loadFormData()
+                }
+            }
+        }
     }
 
     private fun loadFormData() {
@@ -136,8 +151,7 @@ class TaskListViewModel @Inject constructor(
             if (url.isBlank()) return@launch
             try {
                 val client = ApiClient(url, tokenProvider = { settingsRepository.settings.value.authToken })
-                val repos = client.listRepos()
-                val harnesses = client.listHarnesses()
+                // Config is public; fetch it first to detect auth before calling protected endpoints.
                 val config = client.getConfig()
                 if (config.authProviders?.isNotEmpty() == true) {
                     try {
@@ -151,6 +165,8 @@ class TaskListViewModel @Inject constructor(
                         return@launch
                     }
                 }
+                val repos = client.listRepos()
+                val harnesses = client.listHarnesses()
                 val prefs = try {
                     client.getPreferences().also { settingsRepository.updateServerPreferences(it) }
                 } catch (_: Exception) { null }
@@ -321,8 +337,18 @@ class TaskListViewModel @Inject constructor(
         }
     }
 
+    @Suppress("TooGenericExceptionCaught") // Best-effort API call before clearing local state.
     fun logout() {
         viewModelScope.launch {
+            try {
+                val url = settingsRepository.settings.value.serverURL
+                if (url.isNotBlank()) {
+                    val client = ApiClient(url, tokenProvider = { settingsRepository.settings.value.authToken })
+                    client.logout()
+                }
+            } catch (_: Exception) {
+                // Best-effort; continue clearing local state.
+            }
             settingsRepository.clearAuthToken()
             _formState.value = _formState.value.copy(authRequired = true, user = null)
         }
