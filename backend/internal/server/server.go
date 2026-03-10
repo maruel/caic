@@ -273,7 +273,7 @@ func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []stri
 		client = &clientCopy
 		quiet = false
 	}
-	c := client.Container(dir, branch)
+	c := client.Container(md.Repo{GitRoot: dir, Branch: branch})
 	sr, err := c.Start(ctx, &md.StartOpts{Quiet: quiet, BaseImage: image, Labels: labels, AgentPaths: []md.AgentPaths{harnessPaths}, USB: opts.USB, Tailscale: opts.Tailscale, Display: opts.Display})
 	if err != nil {
 		return "", "", err
@@ -284,7 +284,7 @@ func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []stri
 func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string) (string, error) {
 	slog.Info("md diff", "dir", dir, "br", branch, "args", args)
 	var stdout bytes.Buffer
-	if err := b.client.Container(dir, branch).Diff(ctx, &stdout, io.Discard, args); err != nil {
+	if err := b.client.Container(md.Repo{GitRoot: dir, Branch: branch}).Diff(ctx, 0, &stdout, io.Discard, args); err != nil {
 		return "", err
 	}
 	return stdout.String(), nil
@@ -292,12 +292,12 @@ func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string
 
 func (b *mdBackend) Fetch(ctx context.Context, dir, branch string) error {
 	slog.Info("md fetch", "dir", dir, "br", branch)
-	return b.client.Container(dir, branch).Fetch(ctx, b.llmProvider, b.llmModel)
+	return b.client.Container(md.Repo{GitRoot: dir, Branch: branch}).Fetch(ctx, b.llmProvider, b.llmModel)
 }
 
 func (b *mdBackend) Kill(ctx context.Context, dir, branch string) error {
 	slog.Info("md kill", "dir", dir, "br", branch)
-	return b.client.Container(dir, branch).Kill(ctx)
+	return b.client.Container(md.Repo{GitRoot: dir, Branch: branch}).Kill(ctx)
 }
 
 type taskEntry struct {
