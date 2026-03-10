@@ -29,7 +29,6 @@ All configuration is via environment variables. Flags take precedence when set. 
 |---|---|---|---|---|
 | `CAIC_HTTP` | `-http` | Yes | — | HTTP listen address (e.g. `:8080`). Port-only addresses listen on localhost. Use `0.0.0.0:8080` to listen on all interfaces. |
 | `CAIC_ROOT` | `-root` | Yes | — | Parent directory containing your git repositories. Each subdirectory is a repo caic can manage. |
-| `CAIC_MAX_TURNS` | `-max-turns` | No | `0` (unlimited) | Maximum agentic turns per task before the agent stops. |
 | `CAIC_LOG_LEVEL` | `-log-level` | No | `info` | Log verbosity: `debug`, `info`, `warn`, `error`. |
 | `CAIC_LLM_PROVIDER` | — | No | — | AI provider for LLM features (title generation, commit descriptions). E.g. `anthropic`, `gemini`, `openaichat`. See [genai providers](https://pkg.go.dev/github.com/maruel/genai/providers). |
 | `CAIC_LLM_MODEL` | — | No | — | Model name for LLM features (e.g. `claude-haiku-4-5-20251001`). |

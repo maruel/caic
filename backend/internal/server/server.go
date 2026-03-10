@@ -169,7 +169,6 @@ type Server struct {
 	repos              []repoInfo
 	runners            map[string]*task.Runner // keyed by RelPath
 	mdClient           *md.Client
-	maxTurns           int
 	logDir             string
 	prefsDir           string               // directory for per-user preference files
 	prefsStores        sync.Map             // map[string]*preferences.Store, keyed by userID
@@ -261,7 +260,7 @@ type taskEntry struct {
 //     (runs parallel within after repos are discovered).
 //  4. Adopt containers using pre-fetched list and logs. If a container's relay
 //     is alive, auto-attach to resume streaming.
-func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Server, error) {
+func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 	logDir := cfg.CacheDir
 	if logDir == "" {
 		return nil, errors.New("CacheDir is required")
@@ -393,7 +392,6 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 		absRoot:            absRoot,
 		runners:            make(map[string]*task.Runner, len(repoRes.paths)),
 		mdClient:           mdClient,
-		maxTurns:           maxTurns,
 		logDir:             logDir,
 		prefsDir:           prefsDir,
 		authStore:          authStore,
@@ -454,7 +452,6 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 			runner := &task.Runner{
 				BaseBranch: branch,
 				Dir:        abs,
-				MaxTurns:   maxTurns,
 				LogDir:     logDir,
 				Container:  backend,
 			}
@@ -781,7 +778,6 @@ func (s *Server) cloneRepo(ctx context.Context, req *v1.CloneRepoReq) (*v1.Repo,
 	runner := &task.Runner{
 		BaseBranch: branch,
 		Dir:        absTarget,
-		MaxTurns:   s.maxTurns,
 		LogDir:     s.logDir,
 		Container:  s.backend,
 	}

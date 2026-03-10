@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"strconv"
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
 )
@@ -113,9 +112,6 @@ func buildArgs(opts *agent.Options) []string {
 		"--verbose",
 		"--dangerously-skip-permissions",
 		"--include-partial-messages",
-	}
-	if opts.MaxTurns > 0 {
-		args = append(args, "--max-turns", strconv.Itoa(opts.MaxTurns))
 	}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)

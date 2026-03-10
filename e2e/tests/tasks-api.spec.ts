@@ -24,7 +24,7 @@ test("send input to a waiting task triggers another turn", async ({ api }) => {
 
   await api.sendInput(id, { prompt: { text: "continue" } });
 
-  // After input the task runs again and returns to waiting (maxTurns=1).
+  // After input the task runs again and returns to waiting.
   const task = await waitForTaskState(api, id, "waiting", 20_000);
   expect(task.numTurns).toBeGreaterThanOrEqual(2);
 });

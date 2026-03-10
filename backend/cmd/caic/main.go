@@ -48,19 +48,6 @@ func envDefault(name, def string) string {
 	return def
 }
 
-// envInt returns the integer value of the named environment variable, or def if unset/empty/invalid.
-func envInt(name string, def int) int {
-	v := os.Getenv(name)
-	if v == "" {
-		return def
-	}
-	n := 0
-	if _, err := fmt.Sscanf(v, "%d", &n); err != nil {
-		return def
-	}
-	return n
-}
-
 // localizeAddr defaults to localhost when the address specifies a port but no
 // host (e.g. ":8080" → "localhost:8080"). This avoids accidentally listening
 // on all interfaces.
@@ -94,7 +81,6 @@ Environment variables (flags take precedence when set):
 
   CAIC_HTTP                 HTTP listen address (e.g. :8080)
   CAIC_ROOT                 Parent directory containing git repos
-  CAIC_MAX_TURNS            Max agentic turns per task (0=unlimited)
   CAIC_LOG_LEVEL            Log level: debug, info, warn, error (default: info)
   CAIC_LLM_PROVIDER         AI provider for LLM features (title generation, commit descriptions)
   CAIC_LLM_MODEL            Model name for LLM features
@@ -113,7 +99,6 @@ See contrib/caic.env for a template with all variables and documentation.
 `)
 	}
 
-	maxTurns := flag.Int("max-turns", envInt("CAIC_MAX_TURNS", 0), "max agentic turns per task (0=unlimited)")
 	addr := flag.String("http", os.Getenv("CAIC_HTTP"), "start web UI on this address (e.g. :8080)")
 	root := flag.String("root", os.Getenv("CAIC_ROOT"), "parent directory containing git repos")
 	logLevel := flag.String("log-level", envDefault("CAIC_LOG_LEVEL", "info"), "log level (debug, info, warn, error)")
@@ -183,7 +168,7 @@ See contrib/caic.env for a template with all variables and documentation.
 	if err := watchExecutable(ctx, cancel); err != nil {
 		slog.Warn("failed to watch executable", "err", err)
 	}
-	return serveHTTP(ctx, *addr, *root, *maxTurns, cfg)
+	return serveHTTP(ctx, *addr, *root, cfg)
 }
 
 // initLogging configures slog with tint for colored, concise output.
@@ -239,8 +224,8 @@ func initLogging(level string) {
 	})))
 }
 
-func serveHTTP(ctx context.Context, addr, rootDir string, maxTurns int, cfg *server.Config) error {
-	srv, err := server.New(ctx, rootDir, maxTurns, cfg)
+func serveHTTP(ctx context.Context, addr, rootDir string, cfg *server.Config) error {
+	srv, err := server.New(ctx, rootDir, cfg)
 	if err != nil {
 		return err
 	}
@@ -299,7 +284,7 @@ func serveFake(ctx context.Context, addr, rootDir string, cfg *server.Config) er
 	defer func() { _ = os.RemoveAll(fakeConfigDir) }()
 	cfg.ConfigDir = fakeConfigDir
 	cfg.CacheDir = filepath.Join(os.TempDir(), "caic-e2e-logs")
-	srv, err := server.New(ctx, rootDir, 1, cfg)
+	srv, err := server.New(ctx, rootDir, cfg)
 	if err != nil {
 		return fmt.Errorf("new server: %w", err)
 	}

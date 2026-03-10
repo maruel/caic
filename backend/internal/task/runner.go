@@ -57,8 +57,7 @@ type Result struct {
 // Runner manages the serialization of setup and push operations.
 type Runner struct {
 	BaseBranch            string
-	Dir                   string // Absolute path to the git repository.
-	MaxTurns              int
+	Dir                   string        // Absolute path to the git repository.
 	GitTimeout            time.Duration // Timeout for git/container ops; defaults to 1 minute.
 	ContainerStartTimeout time.Duration // Timeout for container start (image pull); defaults to 1 hour.
 	LogDir                string        // Directory for raw JSONL session logs (required).
@@ -212,14 +211,9 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) (*SessionHandle, error)
 	if !relayAlive {
 		// Starting a new session via --resume always re-engages the agent.
 		t.SetState(StateRunning)
-		maxTurns := t.MaxTurns
-		if maxTurns == 0 {
-			maxTurns = r.MaxTurns
-		}
 		session, err = r.backend(t.Harness).Start(ctx, &agent.Options{
 			Container:       t.Container,
 			Dir:             r.containerDir(),
-			MaxTurns:        maxTurns,
 			Model:           t.Model,
 			ResumeSessionID: t.GetSessionID(),
 		}, msgCh, logW)
@@ -273,10 +267,6 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	// 2. Start the agent session.
 	t.SetState(StateStarting)
 	msgCh := r.startMessageDispatch(ctx, t)
-	maxTurns := t.MaxTurns
-	if maxTurns == 0 {
-		maxTurns = r.MaxTurns
-	}
 	logW, err := r.openLog(t)
 	if err != nil {
 		close(msgCh)
@@ -285,11 +275,10 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	}
 
 	tlog := r.log.With("br", t.Branch, "ctr", t.Container)
-	tlog.Info("starting session", "hns", t.Harness, "turns", maxTurns)
+	tlog.Info("starting session", "hns", t.Harness)
 	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
 		Container:     t.Container,
 		Dir:           r.containerDir(),
-		MaxTurns:      maxTurns,
 		Model:         t.Model,
 		InitialPrompt: t.InitialPrompt,
 	}, msgCh, logW)
@@ -588,16 +577,11 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 
 	msgCh := r.startMessageDispatch(ctx, t)
 
-	maxTurns := t.MaxTurns
-	if maxTurns == 0 {
-		maxTurns = r.MaxTurns
-	}
 	tlog := r.log.With("br", t.Branch, "ctr", t.Container)
-	tlog.Info("restarting session", "hns", t.Harness, "turns", maxTurns)
+	tlog.Info("restarting session", "hns", t.Harness)
 	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
 		Container:     t.Container,
 		Dir:           r.containerDir(),
-		MaxTurns:      maxTurns,
 		Model:         t.Model,
 		InitialPrompt: prompt,
 	}, msgCh, logW)
