@@ -175,12 +175,10 @@ type Server struct {
 	allowedHost   string     // hostname from ExternalURL; empty disables host checking
 
 	// Guarded by mu.
-	mu            sync.Mutex
-	tasks         map[string]*taskEntry
-	repoCIStatus  map[string]repoCIState        // keyed by repoInfo.RelPath
-	repoCIPollers map[string]context.CancelFunc // keyed by repoInfo.RelPath
-	ciNoAccess    map[string]struct{}           // keyed by "owner/repo"; repos where the token lacks CI access
-	changed       chan struct{}                 // closed on task mutation; replaced under mu
+	mu           sync.Mutex
+	tasks        map[string]*taskEntry
+	repoCIStatus map[string]repoCIState // keyed by repoInfo.RelPath
+	changed      chan struct{}          // closed on task mutation; replaced under mu
 }
 
 // mdBackend adapts *md.Client to task.ContainerBackend.
@@ -394,8 +392,6 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 		backend:       backend,
 		tasks:         make(map[string]*taskEntry),
 		repoCIStatus:  make(map[string]repoCIState),
-		repoCIPollers: make(map[string]context.CancelFunc),
-		ciNoAccess:    make(map[string]struct{}),
 		changed:       make(chan struct{}),
 	}
 	if cfg.LLMProvider != "" {
@@ -494,11 +490,6 @@ func New(ctx context.Context, rootDir string, maxTurns int, cfg *Config) (*Serve
 
 	s.watchContainerEvents(ctx)
 	go s.discoverKiloModels()
-	for _, info := range s.repos {
-		if info.ForgeOwner != "" && s.forgeForInfo(ctx, &info) != nil {
-			s.updateRepoCIPolling(info.RelPath) //nolint:contextcheck // uses server context intentionally
-		}
-	}
 	return s, nil
 }
 
@@ -842,10 +833,9 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 	s.tasks[t.ID.String()] = entry
 	s.taskChanged()
 	s.mu.Unlock()
-	s.updateRepoCIPolling(req.Repo) //nolint:contextcheck // uses server context intentionally
 
 	// Run in background using the server context, not the request context.
-	go func() { //nolint:contextcheck // goroutine uses server context intentionally
+	go func() {
 		h, err := runner.Start(s.ctx, t)
 		if err != nil {
 			result := task.Result{State: task.StateFailed, Err: err}
@@ -854,7 +844,6 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 			s.taskChanged()
 			s.mu.Unlock()
 			close(entry.done)
-			s.updateRepoCIPolling(req.Repo)
 			return
 		}
 		s.watchSession(entry, runner, h)
@@ -1021,6 +1010,12 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	ciTicker := time.NewTicker(5 * time.Minute)
+	defer ciTicker.Stop()
+
+	// Poll CI immediately on connect, then every 5 minutes via ciTicker.
+	go s.pollCIForActiveRepos(r.Context())
+
 	// prevByID tracks the last marshalled JSON for each task ID.
 	prevByID := map[string][]byte{}
 	var prevReposJSON []byte
@@ -1112,6 +1107,8 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-ch:
 		case <-ticker.C:
+		case <-ciTicker.C:
+			go s.pollCIForActiveRepos(r.Context())
 		}
 	}
 }
@@ -1332,7 +1329,7 @@ func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.Empty
 	s.taskChanged()
 	s.mu.Unlock()
 	runner := s.runners[entry.task.Repo]
-	go s.cleanupTask(entry, runner, task.StateTerminated) //nolint:contextcheck // uses server context intentionally
+	go s.cleanupTask(entry, runner, task.StateTerminated)
 	return &v1.StatusResp{Status: "terminating"}, nil
 }
 
@@ -1445,13 +1442,9 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 		if st != task.StateWaiting && st != task.StateAsking && st != task.StateHasPlan {
 			return
 		}
-		if s.isCINoAccess(owner, repo) {
-			return
-		}
 		runs, err := f.GetCheckRuns(ctx, owner, repo, sha)
 		if err != nil {
 			if errors.Is(err, forge.ErrNotFound) {
-				s.markCINoAccess(owner, repo)
 				return
 			}
 			slog.Warn("monitorCI: get check-runs", "task", t.ID, "err", err)
@@ -1557,60 +1550,63 @@ func evaluateCheckRuns(owner, repo string, runs []forge.CheckRun) (cicache.Resul
 	return cicache.Result{Status: status, Checks: checks}, true
 }
 
-// pollDefaultBranchCI periodically checks the default branch HEAD SHA and its
-// CI status, using the cache for terminal states. Runs per-repo in a goroutine.
-func (s *Server) pollDefaultBranchCI(ctx context.Context, info repoInfo, f forge.Forge) { //nolint:gocritic // repoInfo passed by value intentionally for goroutine safety
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-	// Poll immediately on start, then on each tick.
-	for first := true; ; first = false {
-		if !first {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
+// pollRepoCIOnce fetches the default branch CI status for a single repo.
+// Returns immediately; safe to call from any goroutine with a user context.
+func (s *Server) pollRepoCIOnce(ctx context.Context, info repoInfo, f forge.Forge) { //nolint:gocritic // repoInfo passed by value intentionally
+	sha, err := f.GetDefaultBranchSHA(ctx, info.ForgeOwner, info.ForgeRepo, info.BaseBranch)
+	if err != nil {
+		if !errors.Is(err, forge.ErrNotFound) {
+			slog.Warn("pollRepoCIOnce: get SHA", "repo", info.RelPath, "err", err)
 		}
-		if s.isCINoAccess(info.ForgeOwner, info.ForgeRepo) {
-			return
+		return
+	}
+	// Cache hit: use stored terminal result directly.
+	if cached, ok := s.ciCache.Get(info.ForgeOwner, info.ForgeRepo, sha); ok {
+		s.setRepoCIStatus(info.RelPath, cached)
+		return
+	}
+	// Fetch check-runs for the new SHA.
+	runs, err := f.GetCheckRuns(ctx, info.ForgeOwner, info.ForgeRepo, sha)
+	if err != nil {
+		if !errors.Is(err, forge.ErrNotFound) {
+			slog.Warn("pollRepoCIOnce: get check-runs", "repo", info.RelPath, "err", err)
 		}
-		sha, err := f.GetDefaultBranchSHA(ctx, info.ForgeOwner, info.ForgeRepo, info.BaseBranch)
-		if err != nil {
-			if errors.Is(err, forge.ErrNotFound) {
-				s.markCINoAccess(info.ForgeOwner, info.ForgeRepo)
-				return
-			}
-			slog.Warn("pollDefaultBranchCI: get SHA", "repo", info.RelPath, "err", err)
+		return
+	}
+	if len(runs) == 0 {
+		return
+	}
+	result, done := evaluateCheckRuns(info.ForgeOwner, info.ForgeRepo, runs)
+	if !done {
+		// Still pending — store pending status without caching.
+		s.setRepoCIStatus(info.RelPath, cicache.Result{Status: cicache.StatusPending})
+		return
+	}
+	if err := s.ciCache.Put(info.ForgeOwner, info.ForgeRepo, sha, result); err != nil {
+		slog.Warn("pollRepoCIOnce: cache put", "repo", info.RelPath, "err", err)
+	}
+	s.setRepoCIStatus(info.RelPath, result)
+}
+
+// pollCIForActiveRepos checks the default branch CI status for all repos that
+// have active (non-terminal) tasks. Uses the authenticated user's forge token
+// from ctx. Called from SSE handlers so no background goroutine is needed.
+func (s *Server) pollCIForActiveRepos(ctx context.Context) {
+	s.mu.Lock()
+	var activeIdx []int
+	for i := range s.repos {
+		if s.repos[i].ForgeOwner != "" && s.repoHasActiveTasksLocked(s.repos[i].RelPath) {
+			activeIdx = append(activeIdx, i)
+		}
+	}
+	s.mu.Unlock()
+
+	for _, i := range activeIdx {
+		f := s.forgeForInfo(ctx, &s.repos[i])
+		if f == nil {
 			continue
 		}
-		// Cache hit: use stored terminal result directly.
-		if cached, ok := s.ciCache.Get(info.ForgeOwner, info.ForgeRepo, sha); ok {
-			s.setRepoCIStatus(info.RelPath, cached)
-			continue
-		}
-		// Fetch check-runs for the new SHA.
-		runs, err := f.GetCheckRuns(ctx, info.ForgeOwner, info.ForgeRepo, sha)
-		if err != nil {
-			if errors.Is(err, forge.ErrNotFound) {
-				s.markCINoAccess(info.ForgeOwner, info.ForgeRepo)
-				return
-			}
-			slog.Warn("pollDefaultBranchCI: get check-runs", "repo", info.RelPath, "err", err)
-			continue
-		}
-		if len(runs) == 0 {
-			continue
-		}
-		result, done := evaluateCheckRuns(info.ForgeOwner, info.ForgeRepo, runs)
-		if !done {
-			// Still pending — store pending status without caching.
-			s.setRepoCIStatus(info.RelPath, cicache.Result{Status: cicache.StatusPending})
-			continue
-		}
-		if err := s.ciCache.Put(info.ForgeOwner, info.ForgeRepo, sha, result); err != nil {
-			slog.Warn("pollDefaultBranchCI: cache put", "repo", info.RelPath, "err", err)
-		}
-		s.setRepoCIStatus(info.RelPath, result)
+		s.pollRepoCIOnce(ctx, s.repos[i], f)
 	}
 }
 
@@ -1632,22 +1628,6 @@ func (s *Server) setRepoCIStatus(relPath string, result cicache.Result) {
 	}
 }
 
-// markCINoAccess records that the token lacks access to CI for owner/repo.
-func (s *Server) markCINoAccess(owner, repo string) {
-	s.mu.Lock()
-	s.ciNoAccess[owner+"/"+repo] = struct{}{}
-	s.mu.Unlock()
-	slog.Warn("CI polling disabled: token lacks access", "owner", owner, "repo", repo)
-}
-
-// isCINoAccess reports whether CI polling has been disabled for owner/repo.
-func (s *Server) isCINoAccess(owner, repo string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, ok := s.ciNoAccess[owner+"/"+repo]
-	return ok
-}
-
 // repoHasActiveTasksLocked returns true if relPath has any non-terminal tasks.
 // Must be called with mu held.
 func (s *Server) repoHasActiveTasksLocked(relPath string) bool {
@@ -1657,44 +1637,6 @@ func (s *Server) repoHasActiveTasksLocked(relPath string) bool {
 		}
 	}
 	return false
-}
-
-// updateRepoCIPolling starts or stops the default-branch CI poller for relPath
-// based on whether it currently has active (non-terminal) tasks.
-func (s *Server) updateRepoCIPolling(relPath string) {
-	s.mu.Lock()
-	var info *repoInfo
-	for i := range s.repos {
-		if s.repos[i].RelPath == relPath && s.repos[i].ForgeOwner != "" {
-			info = &s.repos[i]
-			break
-		}
-	}
-	if info == nil {
-		s.mu.Unlock()
-		return
-	}
-	f := s.forgeForInfo(s.ctx, info)
-	if f == nil {
-		s.mu.Unlock()
-		return
-	}
-	hasActive := s.repoHasActiveTasksLocked(relPath)
-	_, polling := s.repoCIPollers[relPath]
-	var startCtx context.Context
-	var startCancel context.CancelFunc
-	if hasActive && !polling {
-		startCtx, startCancel = context.WithCancel(s.ctx) //nolint:gosec // cancel stored in repoCIPollers; called on poller stop
-		s.repoCIPollers[relPath] = startCancel
-	} else if !hasActive && polling {
-		s.repoCIPollers[relPath]()
-		delete(s.repoCIPollers, relPath)
-	}
-	infoCopy := *info
-	s.mu.Unlock()
-	if startCancel != nil {
-		go s.pollDefaultBranchCI(startCtx, infoCopy, f)
-	}
 }
 
 // repoInfoFor returns the repoInfo for relPath, or nil if not found.
@@ -2275,7 +2217,6 @@ func (s *Server) cleanupTask(entry *taskEntry, runner *task.Runner, reason task.
 		s.taskChanged()
 		s.mu.Unlock()
 		close(entry.done)
-		s.updateRepoCIPolling(entry.task.Repo)
 	})
 }
 
@@ -2337,7 +2278,7 @@ func (s *Server) watchContainerEvents(ctx context.Context) {
 				}
 			}
 			for ev := range ch {
-				s.handleContainerDeath(ev.Name) //nolint:contextcheck // uses server context intentionally
+				s.handleContainerDeath(ev.Name)
 			}
 			// Stream ended. Reconnect unless context cancelled.
 			if ctx.Err() != nil {

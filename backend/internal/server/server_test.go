@@ -18,6 +18,7 @@ import (
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	"github.com/caic-xyz/caic/backend/internal/auth"
+	"github.com/caic-xyz/caic/backend/internal/forge"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
 	v1 "github.com/caic-xyz/caic/backend/internal/server/dto/v1"
 	"github.com/caic-xyz/caic/backend/internal/task"
@@ -1417,6 +1418,41 @@ func TestOAuthCallbackStateValidation(t *testing.T) {
 		if cbW.Code != http.StatusFound {
 			body, _ := io.ReadAll(cbW.Result().Body)
 			t.Fatalf("callback status = %d, want %d; body = %s", cbW.Code, http.StatusFound, body)
+		}
+	})
+}
+
+func TestForgeFor(t *testing.T) {
+	t.Run("PAT", func(t *testing.T) {
+		s := newTestServer(t)
+		s.githubToken = "pat-token"
+		f := s.forgeFor(t.Context(), forge.KindGitHub)
+		if f == nil {
+			t.Fatal("forgeFor returned nil with PAT set")
+		}
+	})
+
+	t.Run("no token returns nil", func(t *testing.T) {
+		s := newTestServer(t)
+		f := s.forgeFor(t.Context(), forge.KindGitHub)
+		if f != nil {
+			t.Fatal("forgeFor should return nil when no tokens available")
+		}
+	})
+
+	t.Run("no token without user context returns nil even with auth store", func(t *testing.T) {
+		usersPath := filepath.Join(t.TempDir(), "users.json")
+		store, err := auth.Open(usersPath)
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		s := newTestServer(t)
+		s.authStore = store
+		// OAuth mode but no user in context and no PAT — returns nil.
+		// CI polling is driven by SSE handlers which have user context.
+		f := s.forgeFor(t.Context(), forge.KindGitHub)
+		if f != nil {
+			t.Fatal("forgeFor should return nil without user context or PAT")
 		}
 	})
 }
