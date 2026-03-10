@@ -9,7 +9,7 @@ if (root) {
   render(
     () => (
       <AuthProvider>
-        <Router>
+        <Router explicitLinks>
           <Route path="*" component={App} />
         </Router>
       </AuthProvider>
