@@ -12,6 +12,8 @@ interface AuthState {
   user: () => UserResp | null;
   /** Sign out and clear the session cookie. */
   logout: () => Promise<void>;
+  /** Clear the local user state without calling the API (e.g. on 401). */
+  clearUser: () => void;
 }
 
 const AuthContext = createContext<AuthState>();
@@ -46,8 +48,10 @@ export const AuthProvider: ParentComponent = (props) => {
     setUser(null);
   };
 
+  const clearUser = () => setUser(null);
+
   return (
-    <AuthContext.Provider value={{ ready, providers, user, logout }}>
+    <AuthContext.Provider value={{ ready, providers, user, logout, clearUser }}>
       {props.children}
     </AuthContext.Provider>
   );

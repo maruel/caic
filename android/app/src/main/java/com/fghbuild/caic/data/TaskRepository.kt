@@ -30,8 +30,14 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import java.io.IOException
+import java.net.HttpURLConnection.HTTP_UNAUTHORIZED
 import javax.inject.Inject
 import javax.inject.Singleton
+
+private const val DELAY_CAP = 4000L
+
+/** Thrown when an SSE connection receives HTTP 401, used to throttle reconnect backoff. */
+class SseAuthException : IOException("SSE connection returned 401")
 
 /** Per-task SSE event wrapper distinguishing the "ready" sentinel from data events. */
 sealed class TaskSSEEvent {
@@ -133,7 +139,7 @@ class TaskRepository @Inject constructor(
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                close(t?.let { IOException("SSE connection failed", it) })
+                close(sseFailureException(t, response))
             }
 
             override fun onClosed(eventSource: EventSource) {
@@ -182,7 +188,7 @@ class TaskRepository @Inject constructor(
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                close(t?.let { java.io.IOException("SSE connection failed", it) })
+                close(sseFailureException(t, response))
             }
 
             override fun onClosed(eventSource: EventSource) {
@@ -213,7 +219,7 @@ class TaskRepository @Inject constructor(
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
-                close(t?.let { IOException("SSE connection failed", it) })
+                close(sseFailureException(t, response))
             }
 
             override fun onClosed(eventSource: EventSource) {
@@ -223,11 +229,17 @@ class TaskRepository @Inject constructor(
         awaitClose { source.cancel() }
     }
 
-    /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). */
+    /** Returns [SseAuthException] for HTTP 401 responses, generic [IOException] otherwise. */
+    private fun sseFailureException(t: Throwable?, response: Response?): IOException? {
+        if (response?.code == HTTP_UNAUTHORIZED) return SseAuthException()
+        return t?.let { IOException("SSE connection failed", it) }
+    }
+
+    /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). Stops on 401. */
     private fun taskEventsReconnecting(baseURL: String, flag: MutableStateFlow<Boolean>): Flow<List<Task>> =
         reconnectingFlow(flag) { taskListEvents(baseURL) }
 
-    /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). */
+    /** Reconnecting wrapper with exponential backoff (500ms initial, 1.5x, max 4s). Stops on 401. */
     private fun usageEventsReconnecting(baseURL: String, flag: MutableStateFlow<Boolean>): Flow<UsageResp> =
         reconnectingFlow(flag) { usageEvents(baseURL) }
 
@@ -242,11 +254,15 @@ class TaskRepository @Inject constructor(
                 }.collect { emit(it) }
             } catch (e: CancellationException) {
                 throw e
+            } catch (_: SseAuthException) {
+                flag.value = false
+                updateConnected()
+                return@flow // Stop retrying; collectLatest restarts after re-auth.
             } catch (_: Exception) {
                 flag.value = false
                 updateConnected()
                 delay(delayMs)
-                delayMs = (delayMs * 3 / 2).coerceAtMost(4000L)
+                delayMs = (delayMs * 3 / 2).coerceAtMost(DELAY_CAP)
             }
         }
     }

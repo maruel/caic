@@ -248,6 +248,7 @@ export default function App() {
 
   // Subscribe to task list updates via SSE with automatic reconnection.
   // Backoff: 500ms × 1.5 each failure, capped at 4s, reset on success.
+  // On 401, stop retrying and clear auth state so the login page shows.
   // On reconnect, check if the frontend was rebuilt and reload if so.
   const [connected, setConnected] = createSignal(true);
   {
@@ -257,6 +258,20 @@ export default function App() {
     let usageTimer: ReturnType<typeof setTimeout> | null = null;
     let taskDelay = 500;
     let usageDelay = 500;
+
+    /** Probe whether the server is returning 401. EventSource doesn't expose status codes. */
+    async function checkUnauthorized(): Promise<boolean> {
+      try {
+        const res = await fetch("/api/v1/auth/me", { signal: AbortSignal.timeout(5000) });
+        if (res.status === 401) {
+          auth.clearUser();
+          return true;
+        }
+      } catch {
+        // Network error — not a 401.
+      }
+      return false;
+    }
     const initialScriptSrc = document.querySelector<HTMLScriptElement>("script[src^='/assets/']")?.src ?? "";
 
     function onOpen() {
@@ -346,8 +361,11 @@ export default function App() {
         taskES?.close();
         taskES = null;
         setConnected(false);
-        taskTimer = setTimeout(connectTasks, taskDelay);
-        taskDelay = Math.min(taskDelay * 1.5, 4000);
+        checkUnauthorized().then((is401) => {
+          if (is401) return; // Stop retrying; effect restarts after re-login.
+          taskTimer = setTimeout(connectTasks, taskDelay);
+          taskDelay = Math.min(taskDelay * 1.5, 4000);
+        });
       };
     }
 
@@ -367,8 +385,11 @@ export default function App() {
       usageES.onerror = () => {
         usageES?.close();
         usageES = null;
-        usageTimer = setTimeout(connectUsage, usageDelay);
-        usageDelay = Math.min(usageDelay * 1.5, 4000);
+        checkUnauthorized().then((is401) => {
+          if (is401) return;
+          usageTimer = setTimeout(connectUsage, usageDelay);
+          usageDelay = Math.min(usageDelay * 1.5, 4000);
+        });
       };
     }
 

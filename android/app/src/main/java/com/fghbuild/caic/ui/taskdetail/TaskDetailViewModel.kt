@@ -19,6 +19,7 @@ import com.caic.sdk.v1.SyncReq
 import com.caic.sdk.v1.Task
 import com.fghbuild.caic.data.DraftStore
 import com.fghbuild.caic.data.SettingsRepository
+import com.fghbuild.caic.data.SseAuthException
 import com.fghbuild.caic.data.TaskRepository
 import com.fghbuild.caic.data.TaskSSEEvent
 import com.fghbuild.caic.navigation.Screen
@@ -208,6 +209,8 @@ class TaskDetailViewModel @Inject constructor(
                     }
                 } catch (e: CancellationException) {
                     throw e
+                } catch (_: SseAuthException) {
+                    return@launch // Stop retrying on 401.
                 } catch (_: Exception) {
                     // Fall through to reconnect.
                 } finally {
@@ -225,7 +228,7 @@ class TaskDetailViewModel @Inject constructor(
                     return@launch
                 }
                 delay(delayMs)
-                delayMs = (delayMs * 3 / 2).coerceAtMost(4000L)
+                delayMs = (delayMs * 3 / 2).coerceAtMost(DELAY_CAP)
             }
         }
     }
@@ -233,6 +236,7 @@ class TaskDetailViewModel @Inject constructor(
     companion object {
         /** Batching interval for live SSE events (ms). Balances responsiveness vs CPU. */
         private const val LIVE_BATCH_MS = 100L
+        private const val DELAY_CAP = 4000L
     }
 
     fun updateInputDraft(text: String) {
