@@ -1763,11 +1763,15 @@ func (s *Server) forgeForInfo(ctx context.Context, info *repoInfo) forge.Forge {
 		if installID == 0 {
 			id, err := s.githubApp.RepoInstallation(ctx, info.ForgeOwner, info.ForgeRepo)
 			if err != nil {
-				slog.Warn("forgeForInfo: discover installation", "owner", info.ForgeOwner, "err", err)
+				// Cache -1 to avoid repeating the lookup on every call.
+				s.storeInstallationID(info.ForgeOwner, -1)
 				return nil
 			}
 			s.storeInstallationID(info.ForgeOwner, id)
 			installID = id
+		}
+		if installID < 0 {
+			return nil // app not installed for this owner
 		}
 		client, err := s.githubApp.ForgeClient(ctx, installID)
 		if err != nil {
@@ -1780,6 +1784,7 @@ func (s *Server) forgeForInfo(ctx context.Context, info *repoInfo) forge.Forge {
 }
 
 // storeInstallationID caches the GitHub App installation ID for the given owner.
+// id == -1 means the app is not installed for that owner.
 func (s *Server) storeInstallationID(owner string, id int64) {
 	if id == 0 {
 		return
@@ -1790,6 +1795,7 @@ func (s *Server) storeInstallationID(owner string, id int64) {
 }
 
 // installationID returns the cached installation ID for the given owner, or 0 if unknown.
+// Returns -1 if the app is known to not be installed for that owner.
 func (s *Server) installationID(owner string) int64 {
 	s.mu.Lock()
 	id := s.githubInstallations[strings.ToLower(owner)]
