@@ -100,9 +100,8 @@ and OAuth are set for the same provider.
 
 ### GitHub OAuth setup
 
-When OAuth is enabled, users must sign in before accessing the UI. A session
-secret is generated automatically on first startup and stored in
-`~/.config/caic/settings.json`. No manual key management is required.
+Your [GitHub OAuth app](https://github.com/settings/developers) forces users to sign in before accessing the
+UI. This makes it safe to expose on the internet.
 
 1. Go to **Settings → Developer settings → OAuth Apps → New OAuth App**
    (or [click here](https://github.com/settings/applications/new)).
@@ -121,11 +120,10 @@ secret is generated automatically on first startup and stored in
 
 ### GitHub App setup
 
-A GitHub App receives webhooks from all repositories in an org in real time,
-enabling automatic task creation the moment an issue is opened, a PR is
-created, or a comment mentions `@caic`. It uses short-lived installation
-tokens instead of a PAT. GitHub must be able to reach caic to deliver
-webhooks — see [HTTPS exposure options](#https-exposure-options).
+Your [GitHub App](https://github.com/settings/apps) receives webhooks from all repositories in an org in real
+time, enabling automatic task creation the moment an issue is opened, a PR is created, or a comment mentions
+`@caic`. GitHub **must** be able to reach your caic instance to deliver webhooks — see [HTTPS exposure
+options](#https-exposure-options).
 
 Once configured, caic creates tasks automatically for:
 
@@ -219,6 +217,8 @@ OAuth login and webhooks require `CAIC_EXTERNAL_URL` to be set. Webhooks
 additionally require GitHub to reach caic from the internet. OAuth login only
 requires that users' browsers can reach caic, so a tailnet URL is sufficient.
 
+Warning ⚠: enable OAuth authentication **before** exposing on the internet!
+
 ### Caddy + DDNS (home server)
 
 Run caic at home on a domain you own. [Caddy](https://caddyserver.com/)
@@ -238,19 +238,21 @@ Minimal `Caddyfile`:
 CAIC_EXTERNAL_URL=https://<your-domain>
 ```
 
-### [Tailscale Funnel](https://tailscale.com/docs/features/tailscale-funnel)
+### Tailscale Funnel
 
-Exposes caic to the internet via Tailscale without opening any ports. Suitable for webhooks.
+[tailscale funnel](https://tailscale.com/docs/features/tailscale-funnel) exposes caic to the internet via
+Tailscale without opening any ports. Suitable for webhooks.
 
 ```bash
 tailscale funnel 8080
 CAIC_EXTERNAL_URL=https://<hostname>.<tailnet>.ts.net  # confirm with: tailscale funnel status
 ```
 
-### [Tailscale serve](https://tailscale.com/docs/features/tailscale-serve)
+### Tailscale Serve
 
-Private access over your tailnet only, not reachable from the internet. Sufficient for OAuth login (users on
-the tailnet can complete the OAuth flow), but not for webhooks. Great for private instances.
+[tailscale serve](https://tailscale.com/docs/features/tailscale-serve) provides private access over your
+tailnet only, not reachable from the internet. Sufficient for OAuth login (users on the tailnet can complete
+the OAuth flow), but not for webhooks. Great for private instances.
 
 ```bash
 tailscale serve --bg 8080
