@@ -27,7 +27,7 @@ export default function Login() {
         <div class="login-buttons">
           <For each={providers()}>
             {(provider) => (
-              <a href={`/api/v1/auth/${provider}/start`} class="login-button">
+              <a href={`/api/v1/auth/${provider}/start`} class="login-button" rel="external">
                 {providerIcon(provider)}
                 {providerLabel(provider)}
               </a>
