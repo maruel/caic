@@ -419,13 +419,29 @@ func (item *CollabAgentToolCallItem) UnmarshalJSON(data []byte) error {
 	return jsonutil.UnmarshalRecord(data, (*Alias)(item), &item.Overflow, collabAgentToolCallItemKnown, "CollabAgentToolCallItem")
 }
 
+// WebSearchAction is the action object within a webSearch item.
+type WebSearchAction struct {
+	Type    string `json:"type"`
+	URL     string `json:"url,omitzero"`
+	Pattern string `json:"pattern,omitzero"`
+	jsonutil.Overflow
+}
+
+var webSearchActionKnown = jsonutil.KnownFields(WebSearchAction{})
+
+// UnmarshalJSON implements json.Unmarshaler.
+func (a *WebSearchAction) UnmarshalJSON(data []byte) error {
+	type Alias WebSearchAction
+	return jsonutil.UnmarshalRecord(data, (*Alias)(a), &a.Overflow, webSearchActionKnown, "WebSearchAction")
+}
+
 // WebSearchItem is a web search item.
 type WebSearchItem struct {
-	ID     string `json:"id"`
-	Type   string `json:"type"`
-	Query  string `json:"query,omitzero"`
-	Action string `json:"action,omitzero"`
-	Status string `json:"status,omitzero"`
+	ID     string           `json:"id"`
+	Type   string           `json:"type"`
+	Query  string           `json:"query,omitzero"`
+	Action *WebSearchAction `json:"action,omitzero"`
+	Status string           `json:"status,omitzero"`
 	jsonutil.Overflow
 }
 
@@ -801,6 +817,76 @@ func (p *ModelReroutedParams) UnmarshalJSON(data []byte) error {
 	type Alias ModelReroutedParams
 	return jsonutil.UnmarshalRecord(data, (*Alias)(p), &p.Overflow, modelReroutedParamsKnown, "ModelReroutedParams")
 }
+
+// ---------- Outbound request types ----------
+
+// jsonrpcRequest is the envelope for all JSON-RPC 2.0 requests sent to codex.
+type jsonrpcRequest struct {
+	JSONRPC string `json:"jsonrpc"`
+	ID      int64  `json:"id,omitzero"`
+	Method  string `json:"method"`
+	Params  any    `json:"params,omitzero"`
+}
+
+// jsonrpcNotification is a JSON-RPC 2.0 notification (no id, no response expected).
+type jsonrpcNotification struct {
+	JSONRPC string `json:"jsonrpc"`
+	Method  string `json:"method"`
+}
+
+// initializeParams holds the params for the initialize request.
+type initializeParams struct {
+	ClientInfo   clientInfo   `json:"clientInfo"`
+	Capabilities capabilities `json:"capabilities"`
+}
+
+type clientInfo struct {
+	Name    string `json:"name"`
+	Title   string `json:"title"`
+	Version string `json:"version"`
+}
+
+type capabilities struct {
+	OptOutNotificationMethods []string `json:"optOutNotificationMethods"`
+}
+
+// threadStartParams holds the params for thread/start.
+type threadStartParams struct {
+	Model string `json:"model,omitzero"`
+}
+
+// threadResumeParams holds the params for thread/resume.
+type threadResumeParams struct {
+	ThreadID string `json:"threadId"`
+}
+
+// turnStartParams holds the params for turn/start.
+type turnStartParams struct {
+	ThreadID string      `json:"threadId"`
+	Input    []turnInput `json:"input"`
+}
+
+// turnInput is a single item in the turn/start input array.
+type turnInput struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitzero"`
+	URL  string `json:"url,omitzero"`
+}
+
+// ---------- model/list ----------
+
+// ModelListResult is the result of a model/list request.
+type ModelListResult struct {
+	Models []ModelInfo `json:"models"`
+}
+
+// ModelInfo describes a single model in a model/list result.
+type ModelInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name,omitzero"`
+}
+
+// ---------- Error notification ----------
 
 // ErrorNotificationParams holds params for error notifications.
 type ErrorNotificationParams struct {

@@ -50,10 +50,11 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 		return []v1.EventMessage{{
 			Kind:   v1.EventKindSystem,
 			Ts:     ts,
-			System: &v1.EventSystem{Subtype: m.Subtype},
+			System: &v1.EventSystem{Subtype: m.Subtype, Detail: m.Detail},
 		}}
 	case *agent.TextMessage:
 		if m.Text != "" {
+			// TODO: propagate m.Phase to EventText once EventText has a Phase field.
 			return []v1.EventMessage{{
 				Kind: v1.EventKindText,
 				Ts:   ts,
@@ -226,6 +227,18 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 			Ts:   ts,
 			Log:  &v1.EventLog{Line: m.Line},
 		}}
+	case *agent.ToolOutputDeltaMessage:
+		if m.Delta != "" {
+			return []v1.EventMessage{{
+				Kind: v1.EventKindToolOutputDelta,
+				Ts:   ts,
+				ToolOutputDelta: &v1.EventToolOutputDelta{
+					ToolUseID: m.ToolUseID,
+					Delta:     m.Delta,
+				},
+			}}
+		}
+		return nil
 	default:
 		return nil
 	}

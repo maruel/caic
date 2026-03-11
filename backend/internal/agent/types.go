@@ -53,6 +53,8 @@ type SystemMessage struct {
 	Subtype     string `json:"subtype"`
 	SessionID   string `json:"session_id"`
 	UUID        string `json:"uuid"`
+	Detail      string `json:"detail,omitempty"` // Optional human-readable detail (e.g. model names for model_rerouted).
+	Model       string `json:"model,omitempty"`  // Active model after model_rerouted; used to update task.reportedModel.
 }
 
 // Type implements Message.
@@ -60,7 +62,8 @@ func (m *SystemMessage) Type() string { return "system" }
 
 // TextMessage is emitted when the agent produces text output.
 type TextMessage struct {
-	Text string `json:"text"`
+	Text  string `json:"text"`
+	Phase string `json:"phase,omitempty"` // Codex only: "commentary" | "final_answer" | "".
 }
 
 // Type implements Message.
@@ -118,8 +121,9 @@ func (m *ToolResultMessage) Type() string { return "tool_result" }
 
 // UsageMessage reports token consumption for a single API call.
 type UsageMessage struct {
-	Usage Usage  `json:"usage"`
-	Model string `json:"model,omitempty"`
+	Usage         Usage  `json:"usage"`
+	Model         string `json:"model,omitempty"`
+	ContextWindow int    `json:"context_window,omitempty"` // Non-zero when the backend reports the active context window size.
 }
 
 // Type implements Message.
@@ -211,6 +215,17 @@ type ThinkingDeltaMessage struct {
 
 // Type implements Message.
 func (m *ThinkingDeltaMessage) Type() string { return "thinking_delta" }
+
+// ToolOutputDeltaMessage is a streaming output fragment from a tool execution.
+// Codex only: emitted via item/commandExecution/outputDelta (Bash stdout) and
+// item/mcpToolCall/progress (MCP tool progress messages).
+type ToolOutputDeltaMessage struct {
+	ToolUseID string
+	Delta     string
+}
+
+// Type implements Message.
+func (m *ToolOutputDeltaMessage) Type() string { return "tool_output_delta" }
 
 // SubagentStartMessage is emitted when a subagent task begins.
 type SubagentStartMessage struct {

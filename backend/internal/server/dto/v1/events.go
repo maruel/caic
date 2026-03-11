@@ -15,49 +15,51 @@ type EventKind string
 
 // Event kind constants.
 const (
-	EventKindInit          EventKind = "init"
-	EventKindText          EventKind = "text"
-	EventKindTextDelta     EventKind = "textDelta"
-	EventKindToolUse       EventKind = "toolUse"
-	EventKindToolResult    EventKind = "toolResult"
-	EventKindAsk           EventKind = "ask"
-	EventKindUsage         EventKind = "usage"
-	EventKindResult        EventKind = "result"
-	EventKindSystem        EventKind = "system"
-	EventKindUserInput     EventKind = "userInput"
-	EventKindTodo          EventKind = "todo"
-	EventKindDiffStat      EventKind = "diffStat"
-	EventKindError         EventKind = "error"
-	EventKindThinking      EventKind = "thinking"
-	EventKindThinkingDelta EventKind = "thinkingDelta"
-	EventKindSubagentStart EventKind = "subagentStart"
-	EventKindSubagentEnd   EventKind = "subagentEnd"
-	EventKindLog           EventKind = "log"
+	EventKindInit            EventKind = "init"
+	EventKindText            EventKind = "text"
+	EventKindTextDelta       EventKind = "textDelta"
+	EventKindToolUse         EventKind = "toolUse"
+	EventKindToolResult      EventKind = "toolResult"
+	EventKindAsk             EventKind = "ask"
+	EventKindUsage           EventKind = "usage"
+	EventKindResult          EventKind = "result"
+	EventKindSystem          EventKind = "system"
+	EventKindUserInput       EventKind = "userInput"
+	EventKindTodo            EventKind = "todo"
+	EventKindDiffStat        EventKind = "diffStat"
+	EventKindError           EventKind = "error"
+	EventKindThinking        EventKind = "thinking"
+	EventKindThinkingDelta   EventKind = "thinkingDelta"
+	EventKindSubagentStart   EventKind = "subagentStart"
+	EventKindSubagentEnd     EventKind = "subagentEnd"
+	EventKindLog             EventKind = "log"
+	EventKindToolOutputDelta EventKind = "toolOutputDelta"
 )
 
 // EventMessage is a single SSE event in the backend-neutral stream
 // (/api/v1/tasks/{id}/events). All backends produce these events.
 type EventMessage struct {
-	Kind          EventKind           `json:"kind"`
-	Ts            int64               `json:"ts"`
-	Init          *EventInit          `json:"init,omitempty"`
-	Text          *EventText          `json:"text,omitempty"`
-	TextDelta     *EventTextDelta     `json:"textDelta,omitempty"`
-	ToolUse       *EventToolUse       `json:"toolUse,omitempty"`
-	ToolResult    *EventToolResult    `json:"toolResult,omitempty"`
-	Ask           *EventAsk           `json:"ask,omitempty"`
-	Usage         *EventUsage         `json:"usage,omitempty"`
-	Result        *EventResult        `json:"result,omitempty"`
-	System        *EventSystem        `json:"system,omitempty"`
-	UserInput     *EventUserInput     `json:"userInput,omitempty"`
-	Todo          *EventTodo          `json:"todo,omitempty"`
-	DiffStat      *EventDiffStat      `json:"diffStat,omitempty"`
-	Error         *EventError         `json:"error,omitempty"`
-	Thinking      *EventThinking      `json:"thinking,omitempty"`
-	ThinkingDelta *EventThinkingDelta `json:"thinkingDelta,omitempty"`
-	SubagentStart *EventSubagentStart `json:"subagentStart,omitempty"`
-	SubagentEnd   *EventSubagentEnd   `json:"subagentEnd,omitempty"`
-	Log           *EventLog           `json:"log,omitempty"`
+	Kind            EventKind             `json:"kind"`
+	Ts              int64                 `json:"ts"`
+	Init            *EventInit            `json:"init,omitempty"`
+	Text            *EventText            `json:"text,omitempty"`
+	TextDelta       *EventTextDelta       `json:"textDelta,omitempty"`
+	ToolUse         *EventToolUse         `json:"toolUse,omitempty"`
+	ToolResult      *EventToolResult      `json:"toolResult,omitempty"`
+	Ask             *EventAsk             `json:"ask,omitempty"`
+	Usage           *EventUsage           `json:"usage,omitempty"`
+	Result          *EventResult          `json:"result,omitempty"`
+	System          *EventSystem          `json:"system,omitempty"`
+	UserInput       *EventUserInput       `json:"userInput,omitempty"`
+	Todo            *EventTodo            `json:"todo,omitempty"`
+	DiffStat        *EventDiffStat        `json:"diffStat,omitempty"`
+	Error           *EventError           `json:"error,omitempty"`
+	Thinking        *EventThinking        `json:"thinking,omitempty"`
+	ThinkingDelta   *EventThinkingDelta   `json:"thinkingDelta,omitempty"`
+	SubagentStart   *EventSubagentStart   `json:"subagentStart,omitempty"`
+	SubagentEnd     *EventSubagentEnd     `json:"subagentEnd,omitempty"`
+	Log             *EventLog             `json:"log,omitempty"`
+	ToolOutputDelta *EventToolOutputDelta `json:"toolOutputDelta,omitempty"`
 }
 
 // EventInit is emitted once at the start of a session. It includes a Harness
@@ -145,6 +147,7 @@ type EventResult struct {
 // EventSystem is a system event (status, compact_boundary, etc.).
 type EventSystem struct {
 	Subtype string `json:"subtype"`
+	Detail  string `json:"detail,omitempty"` // Optional human-readable detail (e.g. model names for model_rerouted).
 }
 
 // EventUserInput is emitted when a user sends a text message to the agent.
@@ -202,4 +205,12 @@ type EventSubagentEnd struct {
 // EventLog is a provisioning/startup log line from the container backend.
 type EventLog struct {
 	Line string `json:"line"`
+}
+
+// EventToolOutputDelta is a streaming output fragment from a running tool.
+// Codex only: emitted for Bash stdout (item/commandExecution/outputDelta) and
+// MCP tool progress messages (item/mcpToolCall/progress).
+type EventToolOutputDelta struct {
+	ToolUseID string `json:"toolUseID"`
+	Delta     string `json:"delta"`
 }

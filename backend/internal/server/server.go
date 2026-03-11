@@ -2696,7 +2696,9 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	// Active tokens = last API call's context window fill (not the per-query sum).
 	j.ActiveInputTokens = snap.LastAPIUsage.InputTokens + snap.LastAPIUsage.CacheCreationInputTokens
 	j.ActiveCacheReadTokens = snap.LastAPIUsage.CacheReadInputTokens
-	if r := s.runners[e.task.Repo]; r != nil {
+	if snap.ContextWindowLimit > 0 {
+		j.ContextWindowLimit = snap.ContextWindowLimit
+	} else if r := s.runners[e.task.Repo]; r != nil {
 		if b := r.Backends[e.task.Harness]; b != nil {
 			j.ContextWindowLimit = b.ContextWindowLimit(snap.Model)
 		}

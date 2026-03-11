@@ -347,6 +347,7 @@ All errors return:
 | Field | Type | Required |
 |-------|------|----------|
 | `subtype` | `string` | yes |
+| `detail` | `string` |  |
 
 ### EventUserInput
 
@@ -415,6 +416,13 @@ All errors return:
 |-------|------|----------|
 | `line` | `string` | yes |
 
+### EventToolOutputDelta
+
+| Field | Type | Required |
+|-------|------|----------|
+| `toolUseID` | `string` | yes |
+| `delta` | `string` | yes |
+
 ### EventMessage
 
 | Field | Type | Required |
@@ -439,6 +447,7 @@ All errors return:
 | `subagentStart` | `EventSubagentStart` |  |
 | `subagentEnd` | `EventSubagentEnd` |  |
 | `log` | `EventLog` |  |
+| `toolOutputDelta` | `EventToolOutputDelta` |  |
 
 ### InputReq
 

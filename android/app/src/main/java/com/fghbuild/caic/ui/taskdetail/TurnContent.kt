@@ -58,6 +58,7 @@ fun MessageGroupContent(
                     }
                     ToolMessageGroup(
                         toolCalls = group.toolCalls,
+                        events = group.events,
                         onLoadInput = onLoadToolInput,
                         onClearAndExecutePlan = onClearAndExecutePlan,
                     )
@@ -150,6 +151,15 @@ fun MessageGroupContent(
                 }
                 event?.kind == EventKinds.System && event.system?.subtype == "step_start" -> {
                     // suppress: no useful content to display
+                }
+                event?.kind == EventKinds.System && event.system?.subtype == "model_rerouted" -> {
+                    val detail = event.system?.detail
+                    val text = if (!detail.isNullOrBlank()) "Model rerouted: $detail" else "Model rerouted"
+                    Text(
+                        text = text,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
                 event?.kind == EventKinds.System -> {
                     val subtype = event.system?.subtype

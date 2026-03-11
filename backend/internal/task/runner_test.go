@@ -38,7 +38,7 @@ func (b *testBackend) Start(ctx context.Context, _ *agent.Options, msgCh chan<- 
 	return agent.NewSession(cmd, stdin, stdout, msgCh, nil, &testWire{}, nil), nil
 }
 
-func (b *testBackend) AttachRelay(context.Context, string, int64, chan<- agent.Message, io.Writer) (*agent.Session, error) {
+func (b *testBackend) AttachRelay(context.Context, *agent.Options, chan<- agent.Message, io.Writer) (*agent.Session, error) {
 	return nil, errors.New("test backend does not support relay")
 }
 

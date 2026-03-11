@@ -124,36 +124,37 @@ type Task struct {
 	RelayOffset   int64  // Bytes received from relay output.jsonl, for reconnect.
 
 	// mu protects all fields below.
-	mu             sync.Mutex
-	state          State
-	stateUpdatedAt time.Time // UTC timestamp of the last state transition.
-	sessionID      string    // Agent session ID, captured from SystemInitMessage.
-	reportedModel  string    // Model reported by SystemInitMessage (may differ from Model).
-	agentVersion   string    // Agent version, captured from SystemInitMessage.
-	planFile       string    // Path to plan file inside container, captured from Write tool_use.
-	planContent    string    // Content of the plan file, captured from Write tool_use input.
-	planDismissed  bool      // True after ClearMessages; suppresses plan tracking until the next ResultMessage.
-	inPlanMode     bool      // True while the agent is in plan mode (between EnterPlanMode and ExitPlanMode).
-	title          string    // LLM-generated short title; set via SetTitle.
-	msgs           []agent.Message
-	subs           []*sub         // active SSE subscribers
-	handle         *SessionHandle // current active session; nil when no session is attached
-	priorCostUSD   float64        // accumulated cost from all cleared sessions
-	priorNumTurns  int            // accumulated turns from all cleared sessions
-	priorDuration  time.Duration  // accumulated duration from all cleared sessions
-	turnStartedAt  time.Time      // when the current running turn started; zero when not running
-	liveCostUSD    float64
-	liveNumTurns   int
-	liveDuration   time.Duration
-	liveUsage      agent.Usage
-	lastUsage      agent.Usage    // Most recent ResultMessage usage (active context).
-	lastAPIUsage   agent.Usage    // Most recent per-API-call usage from AssistantMessage (context window fill).
-	liveDiffStat   agent.DiffStat // Updated by DiffStatMessage from relay.
-	forgeOwner     string
-	forgeRepo      string
-	forgePR        int
-	ciStatus       CIStatus
-	ciChecks       []CICheck
+	mu                    sync.Mutex
+	state                 State
+	stateUpdatedAt        time.Time // UTC timestamp of the last state transition.
+	sessionID             string    // Agent session ID, captured from SystemInitMessage.
+	reportedModel         string    // Model reported by SystemInitMessage (may differ from Model).
+	agentVersion          string    // Agent version, captured from SystemInitMessage.
+	reportedContextWindow int       // Context window size reported by the agent (0 = unknown).
+	planFile              string    // Path to plan file inside container, captured from Write tool_use.
+	planContent           string    // Content of the plan file, captured from Write tool_use input.
+	planDismissed         bool      // True after ClearMessages; suppresses plan tracking until the next ResultMessage.
+	inPlanMode            bool      // True while the agent is in plan mode (between EnterPlanMode and ExitPlanMode).
+	title                 string    // LLM-generated short title; set via SetTitle.
+	msgs                  []agent.Message
+	subs                  []*sub         // active SSE subscribers
+	handle                *SessionHandle // current active session; nil when no session is attached
+	priorCostUSD          float64        // accumulated cost from all cleared sessions
+	priorNumTurns         int            // accumulated turns from all cleared sessions
+	priorDuration         time.Duration  // accumulated duration from all cleared sessions
+	turnStartedAt         time.Time      // when the current running turn started; zero when not running
+	liveCostUSD           float64
+	liveNumTurns          int
+	liveDuration          time.Duration
+	liveUsage             agent.Usage
+	lastUsage             agent.Usage    // Most recent ResultMessage usage (active context).
+	lastAPIUsage          agent.Usage    // Most recent per-API-call usage from AssistantMessage (context window fill).
+	liveDiffStat          agent.DiffStat // Updated by DiffStatMessage from relay.
+	forgeOwner            string
+	forgeRepo             string
+	forgePR               int
+	ciStatus              CIStatus
+	ciChecks              []CICheck
 }
 
 // setState updates the state and records the transition time. The caller must
@@ -299,28 +300,29 @@ func (t *Task) Title() string {
 // server to build API responses without data races on fields that
 // addMessage/RestoreMessages modify concurrently.
 type Snapshot struct {
-	State          State
-	StateUpdatedAt time.Time
-	TurnStartedAt  time.Time // non-zero only while state is Running
-	Title          string
-	SessionID      string
-	Model          string
-	AgentVersion   string
-	InPlanMode     bool
-	PlanFile       string
-	PlanContent    string
-	CostUSD        float64
-	NumTurns       int
-	Duration       time.Duration
-	Usage          agent.Usage
-	LastUsage      agent.Usage
-	LastAPIUsage   agent.Usage
-	DiffStat       agent.DiffStat
-	ForgeOwner     string
-	ForgeRepo      string
-	ForgePR        int
-	CIStatus       CIStatus
-	CIChecks       []CICheck
+	State              State
+	StateUpdatedAt     time.Time
+	TurnStartedAt      time.Time // non-zero only while state is Running
+	Title              string
+	SessionID          string
+	Model              string
+	AgentVersion       string
+	ContextWindowLimit int // Non-zero when reported by the agent at runtime.
+	InPlanMode         bool
+	PlanFile           string
+	PlanContent        string
+	CostUSD            float64
+	NumTurns           int
+	Duration           time.Duration
+	Usage              agent.Usage
+	LastUsage          agent.Usage
+	LastAPIUsage       agent.Usage
+	DiffStat           agent.DiffStat
+	ForgeOwner         string
+	ForgeRepo          string
+	ForgePR            int
+	CIStatus           CIStatus
+	CIChecks           []CICheck
 }
 
 // Snapshot returns a consistent read of all volatile fields under the mutex.
@@ -332,28 +334,29 @@ func (t *Task) Snapshot() Snapshot {
 		model = t.Model
 	}
 	return Snapshot{
-		State:          t.state,
-		StateUpdatedAt: t.stateUpdatedAt,
-		TurnStartedAt:  t.turnStartedAt,
-		Title:          t.title,
-		SessionID:      t.sessionID,
-		Model:          model,
-		AgentVersion:   t.agentVersion,
-		InPlanMode:     t.inPlanMode,
-		PlanFile:       t.planFile,
-		PlanContent:    t.planContent,
-		CostUSD:        t.liveCostUSD,
-		NumTurns:       t.liveNumTurns,
-		Duration:       t.liveDuration,
-		Usage:          t.liveUsage,
-		LastUsage:      t.lastUsage,
-		LastAPIUsage:   t.lastAPIUsage,
-		DiffStat:       t.liveDiffStat,
-		ForgeOwner:     t.forgeOwner,
-		ForgeRepo:      t.forgeRepo,
-		ForgePR:        t.forgePR,
-		CIStatus:       t.ciStatus,
-		CIChecks:       append([]CICheck(nil), t.ciChecks...),
+		State:              t.state,
+		StateUpdatedAt:     t.stateUpdatedAt,
+		TurnStartedAt:      t.turnStartedAt,
+		Title:              t.title,
+		SessionID:          t.sessionID,
+		Model:              model,
+		AgentVersion:       t.agentVersion,
+		ContextWindowLimit: t.reportedContextWindow,
+		InPlanMode:         t.inPlanMode,
+		PlanFile:           t.planFile,
+		PlanContent:        t.planContent,
+		CostUSD:            t.liveCostUSD,
+		NumTurns:           t.liveNumTurns,
+		Duration:           t.liveDuration,
+		Usage:              t.liveUsage,
+		LastUsage:          t.lastUsage,
+		LastAPIUsage:       t.lastAPIUsage,
+		DiffStat:           t.liveDiffStat,
+		ForgeOwner:         t.forgeOwner,
+		ForgeRepo:          t.forgeRepo,
+		ForgePR:            t.forgePR,
+		CIStatus:           t.ciStatus,
+		CIChecks:           append([]CICheck(nil), t.ciChecks...),
 	}
 }
 
@@ -383,12 +386,15 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.msgs = msgs
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if init, ok := msgs[i].(*agent.InitMessage); ok && init.SessionID != "" {
+	// Scan forward so later entries (model_rerouted) override earlier ones.
+	for _, m := range msgs {
+		if init, ok := m.(*agent.InitMessage); ok && init.SessionID != "" {
 			t.sessionID = init.SessionID
 			t.reportedModel = init.Model
 			t.agentVersion = init.Version
-			break
+		}
+		if sm, ok := m.(*agent.SystemMessage); ok && sm.Subtype == "model_rerouted" && sm.Model != "" {
+			t.reportedModel = sm.Model
 		}
 	}
 	// Restore plan state from tool_use events. A context_cleared marker
@@ -422,6 +428,9 @@ func (t *Task) RestoreMessages(msgs []agent.Message) {
 		}
 		if u, ok := m.(*agent.UsageMessage); ok {
 			t.lastAPIUsage = u.Usage
+			if u.ContextWindow > 0 {
+				t.reportedContextWindow = u.ContextWindow
+			}
 		}
 		if _, ok := m.(*agent.ResultMessage); ok {
 			t.planDismissed = false
@@ -497,6 +506,10 @@ func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 		t.reportedModel = init.Model
 		t.agentVersion = init.Version
 	}
+	// Track model rerouting (codex): update reportedModel to the active model.
+	if sm, ok := m.(*agent.SystemMessage); ok && sm.Subtype == "model_rerouted" && sm.Model != "" {
+		t.reportedModel = sm.Model
+	}
 	// Track plan mode and plan file from tool_use events.
 	if tu, ok := m.(*agent.ToolUseMessage); ok {
 		t.trackToolUse(tu)
@@ -512,6 +525,9 @@ func (t *Task) addMessage(ctx context.Context, m agent.Message) {
 	}
 	if u, ok := m.(*agent.UsageMessage); ok {
 		t.lastAPIUsage = u.Usage
+		if u.ContextWindow > 0 {
+			t.reportedContextWindow = u.ContextWindow
+		}
 	}
 	// Transition to running when the agent starts producing output
 	// while the task is in a waiting state. This covers the case where

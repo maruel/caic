@@ -11,6 +11,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.caic.sdk.v1.EventKinds
+import com.caic.sdk.v1.EventMessage
 import com.fghbuild.caic.util.ToolCall
 import com.fghbuild.caic.util.toolCountSummary
 import kotlinx.serialization.json.JsonElement
@@ -20,13 +22,21 @@ import kotlinx.serialization.json.JsonElement
 @Composable
 fun ToolMessageGroup(
     toolCalls: List<ToolCall>,
+    events: List<EventMessage> = emptyList(),
     onLoadInput: (suspend (String) -> JsonElement?)? = null,
     onClearAndExecutePlan: (() -> Unit)? = null,
 ) {
     if (toolCalls.isEmpty()) return
     val call = toolCalls[0]
+    val outputDelta = remember(events, call.use.toolUseID) {
+        events
+            .filter { it.kind == EventKinds.ToolOutputDelta && it.toolOutputDelta?.toolUseID == call.use.toolUseID }
+            .joinToString("") { it.toolOutputDelta?.delta ?: "" }
+            .takeIf { it.isNotEmpty() }
+    }
     ToolCallCard(
         call = call,
+        outputDelta = outputDelta,
         onLoadInput = onLoadInput?.takeIf { call.use.inputTruncated == true }
             ?.let { loader -> { loader(call.use.toolUseID) } },
         onClearAndExecutePlan = onClearAndExecutePlan,

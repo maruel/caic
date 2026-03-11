@@ -33,7 +33,7 @@ func (stubBackend) Start(context.Context, *agent.Options, chan<- agent.Message, 
 	return nil, errors.New("stub")
 }
 
-func (stubBackend) AttachRelay(context.Context, string, int64, chan<- agent.Message, io.Writer) (*agent.Session, error) {
+func (stubBackend) AttachRelay(context.Context, *agent.Options, chan<- agent.Message, io.Writer) (*agent.Session, error) {
 	return nil, errors.New("stub")
 }
 

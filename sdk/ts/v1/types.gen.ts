@@ -90,6 +90,10 @@ export const EventKindSubagentEnd: EventKind = "subagentEnd";
  */
 export const EventKindLog: EventKind = "log";
 /**
+ * Event kind constants.
+ */
+export const EventKindToolOutputDelta: EventKind = "toolOutputDelta";
+/**
  * EventMessage is a single SSE event in the backend-neutral stream
  * (/api/v1/tasks/{id}/events). All backends produce these events.
  */
@@ -114,6 +118,7 @@ export interface EventMessage {
   subagentStart?: EventSubagentStart;
   subagentEnd?: EventSubagentEnd;
   log?: EventLog;
+  toolOutputDelta?: EventToolOutputDelta;
 }
 /**
  * EventInit is emitted once at the start of a session. It includes a Harness
@@ -212,6 +217,7 @@ export interface EventResult {
  */
 export interface EventSystem {
   subtype: string;
+  detail?: string; // Optional human-readable detail (e.g. model names for model_rerouted).
 }
 /**
  * EventUserInput is emitted when a user sends a text message to the agent.
@@ -279,6 +285,15 @@ export interface EventSubagentEnd {
  */
 export interface EventLog {
   line: string;
+}
+/**
+ * EventToolOutputDelta is a streaming output fragment from a running tool.
+ * Codex only: emitted for Bash stdout (item/commandExecution/outputDelta) and
+ * MCP tool progress messages (item/mcpToolCall/progress).
+ */
+export interface EventToolOutputDelta {
+  toolUseID: string;
+  delta: string;
 }
 
 //////////

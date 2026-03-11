@@ -725,6 +725,13 @@ function MessageItem(props: { ev: EventMessage }) {
       <Match when={props.ev.system?.subtype === "step_start"}>
         {/* suppress: no useful content */}
       </Match>
+      <Match when={props.ev.system?.subtype === "model_rerouted"} keyed>
+        {() => (
+          <div class={styles.systemMsg}>
+            Model rerouted{props.ev.system?.detail ? `: ${props.ev.system.detail}` : ""}
+          </div>
+        )}
+      </Match>
       <Match when={props.ev.system} keyed>
         {(sys) => (
           <div class={styles.systemMsg}>
@@ -820,11 +827,16 @@ function ToolMessageGroup(props: { toolCalls: ToolCall[]; taskId: string; events
   const thinkingEvents = () => (props.events ?? []).filter(
     (e) => e.kind === "thinking" || e.kind === "thinkingDelta",
   );
+  // Compute accumulated tool output deltas per toolUseID from the group events.
+  const outputDeltaEvents = (toolUseID: string) => (props.events ?? []).filter(
+    (e) => e.kind === "toolOutputDelta" && e.toolOutputDelta?.toolUseID === toolUseID,
+  );
   return (
     <Show when={calls().length > 0}>
       <Show when={calls().length > 1} fallback={
         <ToolCallCard call={calls()[0]} taskId={props.taskId}
           thinkingEvents={thinkingEvents()}
+          outputDeltaEvents={outputDeltaEvents(calls()[0].use.toolUseID)}
           open={detailsOpenState.get(calls()[0].use.toolUseID) ?? false}
           onToggle={(v) => detailsOpenState.set(calls()[0].use.toolUseID, v)}
           onClearAndExecutePlan={props.onClearAndExecutePlan}
@@ -842,6 +854,7 @@ function ToolMessageGroup(props: { toolCalls: ToolCall[]; taskId: string; events
               </Show>
               <Index each={calls()}>
                 {(call) => <ToolCallCard call={call()} taskId={props.taskId}
+                  outputDeltaEvents={outputDeltaEvents(call().use.toolUseID)}
                   open={detailsOpenState.get(call().use.toolUseID) ?? false}
                   onToggle={(v) => detailsOpenState.set(call().use.toolUseID, v)}
                   suppressPlanContent={true}
@@ -960,7 +973,7 @@ function ToolCallInput(props: { input: Record<string, unknown> }) {
   );
 }
 
-function ToolCallCard(props: { call: ToolCall; taskId: string; open: boolean; onToggle: (open: boolean) => void; thinkingEvents?: EventMessage[]; onClearAndExecutePlan?: () => void; pendingAction?: () => string | null; suppressPlanContent?: boolean }) {
+function ToolCallCard(props: { call: ToolCall; taskId: string; open: boolean; onToggle: (open: boolean) => void; thinkingEvents?: EventMessage[]; outputDeltaEvents?: EventMessage[]; onClearAndExecutePlan?: () => void; pendingAction?: () => string | null; suppressPlanContent?: boolean }) {
   const [loadedInput, setLoadedInput] = createSignal<Record<string, unknown> | null>(null);
   const [loading, setLoading] = createSignal(false);
 
@@ -1010,6 +1023,9 @@ function ToolCallCard(props: { call: ToolCall; taskId: string; open: boolean; on
         </Show>
         <Show when={error()}>
           <pre class={styles.toolErrorPre}>{error()}</pre>
+        </Show>
+        <Show when={(props.outputDeltaEvents?.length ?? 0) > 0}>
+          <pre class={styles.toolOutputDelta}>{props.outputDeltaEvents?.map((e) => e.toolOutputDelta?.delta ?? "").join("")}</pre>
         </Show>
       </details>
       <Show when={!props.suppressPlanContent && props.call.use.planContent} keyed>

@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
 )
@@ -22,18 +23,29 @@ import (
 // JSON-RPC 2.0 protocol.
 type Backend struct {
 	agent.Base
+	mu sync.Mutex
 }
 
 var _ agent.Backend = (*Backend)(nil)
 
 // New creates a Codex CLI backend with parser configured.
+// ModelList starts with a single known-good model; it is replaced with the
+// live list returned by model/list on the first successful handshake.
 func New() *Backend {
 	return &Backend{Base: agent.Base{
 		HarnessID:     agent.Codex,
-		ModelList:     []string{"gpt-5.3-codex", "gpt-5.3-codex-spark"},
+		ModelList:     []string{"gpt-5.4"},
+		Images:        true,
 		ContextWindow: 200_000,
 		Parse:         ParseMessage,
 	}}
+}
+
+// Models returns the current model list, updated dynamically after each handshake.
+func (b *Backend) Models() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.ModelList
 }
 
 // Start launches a Codex CLI app-server process via the relay daemon in the
@@ -72,12 +84,17 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 	// without losing buffered bytes for the session's readMessages goroutine.
 	br := bufio.NewReaderSize(stdout, 1<<16)
 
-	wire, err := handshake(stdin, br, opts)
+	wire, models, err := handshake(ctx, stdin, br, opts)
 	if err != nil {
 		// Kill the process on handshake failure.
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return nil, fmt.Errorf("codex handshake: %w", err)
+	}
+	if len(models) > 0 {
+		b.mu.Lock()
+		b.ModelList = models
+		b.mu.Unlock()
 	}
 
 	log := slog.With("container", opts.Container)
@@ -92,10 +109,12 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 }
 
 // AttachRelay connects to an already-running relay in the container.
-func (b *Backend) AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
+// opts.ResumeSessionID is used to pre-populate the thread ID so that
+// WritePrompt works immediately without waiting for thread/started replay.
+func (b *Backend) AttachRelay(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
 	sshArgs := []string{
-		container, "python3", agent.RelayScriptPath, "attach",
-		"--offset", strconv.FormatInt(offset, 10),
+		opts.Container, "python3", agent.RelayScriptPath, "attach",
+		"--offset", strconv.FormatInt(opts.RelayOffset, 10),
 	}
 	cmd := exec.CommandContext(ctx, "ssh", sshArgs...) //nolint:gosec // args are not user-controlled.
 	stdin, err := cmd.StdinPipe()
@@ -106,16 +125,17 @@ func (b *Backend) AttachRelay(ctx context.Context, container string, offset int6
 	if err != nil {
 		return nil, fmt.Errorf("stdout pipe: %w", err)
 	}
-	cmd.Stderr = &agent.SlogWriter{Prefix: "relay attach", Container: container}
+	cmd.Stderr = &agent.SlogWriter{Prefix: "relay attach", Container: opts.Container}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("attach relay: %w", err)
 	}
 
-	// On reconnect, thread ID is unknown until we see thread/started in the
-	// replayed output. wireFormat.ParseMessage captures it.
-	wire := &wireFormat{}
+	// Pre-populate thread ID from the known session so WritePrompt works
+	// immediately. wireFormat.process() will update it again if thread/started
+	// appears in the replayed output.
+	wire := &wireFormat{threadID: opts.ResumeSessionID}
 
-	log := slog.With("container", container)
+	log := slog.With("container", opts.Container)
 	return agent.NewSession(cmd, stdin, stdout, msgCh, logW, wire, log), nil
 }
 
@@ -130,7 +150,7 @@ type wireFormat struct {
 }
 
 // WritePrompt sends a turn/start JSON-RPC request to begin a new turn with
-// the given user message. Images are ignored (Codex does not support them).
+// the given user message. Images are sent as data URL items after the text item.
 func (w *wireFormat) WritePrompt(wr io.Writer, p agent.Prompt, logW io.Writer) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -138,25 +158,22 @@ func (w *wireFormat) WritePrompt(wr io.Writer, p agent.Prompt, logW io.Writer) e
 		return errors.New("codex: no thread ID (handshake not completed)")
 	}
 	id := w.nextID.Add(1)
-	req := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"method":  "turn/start",
-		"params": map[string]any{
-			"threadId": w.threadID,
-			"input":    []map[string]any{{"type": "text", "text": p.Text}},
-		},
+	input := make([]turnInput, 0, 1+len(p.Images))
+	input = append(input, turnInput{Type: "text", Text: p.Text})
+	for _, img := range p.Images {
+		input = append(input, turnInput{
+			Type: "image",
+			URL:  "data:" + img.MediaType + ";base64," + img.Data,
+		})
 	}
-	data, err := json.Marshal(req)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	if _, err := wr.Write(data); err != nil {
-		return err
+	req := jsonrpcRequest{
+		JSONRPC: "2.0",
+		ID:      id,
+		Method:  "turn/start",
+		Params:  turnStartParams{ThreadID: w.threadID, Input: input},
 	}
 	// Don't log to logW — stdin is not logged with --no-log-stdin.
-	return nil
+	return writeJSON(wr, req)
 }
 
 // ParseMessage wraps the package-level ParseMessage, intercepting
@@ -189,7 +206,11 @@ func (w *wireFormat) ParseMessage(line []byte) ([]agent.Message, error) {
 		w.totalUsage.OutputTokens += incremental.OutputTokens
 		w.totalUsage.ReasoningOutputTokens += incremental.ReasoningOutputTokens
 		w.mu.Unlock()
-		return []agent.Message{&agent.UsageMessage{Usage: incremental}}, nil
+		usageMsg := &agent.UsageMessage{Usage: incremental}
+		if p.TokenUsage.ModelContextWindow != nil {
+			usageMsg.ContextWindow = int(*p.TokenUsage.ModelContextWindow)
+		}
+		return []agent.Message{usageMsg}, nil
 	}
 
 	msgs, err := ParseMessage(line)
@@ -214,87 +235,119 @@ func (w *wireFormat) ParseMessage(line []byte) ([]agent.Message, error) {
 	return msgs, nil
 }
 
-// handshake performs the JSON-RPC initialize → initialized → thread/start
-// (or thread/resume) sequence and returns a wireFormat with the thread ID set.
-func handshake(stdin io.Writer, stdout *bufio.Reader, opts *agent.Options) (*wireFormat, error) {
+// handshake performs the JSON-RPC initialize → initialized → model/list →
+// thread/start (or thread/resume) sequence and returns a wireFormat with the
+// thread ID set, plus the model IDs from model/list (may be nil on error).
+func handshake(ctx context.Context, stdin io.Writer, stdout *bufio.Reader, opts *agent.Options) (*wireFormat, []string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
 	w := &wireFormat{}
 
 	// 1. Send initialize request.
-	initID := w.nextID.Add(1)
-	initReq := map[string]any{
-		"jsonrpc": "2.0",
-		"id":      initID,
-		"method":  "initialize",
-		"params": map[string]any{
-			"clientInfo": map[string]string{
-				"name":    "caic",
-				"version": "1.0.0",
+	initReq := jsonrpcRequest{
+		JSONRPC: "2.0",
+		ID:      w.nextID.Add(1),
+		Method:  "initialize",
+		Params: initializeParams{
+			ClientInfo: clientInfo{Name: "caic", Title: "caic", Version: "1.0.0"},
+			Capabilities: capabilities{
+				OptOutNotificationMethods: []string{
+					// Interactive terminal prompts (e.g. sudo password, interactive stdin);
+					// caic does not forward interactive terminal I/O to the agent.
+					MethodCommandTerminalInteract,
+					// Incremental diff of a file being written; we surface the completed
+					// diff via item/completed fileChange instead.
+					MethodFileChangeOutputDelta,
+					// Streaming pre-summary reasoning part markers; we prefer the
+					// incremental text via item/reasoning/summaryTextDelta.
+					MethodReasoningSummaryPartAdded,
+					// Raw token-by-token reasoning text; we prefer the summarised form via
+					// item/reasoning/summaryTextDelta which is more readable.
+					MethodReasoningTextDelta,
+					// Incremental plan text delta; we surface the final plan text via
+					// item/completed plan instead.
+					MethodPlanDelta,
+					// Coarse git diff snapshot repeated on every file change; we use the
+					// caic-injected caic_diff_stat from the relay watcher instead.
+					MethodTurnDiffUpdated,
+					// High-level plan snapshot updated on each tool call; redundant with
+					// item/plan which gives us the final plan text.
+					MethodTurnPlanUpdated,
+					// Thread name set by the agent (cosmetic label); caic uses the user's
+					// initial prompt as the task title instead.
+					MethodThreadNameUpdated,
+				},
 			},
-			"capabilities": map[string]any{},
 		},
 	}
 	if err := writeJSON(stdin, initReq); err != nil {
-		return nil, fmt.Errorf("write initialize: %w", err)
+		return nil, nil, fmt.Errorf("write initialize: %w", err)
 	}
 
 	// Read initialize response.
-	if _, err := readJSONRPCResponse(stdout); err != nil {
-		return nil, fmt.Errorf("read initialize response: %w", err)
+	if _, err := readJSONRPCResponse(ctx, stdout); err != nil {
+		return nil, nil, fmt.Errorf("read initialize response: %w", err)
 	}
 
 	// 2. Send initialized notification.
-	initdNotif := map[string]any{
-		"jsonrpc": "2.0",
-		"method":  "initialized",
-	}
-	if err := writeJSON(stdin, initdNotif); err != nil {
-		return nil, fmt.Errorf("write initialized: %w", err)
+	if err := writeJSON(stdin, jsonrpcNotification{JSONRPC: "2.0", Method: "initialized"}); err != nil {
+		return nil, nil, fmt.Errorf("write initialized: %w", err)
 	}
 
-	// 3. Send thread/start or thread/resume.
-	threadID := w.nextID.Add(1)
-	var threadReq map[string]any
+	// 3. Fetch model list so the UI offers only valid model IDs.
+	var models []string
+	if err := writeJSON(stdin, jsonrpcRequest{JSONRPC: "2.0", ID: w.nextID.Add(1), Method: "model/list"}); err != nil {
+		return nil, nil, fmt.Errorf("write model/list: %w", err)
+	}
+	if mlResp, err := readJSONRPCResponse(ctx, stdout); err == nil && mlResp.Result != nil {
+		var mlResult ModelListResult
+		if json.Unmarshal(mlResp.Result, &mlResult) == nil {
+			for _, m := range mlResult.Models {
+				if m.ID != "" {
+					models = append(models, m.ID)
+				}
+			}
+		}
+	}
+
+	// 4. Send thread/start or thread/resume.
+	var threadReq jsonrpcRequest
 	if opts.ResumeSessionID != "" {
-		threadReq = map[string]any{
-			"jsonrpc": "2.0",
-			"id":      threadID,
-			"method":  "thread/resume",
-			"params": map[string]any{
-				"threadId": opts.ResumeSessionID,
-			},
+		threadReq = jsonrpcRequest{
+			JSONRPC: "2.0",
+			ID:      w.nextID.Add(1),
+			Method:  "thread/resume",
+			Params:  threadResumeParams{ThreadID: opts.ResumeSessionID},
 		}
 	} else {
-		params := map[string]any{}
-		if opts.Model != "" {
-			params["model"] = opts.Model
-		}
-		threadReq = map[string]any{
-			"jsonrpc": "2.0",
-			"id":      threadID,
-			"method":  "thread/start",
-			"params":  params,
+		threadReq = jsonrpcRequest{
+			JSONRPC: "2.0",
+			ID:      w.nextID.Add(1),
+			Method:  "thread/start",
+			Params:  threadStartParams{Model: opts.Model},
 		}
 	}
 	if err := writeJSON(stdin, threadReq); err != nil {
-		return nil, fmt.Errorf("write thread/start: %w", err)
+		return nil, nil, fmt.Errorf("write thread/start: %w", err)
 	}
 
 	// Read thread/start response — contains the thread info.
-	resp, err := readJSONRPCResponse(stdout)
+	resp, err := readJSONRPCResponse(ctx, stdout)
 	if err != nil {
-		return nil, fmt.Errorf("read thread/start response: %w", err)
+		return nil, nil, fmt.Errorf("read thread/start response: %w", err)
 	}
 
 	// Extract thread ID from the response result.
 	var result threadStartResult
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		return nil, fmt.Errorf("parse thread/start result: %w", err)
+		return nil, nil, fmt.Errorf("parse thread/start result: %w", err)
 	}
 	if result.Thread.ID == "" {
-		return nil, errors.New("thread/start response missing thread.id")
+		return nil, nil, errors.New("thread/start response missing thread.id")
 	}
 	w.threadID = result.Thread.ID
-	return w, nil
+	return w, models, nil
 }
 
 // writeJSON marshals v as JSON and writes it followed by a newline.
@@ -310,29 +363,46 @@ func writeJSON(w io.Writer, v any) error {
 
 // readJSONRPCResponse reads lines from r until it finds a JSON-RPC response
 // (has "id" field). Notifications encountered during the handshake are logged
-// and skipped.
-func readJSONRPCResponse(r *bufio.Reader) (*JSONRPCMessage, error) {
-	for {
-		line, err := r.ReadBytes('\n')
-		if err != nil {
-			return nil, fmt.Errorf("read response: %w", err)
-		}
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			continue
-		}
-		var msg JSONRPCMessage
-		if err := json.Unmarshal(line, &msg); err != nil {
-			return nil, fmt.Errorf("unmarshal response: %w", err)
-		}
-		if msg.IsResponse() {
-			if msg.Error != nil {
-				return nil, fmt.Errorf("JSON-RPC error %d: %s", msg.Error.Code, msg.Error.Message)
+// and skipped. It returns an error if ctx is cancelled before a response arrives.
+func readJSONRPCResponse(ctx context.Context, r *bufio.Reader) (*JSONRPCMessage, error) {
+	type result struct {
+		msg *JSONRPCMessage
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		for {
+			line, err := r.ReadBytes('\n')
+			if err != nil {
+				ch <- result{nil, fmt.Errorf("read response: %w", err)}
+				return
 			}
-			return &msg, nil
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
+				continue
+			}
+			var msg JSONRPCMessage
+			if err := json.Unmarshal(line, &msg); err != nil {
+				ch <- result{nil, fmt.Errorf("unmarshal response: %w", err)}
+				return
+			}
+			if msg.IsResponse() {
+				if msg.Error != nil {
+					ch <- result{nil, fmt.Errorf("JSON-RPC error %d: %s", msg.Error.Code, msg.Error.Message)}
+					return
+				}
+				ch <- result{&msg, nil}
+				return
+			}
+			// Skip notifications during handshake.
+			slog.Debug("codex handshake: skipping notification", "method", msg.Method)
 		}
-		// Skip notifications during handshake.
-		slog.Debug("codex handshake: skipping notification", "method", msg.Method)
+	}()
+	select {
+	case res := <-ch:
+		return res.msg, res.err
+	case <-ctx.Done():
+		return nil, fmt.Errorf("handshake: %w", ctx.Err())
 	}
 }
 

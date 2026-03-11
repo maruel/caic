@@ -201,7 +201,11 @@ func (r *Runner) Reconnect(ctx context.Context, t *Task) (*SessionHandle, error)
 		if prevState != StateWaiting && prevState != StateAsking {
 			t.SetState(StateRunning)
 		}
-		session, err = r.backend(t.Harness).AttachRelay(ctx, t.Container, t.RelayOffset, msgCh, logW)
+		session, err = r.backend(t.Harness).AttachRelay(ctx, &agent.Options{
+			Container:       t.Container,
+			RelayOffset:     t.RelayOffset,
+			ResumeSessionID: t.GetSessionID(),
+		}, msgCh, logW)
 		if err != nil {
 			// Relay died between the IsRelayRunning check and the attach
 			// attempt. This is a known race; fall back to --resume.

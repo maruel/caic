@@ -16,9 +16,11 @@ type Backend interface {
 	Start(ctx context.Context, opts *Options, msgCh chan<- Message, logW io.Writer) (*Session, error)
 
 	// AttachRelay connects to an already-running relay daemon in the
-	// container. The offset parameter specifies the byte offset into
+	// container. opts.RelayOffset specifies the byte offset into
 	// output.jsonl to replay from (use 0 for full replay).
-	AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer) (*Session, error)
+	// opts.ResumeSessionID is the known agent session ID, used by stateful
+	// wire formats (e.g. codex) that need it before the first replay message.
+	AttachRelay(ctx context.Context, opts *Options, msgCh chan<- Message, logW io.Writer) (*Session, error)
 
 	// ReadRelayOutput reads the complete output.jsonl from the container's
 	// relay and parses it into Messages. Also returns the byte count for
@@ -77,6 +79,6 @@ func (b *Base) ReadRelayOutput(ctx context.Context, container string) ([]Message
 }
 
 // AttachRelay implements Backend.
-func (b *Base) AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- Message, logW io.Writer) (*Session, error) {
-	return AttachRelaySession(ctx, container, offset, msgCh, logW, b.Wire)
+func (b *Base) AttachRelay(ctx context.Context, opts *Options, msgCh chan<- Message, logW io.Writer) (*Session, error) {
+	return AttachRelaySession(ctx, opts.Container, opts.RelayOffset, msgCh, logW, b.Wire)
 }

@@ -203,6 +203,32 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
         }
         break;
       }
+      case "toolOutputDelta": {
+        // Append to the most recent action group that owns this tool call so
+        // the accumulated output can be displayed inside its ToolCallCard.
+        const id = ev.toolOutputDelta?.toolUseID;
+        if (id) {
+          for (let i = groups.length - 1; i >= 0; i--) {
+            const g = groups[i];
+            if (g.kind !== "action") continue;
+            if (g.toolCalls.some((c) => c.use.toolUseID === id)) {
+              g.events.push(ev);
+              break;
+            }
+          }
+        }
+        break;
+      }
+      case "system": {
+        // compact_boundary is consumed by groupSessions() before reaching here.
+        // Thread status changes (active, idle, etc.) duplicate information
+        // already in the task state — skip them to avoid noisy "other" groups.
+        // model_rerouted and other informational subtypes are rendered via MessageItem.
+        const sub = ev.system?.subtype;
+        if (sub === "active" || sub === "idle" || sub === "notLoaded" || sub === "system_error") break;
+        groups.push({ kind: "other", events: [ev], toolCalls: [] });
+        break;
+      }
       case "subagentStart":
       case "subagentEnd":
         // Skip: subagent lifecycle events are not rendered yet. Explicitly

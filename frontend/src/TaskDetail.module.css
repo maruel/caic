@@ -663,6 +663,17 @@ a.headerPR:hover {
   border-radius: var(--radius-sm);
 }
 
+.toolOutputDelta {
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow: auto;
+  color: var(--color-text-muted);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  font-family: monospace;
+}
+
 .loadInputBtn {
   font-size: 0.75rem;
   padding: 0.25rem 0.75rem;

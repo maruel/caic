@@ -59,6 +59,7 @@ type Options struct {
 	Model           string // Model alias ("opus", "sonnet", "haiku") or full ID. Empty = default.
 	InitialPrompt   Prompt // Initial prompt; never mutated after creation.
 	ResumeSessionID string
+	RelayOffset     int64 // Byte offset into relay output.jsonl for AttachRelay.
 }
 
 // WireFormat defines the wire protocol for a backend's stdin/stdout

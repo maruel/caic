@@ -80,8 +80,8 @@ func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- a
 
 // AttachRelay connects to an already-running relay using a fresh kiloWireFormat
 // so that accumulated state from a prior session does not bleed in.
-func (b *Backend) AttachRelay(ctx context.Context, container string, offset int64, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
-	return agent.AttachRelaySession(ctx, container, offset, msgCh, logW, &kiloWireFormat{})
+func (b *Backend) AttachRelay(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
+	return agent.AttachRelaySession(ctx, opts.Container, opts.RelayOffset, msgCh, logW, &kiloWireFormat{})
 }
 
 // ReadRelayOutput reads output.jsonl using a fresh kiloWireFormat so that

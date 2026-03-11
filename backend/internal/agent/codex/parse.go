@@ -102,12 +102,67 @@ func ParseMessage(line []byte) ([]agent.Message, error) {
 		}
 		return []agent.Message{&agent.TextDeltaMessage{Text: p.Delta}}, nil
 
+	case MethodErrorNotification:
+		var p ErrorNotificationParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			return nil, fmt.Errorf("error notification params: %w", err)
+		}
+		if p.WillRetry || p.Error == nil {
+			return nil, nil
+		}
+		return []agent.Message{&agent.ResultMessage{
+			MessageType: "result",
+			Subtype:     "result",
+			IsError:     true,
+			Result:      p.Error.Message,
+		}}, nil
+
 	case MethodReasoningSummaryTextDelta:
 		var p ReasoningSummaryTextDeltaParams
 		if err := json.Unmarshal(msg.Params, &p); err != nil {
 			return nil, fmt.Errorf("item/reasoning/summaryTextDelta params: %w", err)
 		}
 		return []agent.Message{&agent.ThinkingDeltaMessage{Text: p.Delta}}, nil
+
+	case MethodCommandOutputDelta:
+		var p CommandOutputDeltaParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			return nil, fmt.Errorf("commandExecution/outputDelta params: %w", err)
+		}
+		return []agent.Message{&agent.ToolOutputDeltaMessage{ToolUseID: p.ItemID, Delta: p.Delta}}, nil
+
+	case MethodMcpToolCallProgress:
+		var p McpToolCallProgressParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			return nil, fmt.Errorf("mcpToolCall/progress params: %w", err)
+		}
+		return []agent.Message{&agent.ToolOutputDeltaMessage{ToolUseID: p.ItemID, Delta: p.Message}}, nil
+
+	case MethodThreadStatusChanged:
+		var p ThreadStatusChangedParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			return nil, fmt.Errorf("thread/status/changed params: %w", err)
+		}
+		return []agent.Message{&agent.SystemMessage{
+			MessageType: "system",
+			Subtype:     p.Status.Type,
+		}}, nil
+
+	case MethodModelRerouted:
+		var p ModelReroutedParams
+		if err := json.Unmarshal(msg.Params, &p); err != nil {
+			return nil, fmt.Errorf("model/rerouted params: %w", err)
+		}
+		detail := p.FromModel + " \u2192 " + p.ToModel
+		if p.Reason != "" {
+			detail += " (" + p.Reason + ")"
+		}
+		return []agent.Message{&agent.SystemMessage{
+			MessageType: "system",
+			Subtype:     "model_rerouted",
+			Detail:      detail,
+			Model:       p.ToModel,
+		}}, nil
 
 	default:
 		return []agent.Message{&agent.RawMessage{MessageType: msg.Method, Raw: append([]byte(nil), line...)}}, nil
@@ -130,10 +185,22 @@ func parseItemStarted(msg *JSONRPCMessage) ([]agent.Message, error) {
 		if err := json.Unmarshal(p.Item, &item); err != nil {
 			return nil, fmt.Errorf("item/started commandExecution: %w", err)
 		}
-		input, _ := json.Marshal(map[string]string{"command": item.Command})
+		input, _ := json.Marshal(map[string]string{"command": item.Command, "cwd": item.Cwd})
 		return []agent.Message{&agent.ToolUseMessage{
 			ToolUseID: item.ID,
 			Name:      "Bash",
+			Input:     input,
+		}}, nil
+
+	case ItemTypeFileChange:
+		var item FileChangeItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/started fileChange: %w", err)
+		}
+		input, _ := json.Marshal(item.Changes)
+		return []agent.Message{&agent.ToolUseMessage{
+			ToolUseID: item.ID,
+			Name:      toolNameForChanges(item.Changes),
 			Input:     input,
 		}}, nil
 
@@ -159,6 +226,22 @@ func parseItemStarted(msg *JSONRPCMessage) ([]agent.Message, error) {
 			Input:     item.Arguments,
 		}}, nil
 
+	case ItemTypeCollabAgentToolCall:
+		var item CollabAgentToolCallItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/started collabAgentToolCall: %w", err)
+		}
+		toolName := item.Tool
+		if toolName == "" {
+			toolName = "collabAgent"
+		}
+		input, _ := json.Marshal(map[string]string{"prompt": item.Prompt})
+		return []agent.Message{&agent.ToolUseMessage{
+			ToolUseID: item.ID,
+			Name:      toolName,
+			Input:     input,
+		}}, nil
+
 	default:
 		return []agent.Message{&agent.RawMessage{MessageType: msg.Method, Raw: append(msg.Params[:0:0], msg.Params...)}}, nil
 	}
@@ -180,7 +263,7 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 		if err := json.Unmarshal(p.Item, &item); err != nil {
 			return nil, fmt.Errorf("item/completed agentMessage: %w", err)
 		}
-		return []agent.Message{&agent.TextMessage{Text: item.Text}}, nil
+		return []agent.Message{&agent.TextMessage{Text: item.Text, Phase: item.Phase}}, nil
 
 	case ItemTypeReasoning:
 		var item ReasoningItem
@@ -205,18 +288,7 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 		if err := json.Unmarshal(p.Item, &item); err != nil {
 			return nil, fmt.Errorf("item/completed fileChange: %w", err)
 		}
-		toolName := "Edit"
-		for _, c := range item.Changes {
-			if c.Kind.Type == "add" {
-				toolName = "Write"
-				break
-			}
-		}
-		input, _ := json.Marshal(item.Changes)
-		return []agent.Message{
-			&agent.ToolUseMessage{ToolUseID: item.ID, Name: toolName, Input: input},
-			&agent.ToolResultMessage{ToolUseID: item.ID},
-		}, nil
+		return []agent.Message{&agent.ToolResultMessage{ToolUseID: item.ID}}, nil
 
 	case ItemTypeMCPToolCall:
 		var item McpToolCallItem
@@ -240,6 +312,17 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 		}
 		return []agent.Message{m}, nil
 
+	case ItemTypeCollabAgentToolCall:
+		var item CollabAgentToolCallItem
+		if err := json.Unmarshal(p.Item, &item); err != nil {
+			return nil, fmt.Errorf("item/completed collabAgentToolCall: %w", err)
+		}
+		m := &agent.ToolResultMessage{ToolUseID: item.ID}
+		if item.Status == "failed" {
+			m.Error = "collab agent tool call failed"
+		}
+		return []agent.Message{m}, nil
+
 	case ItemTypeContextCompaction:
 		return []agent.Message{&agent.SystemMessage{
 			MessageType: "system",
@@ -260,4 +343,14 @@ func parseItemCompleted(msg *JSONRPCMessage) ([]agent.Message, error) {
 	default:
 		return []agent.Message{&agent.RawMessage{MessageType: msg.Method, Raw: append(msg.Params[:0:0], msg.Params...)}}, nil
 	}
+}
+
+// toolNameForChanges returns "Write" if any change has Kind.Type == "add", else "Edit".
+func toolNameForChanges(changes []FileUpdateChange) string {
+	for _, c := range changes {
+		if c.Kind.Type == "add" {
+			return "Write"
+		}
+	}
+	return "Edit"
 }

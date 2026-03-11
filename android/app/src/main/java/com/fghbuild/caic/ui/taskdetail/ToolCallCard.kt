@@ -42,6 +42,7 @@ import kotlinx.serialization.json.jsonPrimitive
 @Composable
 fun ToolCallCard(
     call: ToolCall,
+    outputDelta: String? = null,
     onLoadInput: (suspend () -> JsonElement?)? = null,
     onClearAndExecutePlan: (() -> Unit)? = null,
     suppressPlanContent: Boolean = false,
@@ -126,6 +127,15 @@ fun ToolCallCard(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                                 )
                             }
+                        }
+                        if (!outputDelta.isNullOrEmpty()) {
+                            Text(
+                                text = outputDelta,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                modifier = Modifier.padding(top = 4.dp),
+                            )
                         }
                     }
                 }

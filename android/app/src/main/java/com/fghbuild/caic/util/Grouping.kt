@@ -219,6 +219,31 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                     groups.add(MutableGroup(kind = GroupKind.ACTION, events = mutableListOf(ev)))
                 }
             }
+            EventKinds.ToolOutputDelta -> {
+                // Append to the most recent action group that owns this tool call so
+                // the accumulated output can be displayed inside its ToolCallCard.
+                val id = ev.toolOutputDelta?.toolUseID
+                if (id != null) {
+                    for (i in groups.indices.reversed()) {
+                        val g = groups[i]
+                        if (g.kind != GroupKind.ACTION) continue
+                        if (g.toolCalls.any { it.use.toolUseID == id }) {
+                            g.events.add(ev)
+                            break
+                        }
+                    }
+                }
+            }
+            EventKinds.System -> {
+                // compact_boundary is consumed by groupSessions() before reaching here.
+                // Thread status changes (active, idle, etc.) duplicate information already in the
+                // task state — skip them to avoid noisy OTHER groups.
+                // model_rerouted and other informational subtypes are rendered via OTHER.
+                val sub = ev.system?.subtype
+                if (sub != "active" && sub != "idle" && sub != "notLoaded" && sub != "system_error") {
+                    groups.add(MutableGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
+                }
+            }
             // Subagent lifecycle events are not rendered. Explicitly listed to
             // avoid creating OTHER groups that act as hard barriers.
             EventKinds.SubagentStart, EventKinds.SubagentEnd -> {}

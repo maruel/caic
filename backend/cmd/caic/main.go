@@ -416,7 +416,7 @@ func (*fakeBackend) Start(_ context.Context, opts *agent.Options, msgCh chan<- a
 	return s, nil
 }
 
-func (*fakeBackend) AttachRelay(context.Context, string, int64, chan<- agent.Message, io.Writer) (*agent.Session, error) {
+func (*fakeBackend) AttachRelay(context.Context, *agent.Options, chan<- agent.Message, io.Writer) (*agent.Session, error) {
 	return nil, errors.New("fake backend does not support relay")
 }
 

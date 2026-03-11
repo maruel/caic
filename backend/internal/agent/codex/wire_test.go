@@ -363,7 +363,7 @@ func TestPerItemTypeStructs(t *testing.T) {
 		}
 	})
 	t.Run("WebSearch", func(t *testing.T) {
-		const input = `{"id":"w1","type":"webSearch","query":"golang generics","action":"search","status":"completed"}`
+		const input = `{"id":"w1","type":"webSearch","query":"golang generics","action":{"type":"search","url":"https://example.com"},"status":"completed"}`
 		var item WebSearchItem
 		if err := json.Unmarshal([]byte(input), &item); err != nil {
 			t.Fatal(err)
@@ -371,8 +371,14 @@ func TestPerItemTypeStructs(t *testing.T) {
 		if item.Query != "golang generics" {
 			t.Errorf("Query = %q", item.Query)
 		}
-		if item.Action != "search" {
-			t.Errorf("Action = %q", item.Action)
+		if item.Action == nil {
+			t.Fatal("Action = nil")
+		}
+		if item.Action.Type != "search" {
+			t.Errorf("Action.Type = %q, want search", item.Action.Type)
+		}
+		if item.Action.URL != "https://example.com" {
+			t.Errorf("Action.URL = %q, want https://example.com", item.Action.URL)
 		}
 	})
 	t.Run("ImageView", func(t *testing.T) {
