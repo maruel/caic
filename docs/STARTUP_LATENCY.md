@@ -7,90 +7,71 @@ Timing is logged at `slog.Debug` (per-phase) and `slog.Info` (totals) under the
 
 | Phase | Typical range | Notes |
 |---|---|---|
-| `image_check_ok` | 200–800 ms | `docker manifest inspect` network call |
+| `image_check_ok` | 0–800 ms | `docker manifest inspect` network call; cached for 5 min after first check |
 | `image_build` | 10–60 s | Only when base image or SSH keys change |
 | `docker_run` | 100–400 ms | `docker run -d` returns after container is created |
 | `inspect_ports` | 50–200 ms | Two `docker inspect` calls for SSH port + creation time |
-| `ssh_wait` | 500 ms–3 s | Polling loop; container must boot sshd |
+| `branch_alloc` | 200–800 ms | git fetch + branch create; runs concurrently with docker_run |
+| `ssh_wait` | 500 ms–3 s | Polling loop with 10 ms → 100 ms backoff; container must boot sshd |
 | `git_init` | 50–200 ms | One SSH round-trip |
-| `git_push_branch` | 200 ms–5 s | Scales with repo size |
-| `git_switch_base` | 50–150 ms | One SSH round-trip (batched) |
+| `git_push_branch` | 200 ms–5 s | Scales with repo size (no `--tags`) |
+| `sync_default_branch` | 200 ms–4 s | Runs in parallel with `git_push_branch` |
+| `git_switch_base` | 50–150 ms | One SSH round-trip (batched with push goroutine) |
 | `push_submodules` | 0–10 s | Only when submodules exist |
 | `set_origin` | 50–200 ms | `resolveDefaults` + `git remote add` |
-| `sync_default_branch` | 200 ms–4 s | Second `git push` for main/master |
-| **`run_container_total`** | **1.5–15 s** | docker_run through sync_default_branch |
-| **`container_start_total`** | **2–16 s** | image_check through run_container_total |
+| **`run_container_total`** | **1–12 s** | docker_run through set_origin |
+| **`container_start_total`** | **1.5–13 s** | image_check through run_container_total |
 
-## Improvement opportunities
+## Implemented optimizations
 
 ### 1. Overlap branch allocation with container SSH boot
 
-**Impact: 500 ms–2 s**
+**Impact: 300–800 ms**
 
-In `caic`, `setup()` runs branch allocation (git fetch + create) before calling
-`Container.Start`. Branch allocation only needs to complete before the `git push`
-step, not before `docker run`. The container's SSH boot time (~1–3 s) is
-currently dead time.
+`caic` now reserves the branch number (just `nextID++`, under `branchMu`) then
+runs `Container.StartPhaseA` and `git fetch + branch create` concurrently via
+`errgroup`. `StartPhaseA` does image check/build + `docker run` + SSH config.
+`StartPhaseB` (SSH wait + git push) starts only after both goroutines complete,
+by which time the branch already exists locally.
 
-Required change: split `Container.Start` into two phases:
-
-```
-Phase A (no branch needed):  prepare + image check/build + docker run
-Phase B (branch needed):     wait for SSH + git push + SyncDefaultBranch
-```
-
-`caic` would call Phase A immediately, allocate the branch concurrently, then
-call Phase B once both are done.
+`Container.Start` in `md` is now a wrapper for `StartPhaseA` + `StartPhaseB`
+so existing callers are unaffected.
 
 ### 2. Parallelize the two git pushes
 
 **Impact: 200 ms–4 s**
 
-`git_push_branch` and `sync_default_branch` are independent `git push` calls to
-the same container. Both are currently sequential. Running them with `errgroup`
-would eliminate whichever is slower from the critical path.
+`git_push_branch` and `sync_default_branch` (`resolveDefaults` +
+`SyncDefaultBranch`) now run in an `errgroup` inside `runContainerPhaseB`.
+They push to different refs (`refs/heads/<branch>` vs `refs/heads/main`) so
+there is no conflict. After `eg.Wait()`, `c.DefaultRemote` is populated for
+the `set_origin` step.
 
-The two pushes go to different refs (`refs/heads/<branch>` vs
-`refs/heads/main`), so they do not conflict.
-
-### 3. Reduce SSH polling interval
+### 3. SSH poll backoff
 
 **Impact: 50–200 ms**
 
-`docker.go` sleeps 100 ms between SSH probes. Containers often respond within
-500–600 ms of `docker run`. Switching to a shorter initial interval (e.g. 10 ms)
-with linear or exponential backoff to 100 ms cap would reduce the average wait.
-
-```go
-// current
-time.Sleep(100 * time.Millisecond)
-
-// proposed: start at 10 ms, double each miss up to 100 ms cap
-sleep = min(sleep*2, 100*time.Millisecond)
-time.Sleep(sleep)
-```
+`runContainerPhaseB` now starts polling at 10 ms and doubles on each miss up
+to a 100 ms cap, instead of a flat 100 ms interval. Containers that respond
+in 500–600 ms now save 2–3 missed intervals.
 
 ### 4. Cache the remote image digest check
 
 **Impact: 200–800 ms per start**
 
-`imageBuildNeeded` calls `docker manifest inspect -v <image>` (a registry
-network request) on every `Container.Start` to detect whether the base image
-has been updated. In the common case the image has not changed.
-
-A simple in-process cache keyed on `(imageName, baseImage)` with a short TTL
-(e.g. 5 minutes, or until the process exits) would skip this round-trip for
-every container start after the first.
+`imageBuildNeeded` calls `cachedRemoteConfigDigest` instead of
+`getRemoteConfigDigest` directly. The cache is an in-process `sync.Mutex`-
+guarded map keyed on `(rt, image, arch)` with a 5-minute TTL. The first start
+pays the registry round-trip; subsequent starts within the TTL skip it.
 
 ### 5. Drop `--tags` from git push
 
 **Impact: 100 ms–2 s for tag-heavy repos**
 
-Both the task branch push and the extra-repo pushes include `--tags`. Tags are
-not used by agents or by `md diff`/`md pull`. Removing `--tags` reduces
-transfer size for repos with many tags.
+`--tags` was removed from the task branch push and extra-repo pushes in
+`runContainerPhaseB`. Tags are not used by agents or by `md diff`/`md pull`.
 
-Affected lines: `docker.go` pushes of `c.primary().Branch` and extra repos.
+## Remaining opportunities
 
 ### 6. Merge `git init` SSH call into the switch command
 
@@ -100,18 +81,11 @@ Currently two sequential SSH connections:
 1. `git init -q ~/src/<repo>`
 2. `git switch -q <branch> && git branch -f base ...`
 
-These can be one:
+These can be merged by passing a custom `--receive-pack` to `git push` that
+initializes the repo as part of receiving the push:
+
 ```bash
-git init -q ~/src/<repo> && cd ~/src/<repo> && git switch -q <branch> && ...
+git push --receive-pack="git init -q ~/src/<repo> && git-receive-pack" <remote> <branch>
 ```
 
-Saves one TCP handshake + SSH key negotiation round-trip.
-
-## Priority order
-
-1. **Overlap branch alloc + SSH wait** — requires md API change, high value
-2. **Parallel git pushes** — self-contained change in `runContainer`, high value
-3. **SSH poll backoff** — trivial change, immediate improvement
-4. **Remote digest cache** — moderate change, improves every cold start
-5. **Drop `--tags`** — one-line change, low risk
-6. **Merge git init SSH call** — one-line change, low risk
+This saves one TCP handshake + SSH key negotiation round-trip.

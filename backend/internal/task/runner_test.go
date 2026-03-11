@@ -762,7 +762,11 @@ type stubContainer struct {
 	fetchFn  func(string) error // If set, called with the branch during Fetch.
 }
 
-func (s *stubContainer) Start(_ context.Context, _ []md.Repo, _ []string, _ *StartOptions) (_, _ string, _ error) {
+func (s *stubContainer) Launch(_ context.Context, _ []md.Repo, _ []string, _ *StartOptions) error {
+	return nil
+}
+
+func (s *stubContainer) Connect(_ context.Context, _ []md.Repo, _ *StartOptions) (_, _ string, _ error) {
 	return "stub", "", nil
 }
 

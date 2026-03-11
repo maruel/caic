@@ -4,7 +4,7 @@ go 1.25.7
 
 require (
 	github.com/andybalholm/brotli v1.2.0
-	github.com/caic-xyz/md v0.8.1-0.20260310231146-1a5a238f41b7
+	github.com/caic-xyz/md v0.8.1-0.20260311182318-762e982058f9
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/klauspost/compress v1.18.4
 	github.com/lmittmann/tint v1.1.3
@@ -14,6 +14,7 @@ require (
 	github.com/mattn/go-isatty v0.0.20
 	github.com/oschwald/maxminddb-golang/v2 v2.1.1
 	golang.org/x/net v0.51.0
+	golang.org/x/sync v0.19.0
 )
 
 require (
@@ -31,7 +32,6 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	golang.org/x/crypto v0.48.0 // indirect
 	golang.org/x/mod v0.5.1 // indirect
-	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.41.0 // indirect
 	golang.org/x/term v0.40.0 // indirect
 	golang.org/x/tools v0.1.9 // indirect

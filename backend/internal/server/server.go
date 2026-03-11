@@ -246,39 +246,83 @@ type mdBackend struct {
 	client      *md.Client
 	llmProvider string
 	llmModel    string
+
+	mu                sync.Mutex
+	pendingContainers map[string]*md.Container // keyed by container name
 }
 
-func (b *mdBackend) Start(ctx context.Context, repos []md.Repo, labels []string, opts *task.StartOptions) (name, tailscaleFQDN string, err error) {
-	if len(repos) > 0 {
-		slog.Info("md start", "dir", repos[0].GitRoot, "br", repos[0].Branch, "hns", opts.Harness, "ts", opts.Tailscale, "usb", opts.USB, "dpy", opts.Display)
-	} else {
-		slog.Info("md start", "hns", opts.Harness, "ts", opts.Tailscale, "usb", opts.USB, "dpy", opts.Display)
-	}
+func (b *mdBackend) mdStartOpts(labels []string, opts *task.StartOptions) (client *md.Client, mdOpts *md.StartOpts) {
 	harnessMap := map[agent.Harness]md.Harness{
 		agent.Claude: md.HarnessClaude,
 		agent.Codex:  md.HarnessCodex,
 		agent.Gemini: md.HarnessGemini,
 		agent.Kilo:   md.HarnessKilo,
 	}
-	mdHarness, ok := harnessMap[opts.Harness]
-	if !ok {
-		return "", "", fmt.Errorf("unknown harness %q", opts.Harness)
-	}
+	mdHarness := harnessMap[opts.Harness]
 	harnessPaths := md.HarnessMounts[mdHarness]
 	image := opts.DockerImage
 	if image == "" {
 		image = md.DefaultBaseImage + ":latest"
 	}
-	client := b.client
-	quiet := true
-	if opts.LogWriter != nil {
-		clientCopy := *b.client
-		clientCopy.W = opts.LogWriter
-		client = &clientCopy
-		quiet = false
+	client = b.client
+	mdOpts = &md.StartOpts{
+		Quiet:      opts.LogWriter == nil,
+		BaseImage:  image,
+		Labels:     labels,
+		AgentPaths: []md.AgentPaths{harnessPaths},
+		USB:        opts.USB,
+		Tailscale:  opts.Tailscale,
+		Display:    opts.Display,
 	}
+	return client, mdOpts
+}
+
+func (b *mdBackend) Launch(ctx context.Context, repos []md.Repo, labels []string, opts *task.StartOptions) error {
+	if len(repos) > 0 {
+		slog.Info("md", "phase", "launch", "dir", repos[0].GitRoot, "br", repos[0].Branch, "hns", opts.Harness)
+	} else {
+		slog.Info("md", "phase", "launch", "hns", opts.Harness)
+	}
+	if _, ok := map[agent.Harness]md.Harness{
+		agent.Claude: md.HarnessClaude,
+		agent.Codex:  md.HarnessCodex,
+		agent.Gemini: md.HarnessGemini,
+		agent.Kilo:   md.HarnessKilo,
+	}[opts.Harness]; !ok {
+		return fmt.Errorf("unknown harness %q", opts.Harness)
+	}
+	client, mdOpts := b.mdStartOpts(labels, opts)
 	c := client.Container(repos...)
-	sr, err := c.Start(ctx, &md.StartOpts{Quiet: quiet, BaseImage: image, Labels: labels, AgentPaths: []md.AgentPaths{harnessPaths}, USB: opts.USB, Tailscale: opts.Tailscale, Display: opts.Display})
+	if opts.LogWriter != nil {
+		c.W = opts.LogWriter
+	}
+	if err := c.Launch(ctx, mdOpts); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	if b.pendingContainers == nil {
+		b.pendingContainers = make(map[string]*md.Container)
+	}
+	b.pendingContainers[c.Name] = c
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *mdBackend) Connect(ctx context.Context, repos []md.Repo, opts *task.StartOptions) (name, tailscaleFQDN string, err error) {
+	if len(repos) > 0 {
+		slog.Info("md", "phase", "connect", "dir", repos[0].GitRoot, "br", repos[0].Branch)
+	}
+	// Derive container name from repos (deterministic, same as Launch used).
+	tmpClient := b.client
+	c := tmpClient.Container(repos...)
+	b.mu.Lock()
+	if stored, ok := b.pendingContainers[c.Name]; ok {
+		c = stored
+		delete(b.pendingContainers, c.Name)
+	}
+	b.mu.Unlock()
+	_, mdOpts := b.mdStartOpts(nil, opts)
+	sr, err := c.Connect(ctx, mdOpts)
 	if err != nil {
 		return "", "", err
 	}

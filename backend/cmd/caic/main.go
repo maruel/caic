@@ -400,7 +400,11 @@ type fakeContainer struct{}
 
 var _ task.ContainerBackend = (*fakeContainer)(nil)
 
-func (*fakeContainer) Start(_ context.Context, repos []md.Repo, _ []string, _ *task.StartOptions) (_, _ string, _ error) {
+func (*fakeContainer) Launch(_ context.Context, _ []md.Repo, _ []string, _ *task.StartOptions) error {
+	return nil
+}
+
+func (*fakeContainer) Connect(_ context.Context, repos []md.Repo, _ *task.StartOptions) (_, _ string, _ error) {
 	if len(repos) == 0 {
 		return "md-test-no-repo", "", nil
 	}

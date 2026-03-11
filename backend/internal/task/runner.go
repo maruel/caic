@@ -22,6 +22,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
 	"github.com/caic-xyz/md"
 	"github.com/caic-xyz/md/gitutil"
+	"golang.org/x/sync/errgroup"
 )
 
 // StartOptions holds optional flags for container startup.
@@ -38,7 +39,12 @@ type StartOptions struct {
 
 // ContainerBackend abstracts md container lifecycle operations for testability.
 type ContainerBackend interface {
-	Start(ctx context.Context, repos []md.Repo, labels []string, opts *StartOptions) (name, tailscaleFQDN string, err error)
+	// Launch starts the container (image check/build + docker run) and
+	// writes SSH config. Does NOT wait for SSH. Repos must have branches set.
+	Launch(ctx context.Context, repos []md.Repo, labels []string, opts *StartOptions) error
+	// Connect waits for SSH and pushes repos into the container.
+	// Returns the container name and optional Tailscale FQDN.
+	Connect(ctx context.Context, repos []md.Repo, opts *StartOptions) (name, tailscaleFQDN string, err error)
 	Diff(ctx context.Context, repos []md.Repo, args ...string) (string, error)
 	Fetch(ctx context.Context, repos []md.Repo) error
 	// Kill kills the container identified by name, removing any git remotes for
@@ -436,7 +442,8 @@ type setupResult struct {
 }
 
 // allocateBranchLocked fetches origin, resolves the start point, and creates
-// the task branch. Must be called under branchMu.
+// the task branch. Must be called under branchMu. Used by AllocateBranch for
+// extra repos; primary repo branch allocation uses reserveBranchID + fetchAndCreateBranch.
 func (r *Runner) allocateBranchLocked(ctx context.Context, t *Task) (string, error) {
 	detached := context.WithoutCancel(ctx)
 	gitCtx, gitCancel := context.WithTimeout(detached, r.GitTimeout)
@@ -487,18 +494,42 @@ func (r *Runner) AllocateBranch(ctx context.Context) (string, error) {
 	return r.allocateBranchLocked(ctx, &Task{})
 }
 
-// setup allocates a branch (when r.Dir is set) and starts the container.
+// fetchAndCreateBranch fetches origin and creates the given branch from the
+// resolved base. Called outside branchMu (the branch name was already reserved
+// by setup via branchMu).
+func (r *Runner) fetchAndCreateBranch(ctx context.Context, t *Task, branch string) error {
+	gitCtx, gitCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
+	defer gitCancel()
+	if err := gitutil.Fetch(gitCtx, r.Dir); err != nil {
+		return fmt.Errorf("fetch: %w", err)
+	}
+	effectiveBase := r.BaseBranch
+	if p := t.Primary(); p != nil && p.BaseBranch != "" {
+		effectiveBase = p.BaseBranch
+	}
+	startPoint := "origin/" + effectiveBase
+	if _, err := gitutil.RevParse(gitCtx, r.Dir, startPoint); err != nil {
+		startPoint = effectiveBase
+	}
+	r.log.Info("creating branch", "br", branch, "base", effectiveBase)
+	if err := gitutil.CreateBranch(gitCtx, r.Dir, branch, startPoint); err != nil {
+		return fmt.Errorf("create branch: %w", err)
+	}
+	return nil
+}
+
+// setup reserves a branch name, starts the container (Phase A) and creates the
+// git branch concurrently, then completes container startup (Phase B).
+// Phase A (docker run) and git fetch+branch-create overlap, cutting the
+// branch-allocation time off the critical path.
 func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResult, error) {
+	// Reserve the branch ID instantly (under lock, ~µs). The branch itself is
+	// created concurrently with docker run in Phase A.
 	if r.Dir != "" {
-		tBranch := time.Now()
 		r.branchMu.Lock()
-		branch, err := r.allocateBranchLocked(ctx, t)
+		t.Repos[0].Branch = fmt.Sprintf("caic-%d", r.nextID)
+		r.nextID++
 		r.branchMu.Unlock()
-		if err != nil {
-			return setupResult{}, err
-		}
-		t.Repos[0].Branch = branch
-		r.log.Debug("branch allocated", "br", branch, "dur", time.Since(tBranch))
 	}
 
 	t.SetState(StateProvisioning)
@@ -511,14 +542,33 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 	tContainer := time.Now()
 	startCtx, startCancel := context.WithTimeout(detached, r.ContainerStartTimeout)
 	defer startCancel()
+
+	opts := &StartOptions{
+		DockerImage: t.DockerImage, Harness: t.Harness, Tailscale: t.Tailscale, USB: t.USB, Display: t.Display,
+		LogWriter: &provisioningWriter{ctx: ctx, t: t},
+	}
+
+	// Phase A: docker run + SSH config. Branch creation runs concurrently so
+	// git fetch overlaps with the container SSH boot time (~500 ms–3 s).
 	var repos []md.Repo
 	if r.Dir != "" {
 		repos = t.MDRepos()
 	}
-	name, tailscaleFQDN, err := r.Container.Start(startCtx, repos, labels, &StartOptions{
-		DockerImage: t.DockerImage, Harness: t.Harness, Tailscale: t.Tailscale, USB: t.USB, Display: t.Display,
-		LogWriter: &provisioningWriter{ctx: ctx, t: t},
+	eg, egCtx := errgroup.WithContext(startCtx)
+	eg.Go(func() error {
+		return r.Container.Launch(egCtx, repos, labels, opts)
 	})
+	if r.Dir != "" {
+		eg.Go(func() error {
+			return r.fetchAndCreateBranch(egCtx, t, primaryBranch)
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		return setupResult{}, err
+	}
+
+	// Phase B: wait for SSH + push (branch now exists locally).
+	name, tailscaleFQDN, err := r.Container.Connect(startCtx, repos, opts)
 	if err != nil {
 		return setupResult{}, fmt.Errorf("start container: %w", err)
 	}
