@@ -243,9 +243,8 @@ type Server struct {
 
 // mdBackend adapts *md.Client to task.ContainerBackend.
 type mdBackend struct {
-	client      *md.Client
-	llmProvider string
-	llmModel    string
+	client   *md.Client
+	provider genai.Provider // nil if LLM not configured
 
 	mu                sync.Mutex
 	pendingContainers map[string]*md.Container // keyed by container name
@@ -344,7 +343,7 @@ func (b *mdBackend) Fetch(ctx context.Context, repos []md.Repo) error {
 	if len(repos) > 0 {
 		slog.Info("md fetch", "dir", repos[0].GitRoot, "br", repos[0].Branch)
 	}
-	return b.client.Container(repos...).Fetch(ctx, b.llmProvider, b.llmModel)
+	return b.client.Container(repos...).Fetch(ctx, b.provider)
 }
 
 func (b *mdBackend) Kill(ctx context.Context, name string, repos []md.Repo) error {
@@ -501,7 +500,7 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 		}
 	}
 
-	backend := &mdBackend{client: mdClient, llmProvider: cfg.LLMProvider, llmModel: cfg.LLMModel}
+	backend := &mdBackend{client: mdClient}
 
 	cachePath := filepath.Join(cfg.CacheDir, "ci_results.json")
 	cache, err := cicache.Open(cachePath)
@@ -561,8 +560,9 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 			if p, err := c.Factory(ctx, opts...); err != nil {
 				slog.Warn("LLM provider init failed", "prov", cfg.LLMProvider, "err", err)
 			} else {
-				slog.Info("title generation enabled", "prov", p.Name(), "mdl", p.ModelID())
+				slog.Info("title", "prov", p.Name(), "mdl", p.ModelID())
 				s.provider = p
+				backend.provider = p
 			}
 		}
 	}
