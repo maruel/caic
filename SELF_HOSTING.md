@@ -90,7 +90,7 @@ automatic task creation independently.
 | **Automatic task creation** | ❌ | ❌ | ✅ Issues, PRs, comments trigger tasks |
 | **Post-completion comments** | ✅ Via `GITHUB_TOKEN` (same PAT) | ❌ | ✅ Via installation token |
 | **Token scope** | Server-wide single token | Per-user, per-session | Per-installation |
-| **Env vars** | `GITHUB_TOKEN` | `CAIC_EXTERNAL_URL` + `GITHUB_OAUTH_CLIENT_ID` + `GITHUB_OAUTH_CLIENT_SECRET` + `GITHUB_OAUTH_ALLOWED_USERS` | `CAIC_EXTERNAL_URL` + `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY_PEM` + `GITHUB_WEBHOOK_SECRET` + `GITHUB_APP_ALLOWED_OWNERS` (optional) |
+| **Env vars** | `GITHUB_TOKEN` (auto-detected from `gh auth token` if unset) | `CAIC_EXTERNAL_URL` + `GITHUB_OAUTH_CLIENT_ID` + `GITHUB_OAUTH_CLIENT_SECRET` + `GITHUB_OAUTH_ALLOWED_USERS` | `CAIC_EXTERNAL_URL` + `GITHUB_APP_ID` + `GITHUB_APP_PRIVATE_KEY_PEM` + `GITHUB_WEBHOOK_SECRET` + `GITHUB_APP_ALLOWED_OWNERS` (optional) |
 | **Mutually exclusive with** | GitHub OAuth | GitHub PAT | Neither — combines with PAT or OAuth |
 | **Token creation** | [Fine-grained token](https://github.com/settings/personal-access-tokens/new?name=my+caic+instance&description=caic+PR+creation+and+CI+monitoring&pull_requests=write&checks=read&expires_in=365) (`pull_requests: write`, `checks: read`) | [GitHub OAuth app](https://github.com/settings/applications/new) | [GitHub App](https://github.com/settings/apps/new?name=my+caic+instance&webhook_active=true&issues=write&pull_requests=write&checks=read&events[]=issues&events[]=pull_request&events[]=issue_comment&events[]=check_suite) (generate private key from app settings) |
 

@@ -92,7 +92,7 @@ Environment variables (flags take precedence when set):
     CAIC_LLM_MODEL              Model name (e.g. claude-haiku-4-5-20251001)
 
   GitHub — choose one of PAT or OAuth; GitHub App is independent:
-    GITHUB_TOKEN                PAT for PR/CI; headless/single-user (mutually exclusive with GITHUB_OAUTH_CLIENT_ID)
+    GITHUB_TOKEN                PAT for PR/CI; single-user (mutually exclusive with GITHUB_OAUTH_CLIENT_ID); auto-detected from gh CLI if unset
     GITHUB_OAUTH_CLIENT_ID      OAuth app client ID; multi-user login (mutually exclusive with GITHUB_TOKEN)
     GITHUB_OAUTH_CLIENT_SECRET  OAuth app client secret
     GITHUB_OAUTH_ALLOWED_USERS  Comma-separated GitHub usernames allowed to log in (required with OAuth)
@@ -102,7 +102,7 @@ Environment variables (flags take precedence when set):
     GITHUB_WEBHOOK_SECRET       HMAC-SHA256 secret; enables POST /webhooks/github
 
   GitLab — choose one of PAT or OAuth:
-    GITLAB_TOKEN                PAT for MR/CI; headless/single-user (mutually exclusive with GITLAB_OAUTH_CLIENT_ID)
+    GITLAB_TOKEN                PAT for MR/CI; single-user (mutually exclusive with GITLAB_OAUTH_CLIENT_ID)
     GITLAB_OAUTH_CLIENT_ID      OAuth app client ID; multi-user login (mutually exclusive with GITLAB_TOKEN)
     GITLAB_OAUTH_CLIENT_SECRET  OAuth app client secret
     GITLAB_OAUTH_ALLOWED_USERS  Comma-separated GitLab usernames allowed to log in (required with OAuth)
@@ -140,7 +140,7 @@ See contrib/caic.env for a template with all variables and documentation.
 		LLMModel:                os.Getenv("CAIC_LLM_MODEL"),
 		ConfigDir:               configDir(),
 		CacheDir:                cacheDir(),
-		GitHubToken:             os.Getenv("GITHUB_TOKEN"),
+		GitHubToken:             resolveGitHubToken(),
 		GitLabToken:             os.Getenv("GITLAB_TOKEN"),
 		ExternalURL:             os.Getenv("CAIC_EXTERNAL_URL"),
 		GitHubOAuthClientID:     os.Getenv("GITHUB_OAUTH_CLIENT_ID"),
@@ -159,25 +159,11 @@ See contrib/caic.env for a template with all variables and documentation.
 		IPGeoAllowlist:          os.Getenv("CAIC_IPGEO_ALLOWLIST"),
 	}
 
-	if key := cfg.GeminiAPIKey; key != "" {
-		suffix := key
-		if len(suffix) > 4 {
-			suffix = suffix[len(suffix)-4:]
-		}
-		slog.Info("GEMINI_API_KEY configured", "suffix", suffix) //nolint:gosec // G706: logging last 4 chars of key, not a secret
-	} else {
-		slog.Warn("GEMINI_API_KEY not set")
-	}
-	if key := cfg.TailscaleAPIKey; key != "" {
-		suffix := key
-		if len(suffix) > 4 {
-			suffix = suffix[len(suffix)-4:]
-		}
-		slog.Info("TAILSCALE_API_KEY configured", "suffix", suffix) //nolint:gosec // G706: logging last 4 chars of key, not a secret
-	} else {
-		slog.Warn("TAILSCALE_API_KEY not set")
-	}
-	slog.Info("LLM", "provider", cfg.LLMProvider, "model", cfg.LLMModel) //nolint:gosec // G706: config values, not user input
+	slog.Info("gemini", "apikey", maskedToken(cfg.GeminiAPIKey))                                            //nolint:gosec // G706: value from env, not user input
+	slog.Info("tailscale", "apikey", maskedToken(cfg.TailscaleAPIKey))                                      //nolint:gosec // G706: value from env, not user input
+	slog.Info("LLM", "provider", cfg.LLMProvider, "model", cfg.LLMModel)                                    //nolint:gosec // G706: value from env, not user input
+	slog.Info("github", "pat", maskedToken(cfg.GitHubToken), "oauth", maskedToken(cfg.GitHubOAuthClientID)) //nolint:gosec // G706: value from env, not user input
+	slog.Info("gitlab", "pat", maskedToken(cfg.GitLabToken), "oauth", maskedToken(cfg.GitLabOAuthClientID)) //nolint:gosec // G706: value from env, not user input
 
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -497,6 +483,46 @@ func configDir() string {
 		base = filepath.Join(home, ".config")
 	}
 	return filepath.Join(base, "caic")
+}
+
+// maskedToken is a credential string that logs as "xxx...1234" (last 4 chars
+// visible, remainder replaced with "x"). Implements slog.LogValuer so the
+// masking happens inside the type and no nolint directives are needed.
+type maskedToken string
+
+func (m maskedToken) LogValue() slog.Value {
+	s := string(m)
+	if s == "" {
+		return slog.StringValue("")
+	}
+	if len(s) <= 4 {
+		return slog.StringValue(s)
+	}
+	return slog.StringValue(strings.Repeat("x", len(s)-4) + s[len(s)-4:])
+}
+
+// resolveGitHubToken returns the GitHub token to use. It returns GITHUB_TOKEN
+// if set. Otherwise, when OAuth is not configured, it attempts to obtain a
+// token from the gh CLI (gh auth token). Returns "" if neither is available.
+func resolveGitHubToken() string {
+	if t := os.Getenv("GITHUB_TOKEN"); t != "" {
+		return t
+	}
+	// Don't try gh when OAuth is configured — the two modes are mutually
+	// exclusive and mixing them would cause a startup error.
+	if os.Getenv("GITHUB_OAUTH_CLIENT_ID") != "" {
+		return ""
+	}
+	ghPath, err := exec.LookPath("gh")
+	if err != nil {
+		return ""
+	}
+	out, err := exec.Command(ghPath, "auth", "token").Output() //nolint:gosec // ghPath resolved via LookPath
+	if err != nil {
+		slog.Warn("GITHUB_TOKEN", "msg", "gh CLI found but gh auth token failed", "err", err, "out", string(out))
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func parseInt64(s string) int64 {
