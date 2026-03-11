@@ -18,10 +18,14 @@ import (
 	agentcodex "github.com/caic-xyz/caic/backend/internal/agent/codex"
 	agentgemini "github.com/caic-xyz/caic/backend/internal/agent/gemini"
 	agentkilo "github.com/caic-xyz/caic/backend/internal/agent/kilo"
+	"github.com/caic-xyz/caic/backend/internal/jsonutil"
 )
 
 // errNotLogFile is returned when a file doesn't contain a valid caic_meta header.
 var errNotLogFile = errors.New("not a caic log file")
+
+// metaKnown is the set of JSON field names recognised by agent.MetaMessage.
+var metaKnown = jsonutil.KnownFields(agent.MetaMessage{})
 
 // LoadedTask holds the data reconstructed from a single JSONL log file.
 type LoadedTask struct {
@@ -109,6 +113,19 @@ func (lt *LoadedTask) LoadMessages() error {
 	return nil
 }
 
+// unmarshalMeta decodes a MetaMessage from JSON and warns about any unrecognised
+// fields (e.g. fields from an older log format that have since been removed).
+func unmarshalMeta(data []byte, m *agent.MetaMessage) error {
+	if err := json.Unmarshal(data, m); err != nil {
+		return err
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err == nil {
+		jsonutil.WarnUnknown("caic_meta", jsonutil.CollectUnknown(raw, metaKnown))
+	}
+	return nil
+}
+
 // loadLogHeader reads only the metadata header (first line) and the result
 // trailer (last line) from a JSONL log file. It does NOT parse individual
 // messages — call LoadMessages for that. The path is stored for lazy loading.
@@ -130,9 +147,7 @@ func loadLogHeader(path string) (_ *LoadedTask, retErr error) {
 		return nil, errNotLogFile
 	}
 	var meta agent.MetaMessage
-	d := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&meta); err != nil {
+	if err := unmarshalMeta(scanner.Bytes(), &meta); err != nil {
 		return nil, errNotLogFile
 	}
 	if err := meta.Validate(); err != nil {
@@ -223,9 +238,7 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 		return nil, errNotLogFile
 	}
 	var meta agent.MetaMessage
-	d := json.NewDecoder(bytes.NewReader(scanner.Bytes()))
-	d.DisallowUnknownFields()
-	if err := d.Decode(&meta); err != nil {
+	if err := unmarshalMeta(scanner.Bytes(), &meta); err != nil {
 		return nil, errNotLogFile
 	}
 	if err := meta.Validate(); err != nil {
