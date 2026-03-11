@@ -881,7 +881,7 @@ func (s *Server) cloneRepo(ctx context.Context, req *v1.CloneRepoReq) (*v1.Repo,
 	// Run git clone with timeout.
 	cloneCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	args := []string{"clone", "--depth", strconv.Itoa(depth), req.URL, absTarget}
+	args := []string{"clone", "--depth", strconv.Itoa(depth), "--recurse-submodules", "--shallow-submodules", req.URL, absTarget}
 	cmd := exec.CommandContext(cloneCtx, "git", args...) //nolint:gosec // args are validated: depth is an int, URL is user-provided input, absTarget is validated above
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// Clean up partial clone.
