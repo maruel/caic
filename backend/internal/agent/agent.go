@@ -344,9 +344,11 @@ func StartRelay(ctx context.Context, opts *Options, agentArgs []string, msgCh ch
 	if opts.Dir == "" {
 		return nil, errors.New("opts.Dir is required")
 	}
+	tStart := time.Now()
 	if err := DeployRelay(ctx, opts.Container); err != nil {
 		return nil, err
 	}
+	slog.Debug("startup", "phase", "deploy_relay", "ctr", opts.Container, "dur", time.Since(tStart))
 
 	sshArgs := make([]string, 0, 7+len(agentArgs))
 	sshArgs = append(sshArgs, opts.Container, "python3", RelayScriptPath, "serve-attach", "--dir", opts.Dir, "--")
@@ -366,6 +368,7 @@ func StartRelay(ctx context.Context, opts *Options, agentArgs []string, msgCh ch
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start relay: %w", err)
 	}
+	slog.Info("startup", "phase", "relay_started", "ctr", opts.Container, "dur", time.Since(tStart))
 
 	log := slog.With("ctr", opts.Container)
 	s := NewSession(cmd, stdin, stdout, msgCh, logW, wire, log)

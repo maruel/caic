@@ -276,6 +276,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 		t.SetState(StateBranching)
 	}
 
+	tStart := time.Now()
 	// 1. Create branch (serialized) + start container (concurrent).
 	r.log.Info("setup task")
 	sr, err := r.setup(ctx, t, []string{"caic=" + t.ID.String(), "harness=" + string(t.Harness)})
@@ -289,7 +290,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 	if p := t.Primary(); p != nil {
 		primaryBranch = p.Branch
 	}
-	r.log.Info("container ready", "br", primaryBranch, "ctr", t.Container)
+	r.log.Info("container ready", "br", primaryBranch, "ctr", t.Container, "dur", time.Since(tStart))
 
 	// 2. Start the agent session.
 	t.SetState(StateStarting)
@@ -301,6 +302,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 		return nil, err
 	}
 
+	tSession := time.Now()
 	tlog := r.log.With("br", primaryBranch, "ctr", t.Container)
 	tlog.Info("starting session", "hns", t.Harness)
 	session, err := r.backend(t.Harness).Start(ctx, &agent.Options{
@@ -323,7 +325,7 @@ func (r *Runner) Start(ctx context.Context, t *Task) (*SessionHandle, error) {
 
 	t.addMessage(ctx, syntheticUserInput(t.InitialPrompt))
 	t.SetState(StateRunning)
-	tlog.Info("agent running")
+	tlog.Info("agent running", "session_dur", time.Since(tSession), "total_startup_dur", time.Since(tStart))
 	return h, nil
 }
 
@@ -488,6 +490,7 @@ func (r *Runner) AllocateBranch(ctx context.Context) (string, error) {
 // setup allocates a branch (when r.Dir is set) and starts the container.
 func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResult, error) {
 	if r.Dir != "" {
+		tBranch := time.Now()
 		r.branchMu.Lock()
 		branch, err := r.allocateBranchLocked(ctx, t)
 		r.branchMu.Unlock()
@@ -495,6 +498,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 			return setupResult{}, err
 		}
 		t.Repos[0].Branch = branch
+		r.log.Debug("branch allocated", "br", branch, "dur", time.Since(tBranch))
 	}
 
 	t.SetState(StateProvisioning)
@@ -504,6 +508,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 		primaryBranch = p.Branch
 	}
 	r.log.Info("starting container", "br", primaryBranch, "img", t.DockerImage, "hns", t.Harness, "ts", t.Tailscale, "usb", t.USB, "dpy", t.Display)
+	tContainer := time.Now()
 	startCtx, startCancel := context.WithTimeout(detached, r.ContainerStartTimeout)
 	defer startCancel()
 	var repos []md.Repo
@@ -517,7 +522,7 @@ func (r *Runner) setup(ctx context.Context, t *Task, labels []string) (setupResu
 	if err != nil {
 		return setupResult{}, fmt.Errorf("start container: %w", err)
 	}
-	r.log.Info("container started", "br", primaryBranch)
+	r.log.Info("container started", "br", primaryBranch, "dur", time.Since(tContainer))
 	return setupResult{Container: name, TailscaleFQDN: tailscaleFQDN}, nil
 }
 

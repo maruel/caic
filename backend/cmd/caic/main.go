@@ -200,6 +200,19 @@ See contrib/caic.env for a template with all variables and documentation.
 	return serveHTTP(ctx, *addr, *root, cfg)
 }
 
+// roundDur rounds d to 3 significant digits.
+func roundDur(d time.Duration) time.Duration {
+	if d <= 0 {
+		return d
+	}
+	ns := int64(d)
+	unit := int64(1)
+	for ns/unit >= 1000 {
+		unit *= 10
+	}
+	return time.Duration((ns + unit/2) / unit * unit)
+}
+
 // initLogging configures slog with tint for colored, concise output.
 // Timestamps are omitted under systemd (JOURNAL_STREAM), and zero-value
 // attributes are dropped.
@@ -242,6 +255,9 @@ func initLogging(level string) {
 				skip = t.IsZero()
 			case time.Duration:
 				skip = t == 0
+				if !skip {
+					a = slog.Duration(a.Key, roundDur(t))
+				}
 			case nil:
 				skip = true
 			}
