@@ -6,14 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 )
-
-// currentVersion is the preferences file format version.
-const currentVersion = 1
 
 // Preferences holds persistent user preferences.
 type Preferences struct {
@@ -29,24 +28,6 @@ type Preferences struct {
 	// BaseImage overrides the default container base image. Empty means use
 	// the default.
 	BaseImage string `json:"baseImage,omitempty"`
-}
-
-// RepoPrefs stores per-repository user preferences. Fields override the
-// global defaults in Preferences when set.
-type RepoPrefs struct {
-	// Path is the repository identifier (e.g. "github/caic").
-	Path string `json:"path"`
-	// BaseBranch overrides the repository's default branch when creating tasks.
-	BaseBranch string `json:"baseBranch,omitempty"`
-	// Harness is the preferred agent harness for this repo.
-	Harness string `json:"harness,omitempty"`
-	// Model is the preferred model for this repo's harness.
-	Model string `json:"model,omitempty"`
-	// BaseImage overrides the default container base image for this repo.
-	BaseImage string `json:"baseImage,omitempty"`
-	// LastUsed is the Unix timestamp (seconds) of the last task created for
-	// this repo.
-	LastUsed int64 `json:"lastUsed,omitempty"`
 }
 
 // Validate checks that the preferences are well-formed.
@@ -117,13 +98,6 @@ func (p *Preferences) TouchRepo(repoPath string, overrides *RepoPrefs) {
 	}
 }
 
-// recentWindow is how far back we consider a repo "recent".
-const recentWindow = 7 * 24 * time.Hour
-
-// minRecentRepos is the minimum number of repos always shown as recent,
-// regardless of last-used time.
-const minRecentRepos = 10
-
 // RecentRepos returns the subset of Repositories that should appear in the
 // "Recent" section: the first minRecentRepos entries plus any beyond that
 // used within recentWindow.
@@ -136,6 +110,31 @@ func (p *Preferences) RecentRepos(now time.Time) []RepoPrefs {
 		}
 	}
 	return result
+}
+
+func (p *Preferences) clone() Preferences {
+	c := *p
+	c.Repositories = slices.Clone(p.Repositories)
+	c.Models = maps.Clone(p.Models)
+	return c
+}
+
+// RepoPrefs stores per-repository user preferences. Fields override the
+// global defaults in Preferences when set.
+type RepoPrefs struct {
+	// Path is the repository identifier (e.g. "github/caic").
+	Path string `json:"path"`
+	// BaseBranch overrides the repository's default branch when creating tasks.
+	BaseBranch string `json:"baseBranch,omitempty"`
+	// Harness is the preferred agent harness for this repo.
+	Harness string `json:"harness,omitempty"`
+	// Model is the preferred model for this repo's harness.
+	Model string `json:"model,omitempty"`
+	// BaseImage overrides the default container base image for this repo.
+	BaseImage string `json:"baseImage,omitempty"`
+	// LastUsed is the Unix timestamp (seconds) of the last task created for
+	// this repo.
+	LastUsed int64 `json:"lastUsed,omitempty"`
 }
 
 // Store manages persistent user preferences with in-memory caching.
@@ -164,21 +163,6 @@ func (s *Store) Get() Preferences {
 	return s.cached.clone()
 }
 
-func (p *Preferences) clone() Preferences {
-	c := *p
-	if len(p.Repositories) > 0 {
-		c.Repositories = make([]RepoPrefs, len(p.Repositories))
-		copy(c.Repositories, p.Repositories)
-	}
-	if len(p.Models) > 0 {
-		c.Models = make(map[string]string, len(p.Models))
-		for k, v := range p.Models {
-			c.Models[k] = v
-		}
-	}
-	return c
-}
-
 // Update applies fn to the current preferences and persists the result.
 func (s *Store) Update(fn func(*Preferences)) error {
 	s.mu.Lock()
@@ -187,15 +171,21 @@ func (s *Store) Update(fn func(*Preferences)) error {
 	return save(s.cached, s.path)
 }
 
-func newPreferences() *Preferences {
-	return &Preferences{Version: currentVersion}
-}
+// currentVersion is the preferences file format version.
+const currentVersion = 1
+
+// recentWindow is how far back we consider a repo "recent".
+const recentWindow = 7 * 24 * time.Hour
+
+// minRecentRepos is the minimum number of repos always shown as recent,
+// regardless of last-used time.
+const minRecentRepos = 10
 
 func load(path string) (*Preferences, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // path is caller-provided, validated at startup
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return newPreferences(), nil
+			return &Preferences{Version: currentVersion}, nil
 		}
 		return nil, fmt.Errorf("read preferences: %w", err)
 	}

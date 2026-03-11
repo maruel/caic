@@ -9,7 +9,7 @@ import (
 
 func TestValidate(t *testing.T) {
 	t.Run("valid_empty", func(t *testing.T) {
-		p := newPreferences()
+		p := &Preferences{Version: currentVersion}
 		if err := p.Validate(); err != nil {
 			t.Fatal(err)
 		}
@@ -183,7 +183,7 @@ func TestStore(t *testing.T) {
 func TestTouchRepo(t *testing.T) {
 	t.Run("new_repo_with_overrides", func(t *testing.T) {
 		before := time.Now().Unix()
-		p := newPreferences()
+		p := &Preferences{Version: currentVersion}
 		p.TouchRepo("github/foo", &RepoPrefs{Harness: "claude", Model: "opus"})
 		if len(p.Repositories) != 1 {
 			t.Fatalf("got %d repos", len(p.Repositories))
