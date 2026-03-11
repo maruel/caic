@@ -495,9 +495,13 @@ func (r *Runner) AllocateBranch(ctx context.Context) (string, error) {
 }
 
 // fetchAndCreateBranch fetches origin and creates the given branch from the
-// resolved base. Called outside branchMu (the branch name was already reserved
-// by setup via branchMu).
+// resolved base. Acquires branchMu to serialize git operations across concurrent
+// task setups on the same repo (git fetch/branch are not safe to run in parallel
+// on the same working tree). Container.Launch can still run concurrently since it
+// does not touch the repo.
 func (r *Runner) fetchAndCreateBranch(ctx context.Context, t *Task, branch string) error {
+	r.branchMu.Lock()
+	defer r.branchMu.Unlock()
 	gitCtx, gitCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer gitCancel()
 	if err := gitutil.Fetch(gitCtx, r.Dir); err != nil {
