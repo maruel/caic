@@ -92,7 +92,7 @@ export async function createTaskAPI(
   expect(harnesses.length).toBeGreaterThan(0);
   const resp = await api.createTask({
     initialPrompt: { text: prompt },
-    repo: repos[0].path,
+    repos: [{ name: repos[0].path }],
     harness: harnesses[0].name,
   });
   expect(resp.id).toBeTruthy();

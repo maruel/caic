@@ -50,6 +50,6 @@ test("list tasks includes created task", async ({ api }) => {
   const found = tasks.find((t) => t.id === id);
   expect(found).toBeTruthy();
   expect(found!.initialPrompt).toBe("api list test");
-  expect(found!.repo).toBeTruthy();
-  expect(found!.branch).toBeTruthy();
+  expect(found!.repos![0].name).toBeTruthy();
+  expect(found!.repos![0].branch).toBeTruthy();
 });

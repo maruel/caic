@@ -10,9 +10,9 @@ test("POST /api/v1/tasks with missing prompt returns 400", async ({ request }) =
   expect(body.error.code).toBeTruthy();
 });
 
-test("POST /api/v1/tasks with missing repo returns 400", async ({ request }) => {
+test("POST /api/v1/tasks with unknown repo returns 400", async ({ request }) => {
   const res = await request.post("/api/v1/tasks", {
-    data: { initialPrompt: { text: "hello" }, harness: "fake" },
+    data: { initialPrompt: { text: "hello" }, repos: [{ name: "nonexistent" }], harness: "fake" },
   });
   expect(res.status()).toBe(400);
 });

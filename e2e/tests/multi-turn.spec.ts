@@ -35,7 +35,7 @@ test("concurrent tasks run independently", async ({ api }) => {
   ]);
 
   expect(task1.id).not.toBe(task2.id);
-  expect(task1.branch).not.toBe(task2.branch);
+  expect(task1.repos![0].branch).not.toBe(task2.repos![0].branch);
 
   // Terminate both.
   await Promise.all([
