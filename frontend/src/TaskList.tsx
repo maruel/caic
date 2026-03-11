@@ -29,9 +29,9 @@ export function sortTasks(tasks: Task[]): Task[] {
   const active = tasks.filter((t) => !isTerminal(t.state));
   const terminal = tasks.filter((t) => isTerminal(t.state));
   active.sort((a, b) => {
-    const rc = naturalCompare(a.repo, b.repo);
+    const rc = naturalCompare(a.repos?.[0]?.name ?? "", b.repos?.[0]?.name ?? "");
     if (rc !== 0) return rc;
-    return naturalCompare(a.branch, b.branch);
+    return naturalCompare(a.repos?.[0]?.branch ?? "", b.repos?.[0]?.branch ?? "");
   });
   terminal.sort((a, b) => (b.id > a.id ? -1 : b.id < a.id ? 1 : 0));
   return [...active, ...terminal];
@@ -72,17 +72,18 @@ export default function TaskList(props: TaskListProps) {
     const active = all.filter((t) => !isTerminal(t.state));
     const terminal = all.filter((t) => isTerminal(t.state));
     active.sort((a, b) => {
-      const rc = naturalCompare(a.repo, b.repo);
+      const rc = naturalCompare(a.repos?.[0]?.name ?? "", b.repos?.[0]?.name ?? "");
       if (rc !== 0) return rc;
-      return naturalCompare(a.branch, b.branch);
+      return naturalCompare(a.repos?.[0]?.branch ?? "", b.repos?.[0]?.branch ?? "");
     });
     const groups: RepoGroup[] = [];
     for (const t of active) {
+      const tRepo = t.repos?.[0]?.name ?? "";
       const last = groups[groups.length - 1];
-      if (last && last.repo === t.repo) {
+      if (last && last.repo === tRepo) {
         last.tasks.push(t);
       } else {
-        groups.push({ repo: t.repo, tasks: [t] });
+        groups.push({ repo: tRepo, tasks: [t] });
       }
     }
     terminal.sort((a, b) => (b.id > a.id ? -1 : b.id < a.id ? 1 : 0));
@@ -95,10 +96,10 @@ export default function TaskList(props: TaskListProps) {
       title={t().title}
       state={t().state}
       stateUpdatedAt={t().stateUpdatedAt}
-      repo={t().repo}
+      repo={t().repos?.[0]?.name ?? ""}
       remoteURL={t().remoteURL}
-      baseBranch={t().baseBranch}
-      branch={t().branch}
+      baseBranch={t().repos?.[0]?.baseBranch}
+      branch={t().repos?.[0]?.branch ?? ""}
       harness={t().harness}
       model={t().model}
       costUSD={t().costUSD}

@@ -58,7 +58,7 @@ func claudeInit(t *testing.T, sessionID string) string {
 func TestLoadLogs(t *testing.T) {
 	t.Run("Valid", func(t *testing.T) {
 		dir := t.TempDir()
-		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "task1", Repo: "r", Branch: "caic-0", Harness: "claude"})
+		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "task1", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: "claude"})
 		asst := claudeAssistant(t, map[string]any{"type": "text", "text": "hello"})
 		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "terminated"})
 		writeLogFile(t, dir, "a.jsonl", meta, asst, trailer)
@@ -106,11 +106,11 @@ func TestLoadLogs(t *testing.T) {
 	t.Run("MultipleFiles", func(t *testing.T) {
 		dir := t.TempDir()
 
-		meta1 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "first", Repo: "r", Branch: "caic-0", Harness: "claude", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)})
+		meta1 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "first", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: "claude", StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)})
 		asst1 := claudeAssistant(t, map[string]any{"type": "text", "text": "hello"})
 		writeLogFile(t, dir, "a.jsonl", meta1, asst1)
 
-		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "second", Repo: "r", Branch: "caic-0", Harness: "claude", StartedAt: time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)})
+		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "second", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: "claude", StartedAt: time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC)})
 		init2 := claudeInit(t, "sid-2")
 		asst2 := claudeAssistant(t, map[string]any{"type": "text", "text": "world"})
 		writeLogFile(t, dir, "b.jsonl", meta2, init2, asst2)
@@ -150,7 +150,7 @@ func TestLoadLogs(t *testing.T) {
 	})
 	t.Run("ContextClearedResetsPlanState", func(t *testing.T) {
 		dir := t.TempDir()
-		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "plan task", Repo: "r", Branch: "caic-0", Harness: "claude"})
+		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "plan task", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: "claude"})
 		// Old session: agent enters plan mode and writes a plan file.
 		planWrite := claudeAssistant(t, map[string]any{
 			"type":  "tool_use",
@@ -161,7 +161,7 @@ func TestLoadLogs(t *testing.T) {
 		// context_cleared written by RestartSession before starting new session.
 		cleared := mustJSON(t, agent.SystemMessage{MessageType: "system", Subtype: "context_cleared"})
 		// New session header + assistant message (no plan tools).
-		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "plan task", Repo: "r", Branch: "caic-0", Harness: "claude"})
+		meta2 := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "plan task", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: "claude"})
 		asst2 := claudeAssistant(t, map[string]any{"type": "text", "text": "done"})
 		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "terminated"})
 		writeLogFile(t, dir, "task.jsonl", meta, planWrite, cleared, meta2, asst2, trailer)

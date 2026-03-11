@@ -116,6 +116,13 @@ data class CloneRepoReq(
 data class RepoBranchesResp(val branches: List<String>)
 
 @Serializable
+data class TaskRepo(
+    val name: String,
+    val baseBranch: String? = null,
+    val branch: String,
+)
+
+@Serializable
 data class DiffFileStat(
     val path: String,
     val added: Int,
@@ -128,10 +135,8 @@ data class Task(
     val id: String,
     val initialPrompt: String,
     val title: String,
-    val repo: String,
+    val repos: List<TaskRepo>? = null,
     @SerialName("remoteURL") val remoteURL: String? = null,
-    val baseBranch: String? = null,
-    val branch: String,
     val container: String,
     val state: String,
     val stateUpdatedAt: Double,
@@ -174,10 +179,12 @@ data class ImageData(val mediaType: String, val data: String)
 data class Prompt(val text: String, val images: List<ImageData>? = null)
 
 @Serializable
+data class RepoSpec(val name: String, val baseBranch: String? = null)
+
+@Serializable
 data class CreateTaskReq(
     val initialPrompt: Prompt,
-    val repo: String,
-    val baseBranch: String? = null,
+    val repos: List<RepoSpec>? = null,
     val model: String? = null,
     val harness: Harness,
     val image: String? = null,

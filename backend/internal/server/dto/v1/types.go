@@ -102,15 +102,26 @@ type Repo struct {
 	DefaultBranchChecks   []ForgeCheck `json:"defaultBranchChecks,omitempty"`
 }
 
+// RepoSpec describes a repository to associate with a task at creation time.
+type RepoSpec struct {
+	Name       string `json:"name"`
+	BaseBranch string `json:"baseBranch,omitempty"`
+}
+
+// TaskRepo describes a repository associated with a task in the API response.
+type TaskRepo struct {
+	Name       string `json:"name"`
+	BaseBranch string `json:"baseBranch,omitempty"`
+	Branch     string `json:"branch"`
+}
+
 // Task is the JSON representation sent to the frontend.
 type Task struct {
 	ID                                 ksid.ID      `json:"id"`
 	InitialPrompt                      string       `json:"initialPrompt"`
 	Title                              string       `json:"title"`
-	Repo                               string       `json:"repo"`
+	Repos                              []TaskRepo   `json:"repos,omitempty"`
 	RemoteURL                          string       `json:"remoteURL,omitempty"`
-	BaseBranch                         string       `json:"baseBranch,omitempty"` // branch the task was forked from
-	Branch                             string       `json:"branch"`
 	Container                          string       `json:"container"`
 	State                              string       `json:"state"`
 	StateUpdatedAt                     float64      `json:"stateUpdatedAt"` // Unix epoch seconds (ms precision) of last state change.
@@ -189,15 +200,14 @@ type CILogResp struct {
 
 // CreateTaskReq is the request body for POST /api/v1/tasks.
 type CreateTaskReq struct {
-	InitialPrompt Prompt  `json:"initialPrompt"`
-	Repo          string  `json:"repo"`
-	BaseBranch    string  `json:"baseBranch,omitempty"` // branch to fork from; defaults to repo's default branch
-	Model         string  `json:"model,omitempty"`
-	Harness       Harness `json:"harness"`
-	Image         string  `json:"image,omitempty"`
-	Tailscale     bool    `json:"tailscale,omitempty"`
-	USB           bool    `json:"usb,omitempty"`
-	Display       bool    `json:"display,omitempty"`
+	InitialPrompt Prompt     `json:"initialPrompt"`
+	Repos         []RepoSpec `json:"repos,omitempty"`
+	Model         string     `json:"model,omitempty"`
+	Harness       Harness    `json:"harness"`
+	Image         string     `json:"image,omitempty"`
+	Tailscale     bool       `json:"tailscale,omitempty"`
+	USB           bool       `json:"usb,omitempty"`
+	Display       bool       `json:"display,omitempty"`
 }
 
 // InputReq is the request body for POST /api/v1/tasks/{id}/input.

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -29,10 +30,10 @@ var metaKnown = jsonutil.KnownFields(agent.MetaMessage{})
 
 // LoadedTask holds the data reconstructed from a single JSONL log file.
 type LoadedTask struct {
+	TaskID            string // Task ID parsed from log filename; empty if unparseable.
 	Prompt            string
 	Title             string
-	Repo              string
-	Branch            string
+	Repos             []RepoMount // GitRoot will be empty for terminated tasks loaded from logs.
 	Harness           agent.Harness
 	StartedAt         time.Time
 	LastStateUpdateAt time.Time // Derived from log file mtime; best-effort for adopt.
@@ -41,6 +42,14 @@ type LoadedTask struct {
 	Result            *Result
 
 	path string // Absolute path for lazy message loading via LoadMessages.
+}
+
+// Primary returns a pointer to the primary RepoMount (Repos[0]), or nil for no-repo tasks.
+func (lt *LoadedTask) Primary() *RepoMount {
+	if len(lt.Repos) == 0 {
+		return nil
+	}
+	return &lt.Repos[0]
 }
 
 // LoadLogs scans logDir for *.jsonl files and loads task metadata.
@@ -159,12 +168,23 @@ func loadLogHeader(path string) (_ *LoadedTask, retErr error) {
 		return nil, err
 	}
 
+	// Parse task ID from filename: "<taskID>-<safeRepo>-<safeBranch>.jsonl".
+	base := strings.TrimSuffix(filepath.Base(path), ".jsonl")
+	taskIDStr := base
+	if i := strings.IndexByte(base, '-'); i >= 0 {
+		taskIDStr = base[:i]
+	}
+
+	repos := make([]RepoMount, len(meta.Repos))
+	for i, mr := range meta.Repos {
+		repos[i] = RepoMount{Name: mr.Name, BaseBranch: mr.BaseBranch, Branch: mr.Branch}
+	}
 	lt := &LoadedTask{
 		path:              path,
+		TaskID:            taskIDStr,
 		Prompt:            meta.Prompt,
 		Title:             meta.Title,
-		Repo:              meta.Repo,
-		Branch:            meta.Branch,
+		Repos:             repos,
 		Harness:           meta.Harness,
 		StartedAt:         meta.StartedAt,
 		LastStateUpdateAt: info.ModTime().UTC(),
@@ -252,11 +272,14 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 		mtime = info.ModTime().UTC()
 	}
 
+	repos := make([]RepoMount, len(meta.Repos))
+	for i, mr := range meta.Repos {
+		repos[i] = RepoMount{Name: mr.Name, BaseBranch: mr.BaseBranch, Branch: mr.Branch}
+	}
 	lt := &LoadedTask{
 		Prompt:            meta.Prompt,
 		Title:             meta.Title,
-		Repo:              meta.Repo,
-		Branch:            meta.Branch,
+		Repos:             repos,
 		Harness:           meta.Harness,
 		StartedAt:         meta.StartedAt,
 		LastStateUpdateAt: mtime,

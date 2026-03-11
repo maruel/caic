@@ -437,16 +437,29 @@ export interface Repo {
   defaultBranchChecks?: ForgeCheck[];
 }
 /**
+ * RepoSpec describes a repository to associate with a task at creation time.
+ */
+export interface RepoSpec {
+  name: string;
+  baseBranch?: string;
+}
+/**
+ * TaskRepo describes a repository associated with a task in the API response.
+ */
+export interface TaskRepo {
+  name: string;
+  baseBranch?: string;
+  branch: string;
+}
+/**
  * Task is the JSON representation sent to the frontend.
  */
 export interface Task {
   id: string;
   initialPrompt: string;
   title: string;
-  repo: string;
+  repos?: TaskRepo[];
   remoteURL?: string;
-  baseBranch?: string; // branch the task was forked from
-  branch: string;
   container: string;
   state: string;
   stateUpdatedAt: number /* float64 */; // Unix epoch seconds (ms precision) of last state change.
@@ -534,8 +547,7 @@ export interface CILogResp {
  */
 export interface CreateTaskReq {
   initialPrompt: Prompt;
-  repo: string;
-  baseBranch?: string; // branch to fork from; defaults to repo's default branch
+  repos?: RepoSpec[];
   model?: string;
   harness: Harness;
   image?: string;

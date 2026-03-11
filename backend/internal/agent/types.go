@@ -283,18 +283,24 @@ type DiffStatMessage struct {
 // Type implements Message.
 func (m *DiffStatMessage) Type() string { return "caic_diff_stat" }
 
+// MetaRepo describes one repository entry in a MetaMessage.
+type MetaRepo struct {
+	Name       string `json:"name"`
+	BaseBranch string `json:"base_branch,omitempty"`
+	Branch     string `json:"branch"`
+}
+
 // MetaMessage is written as the first line of a JSONL log file. It captures
 // task-level metadata so logs can be reloaded on restart.
 type MetaMessage struct {
-	MessageType string    `json:"type"`
-	Version     int       `json:"version"`
-	Prompt      string    `json:"prompt"`
-	Title       string    `json:"title,omitempty"`
-	Repo        string    `json:"repo"`
-	Branch      string    `json:"branch"`
-	Harness     Harness   `json:"harness"`
-	Model       string    `json:"model,omitempty"`
-	StartedAt   time.Time `json:"started_at"`
+	MessageType string     `json:"type"`
+	Version     int        `json:"version"`
+	Prompt      string     `json:"prompt"`
+	Title       string     `json:"title,omitempty"`
+	Repos       []MetaRepo `json:"repos"`
+	Harness     Harness    `json:"harness"`
+	Model       string     `json:"model,omitempty"`
+	StartedAt   time.Time  `json:"started_at"`
 }
 
 // Type implements Message.
@@ -310,12 +316,6 @@ func (m *MetaMessage) Validate() error {
 	}
 	if m.Prompt == "" {
 		return errors.New("missing prompt")
-	}
-	if m.Repo == "" {
-		return errors.New("missing repo")
-	}
-	if m.Branch == "" {
-		return errors.New("missing branch")
 	}
 	if m.Harness == "" {
 		return errors.New("missing harness")

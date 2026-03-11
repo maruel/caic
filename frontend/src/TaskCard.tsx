@@ -114,36 +114,36 @@ export default function TaskCard(props: TaskCardProps) {
       </div>
 
       {/* Line 2: base→branch | [timer times] [state badge] */}
-      <Show when={props.branch}>
-        <div class={styles.metaRow}>
-          <span class={styles.meta}>
+      <div class={styles.metaRow}>
+        <span class={styles.meta}>
+          <Show when={props.branch}>
             <Show when={props.baseBranch && props.branch}>
               <span class={styles.baseBranch}>{props.baseBranch}</span>
               <span class={styles.branchArrow}>→</span>
             </Show>
             <span class={styles.branchName}>{props.branch}</span>
-          </span>
-          <span class={styles.stateGroup}>
-            <Show when={(!isTerminal() && props.stateUpdatedAt > 0) || props.duration > 0}>
-              <span class={styles.timePair}>
-                <TimerIcon width="0.65rem" height="0.65rem" class={styles.timerIcon} />
-                <Show when={!isTerminal() && props.stateUpdatedAt > 0}>
-                  <StateDuration stateUpdatedAt={props.stateUpdatedAt} now={props.now} />
-                  <Show when={props.duration > 0 || props.state === "running"}>
-                    <span class={styles.timeSep}>/</span>
-                  </Show>
-                </Show>
+          </Show>
+        </span>
+        <span class={styles.stateGroup}>
+          <Show when={(!isTerminal() && props.stateUpdatedAt > 0) || props.duration > 0}>
+            <span class={styles.timePair}>
+              <TimerIcon width="0.65rem" height="0.65rem" class={styles.timerIcon} />
+              <Show when={!isTerminal() && props.stateUpdatedAt > 0}>
+                <StateDuration stateUpdatedAt={props.stateUpdatedAt} now={props.now} />
                 <Show when={props.duration > 0 || props.state === "running"}>
-                  <ThinkTime duration={props.duration} state={props.state} stateUpdatedAt={props.stateUpdatedAt} turnStartedAt={props.turnStartedAt} now={props.now} />
+                  <span class={styles.timeSep}>/</span>
                 </Show>
-              </span>
-            </Show>
-            <span class={styles.badge} style={{ background: stateColor(props.state) }}>
-              {props.state}
+              </Show>
+              <Show when={props.duration > 0 || props.state === "running"}>
+                <ThinkTime duration={props.duration} state={props.state} stateUpdatedAt={props.stateUpdatedAt} turnStartedAt={props.turnStartedAt} now={props.now} />
+              </Show>
             </span>
+          </Show>
+          <span class={styles.badge} style={{ background: stateColor(props.state) }}>
+            {props.state}
           </span>
-        </div>
-      </Show>
+        </span>
+      </div>
 
       {/* Line 3: model · tokens · cost */}
       <Show when={props.harness || props.model}>

@@ -31,16 +31,24 @@ func (r SyncReq) Validate() error {
 	}
 }
 
-// Validate checks that prompt, repo, and harness are valid.
+// Validate checks that prompt and harness are valid. Repos is optional (empty
+// means no git repository is associated with the task).
 func (r *CreateTaskReq) Validate() error {
 	if r.InitialPrompt.Text == "" && len(r.InitialPrompt.Images) == 0 {
 		return dto.BadRequest("prompt or images required")
 	}
-	if r.Repo == "" {
-		return dto.BadRequest("repo is required")
-	}
 	if r.Harness == "" {
 		return dto.BadRequest("harness is required")
+	}
+	seen := make(map[string]struct{}, len(r.Repos))
+	for _, rs := range r.Repos {
+		if rs.Name == "" {
+			return dto.BadRequest("repos contains entry with empty name")
+		}
+		if _, dup := seen[rs.Name]; dup {
+			return dto.BadRequest("repos contains duplicate name: " + rs.Name)
+		}
+		seen[rs.Name] = struct{}{}
 	}
 	return validateImages(r.InitialPrompt.Images)
 }

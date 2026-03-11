@@ -15,6 +15,7 @@ import (
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	agentclaude "github.com/caic-xyz/caic/backend/internal/agent/claude"
+	"github.com/caic-xyz/md"
 	"github.com/maruel/ksid"
 )
 
@@ -152,20 +153,18 @@ func TestRunner(t *testing.T) {
 			tk := &Task{
 				ID:            ksid.NewID(),
 				InitialPrompt: agent.Prompt{Text: "test"},
-				Repo:          "org/repo",
-				BaseBranch:    "feature",
+				Repos:         []RepoMount{{Name: "org/repo", BaseBranch: "feature"}},
 				Harness:       agent.Claude,
 			}
 
-			sr, err := r.setup(t.Context(), tk, nil)
-			if err != nil {
+			if _, err := r.setup(t.Context(), tk, nil); err != nil {
 				t.Fatal(err)
 			}
 
 			// The task branch must contain the feature commit (feature.txt).
-			out, execErr := exec.Command("git", "-C", clone, "show", sr.Branch+":feature.txt").Output() //nolint:gosec // controlled test args
+			out, execErr := exec.Command("git", "-C", clone, "show", tk.Repos[0].Branch+":feature.txt").Output() //nolint:gosec // controlled test args
 			if execErr != nil {
-				t.Fatalf("feature.txt not in task branch %s: %v", sr.Branch, execErr)
+				t.Fatalf("feature.txt not in task branch %s: %v", tk.Repos[0].Branch, execErr)
 			}
 			if string(out) != "feat\n" {
 				t.Errorf("feature.txt content = %q, want %q", string(out), "feat\n")
@@ -197,20 +196,18 @@ func TestRunner(t *testing.T) {
 			tk := &Task{
 				ID:            ksid.NewID(),
 				InitialPrompt: agent.Prompt{Text: "test"},
-				Repo:          "org/repo",
-				BaseBranch:    "local-only",
+				Repos:         []RepoMount{{Name: "org/repo", BaseBranch: "local-only"}},
 				Harness:       agent.Claude,
 			}
 
-			sr, err := r.setup(t.Context(), tk, nil)
-			if err != nil {
+			if _, err := r.setup(t.Context(), tk, nil); err != nil {
 				t.Fatal(err)
 			}
 
 			// The task branch must contain the local commit (local.txt).
-			out, execErr := exec.Command("git", "-C", clone, "show", sr.Branch+":local.txt").Output() //nolint:gosec // controlled test args
+			out, execErr := exec.Command("git", "-C", clone, "show", tk.Repos[0].Branch+":local.txt").Output() //nolint:gosec // controlled test args
 			if execErr != nil {
-				t.Fatalf("local.txt not in task branch %s: %v", sr.Branch, execErr)
+				t.Fatalf("local.txt not in task branch %s: %v", tk.Repos[0].Branch, execErr)
 			}
 			if string(out) != "local\n" {
 				t.Errorf("local.txt content = %q, want %q", string(out), "local\n")
@@ -232,8 +229,7 @@ func TestRunner(t *testing.T) {
 			tk := &Task{
 				ID:            ksid.NewID(),
 				InitialPrompt: agent.Prompt{Text: "test"},
-				Repo:          "org/repo",
-				Branch:        "main",
+				Repos:         []RepoMount{{Name: "org/repo", Branch: "main"}},
 			}
 			tk.SetState(StateRunning)
 
@@ -272,8 +268,7 @@ func TestRunner(t *testing.T) {
 			tk := &Task{
 				ID:            ksid.NewID(),
 				InitialPrompt: agent.Prompt{Text: "test"},
-				Repo:          "org/repo",
-				Branch:        "main",
+				Repos:         []RepoMount{{Name: "org/repo", Branch: "main"}},
 			}
 			tk.SetState(StateRunning)
 
@@ -341,8 +336,7 @@ func TestRunner(t *testing.T) {
 			tk := &Task{
 				ID:            ksid.NewID(),
 				InitialPrompt: agent.Prompt{Text: "test"},
-				Repo:          "org/repo",
-				Branch:        "caic/w0",
+				Repos:         []RepoMount{{Name: "org/repo", Branch: "caic/w0"}},
 				Container:     containerName,
 			}
 			tk.SetState(StateRunning)
@@ -399,8 +393,7 @@ func TestRunner(t *testing.T) {
 			tk := &Task{
 				ID:            ksid.NewID(),
 				InitialPrompt: agent.Prompt{Text: "test"},
-				Repo:          "org/repo",
-				Branch:        "caic/w1",
+				Repos:         []RepoMount{{Name: "org/repo", Branch: "caic/w1"}},
 				Container:     containerName,
 			}
 			tk.SetState(StateRunning)
@@ -432,8 +425,7 @@ func TestRunner(t *testing.T) {
 			tk := &Task{
 				ID:            ksid.NewID(),
 				InitialPrompt: agent.Prompt{Text: "test"},
-				Repo:          "org/repo",
-				Branch:        "caic/w0",
+				Repos:         []RepoMount{{Name: "org/repo", Branch: "caic/w0"}},
 				Container:     "md-repo-caic-w0",
 			}
 			tk.SetState(StateRunning)
@@ -456,7 +448,7 @@ func TestRunner(t *testing.T) {
 			dir := t.TempDir()
 			logDir := filepath.Join(dir, "logs")
 			r := &Runner{LogDir: logDir}
-			tk := &Task{ID: ksid.NewID(), InitialPrompt: agent.Prompt{Text: "test"}, Repo: "org/repo", Branch: "caic-0"}
+			tk := &Task{ID: ksid.NewID(), InitialPrompt: agent.Prompt{Text: "test"}, Repos: []RepoMount{{Name: "org/repo", Branch: "caic-0"}}}
 			w, err := r.openLog(tk)
 			if err != nil {
 				t.Fatal(err)
@@ -502,10 +494,10 @@ func TestRunner(t *testing.T) {
 	t.Run("StartMessageDispatch", func(t *testing.T) {
 		t.Run("ResultMessage", func(t *testing.T) {
 			stub := &stubContainer{}
-			r := &Runner{Container: stub}
+			r := &Runner{Container: stub, Dir: "/repo"}
 			r.initDefaults()
 
-			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic-0"}
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Repos: []RepoMount{{Branch: "caic-0"}}}
 			tk.SetState(StateRunning)
 			_, ch, unsub := tk.Subscribe(t.Context())
 			defer unsub()
@@ -539,10 +531,10 @@ func TestRunner(t *testing.T) {
 			for _, tool := range []string{"Edit", "Bash", "Write", "NotebookEdit"} {
 				t.Run(tool, func(t *testing.T) {
 					stub := &stubContainer{}
-					r := &Runner{Container: stub}
+					r := &Runner{Container: stub, Dir: "/repo"}
 					r.initDefaults()
 
-					tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic-0"}
+					tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Repos: []RepoMount{{Branch: "caic-0"}}}
 					tk.SetState(StateRunning)
 					_, ch, unsub := tk.Subscribe(t.Context())
 					defer unsub()
@@ -591,7 +583,7 @@ func TestRunner(t *testing.T) {
 			r := &Runner{Container: stub}
 			r.initDefaults()
 
-			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Branch: "caic-0"}
+			tk := &Task{InitialPrompt: agent.Prompt{Text: "test"}, Repos: []RepoMount{{Branch: "caic-0"}}}
 			tk.SetState(StateRunning)
 			_, ch, unsub := tk.Subscribe(t.Context())
 			defer unsub()
@@ -635,9 +627,8 @@ func TestRunner(t *testing.T) {
 				tk := &Task{
 					ID:            ksid.NewID(),
 					InitialPrompt: agent.Prompt{Text: "old prompt"},
-					Repo:          "org/repo",
+					Repos:         []RepoMount{{Name: "org/repo", Branch: "caic-0"}},
 					Harness:       "test",
-					Branch:        "caic-0",
 					Container:     "fake-container",
 				}
 				tk.SetState(startState)
@@ -691,9 +682,8 @@ func TestRunner(t *testing.T) {
 		tk := &Task{
 			ID:            ksid.NewID(),
 			InitialPrompt: agent.Prompt{Text: "test"},
-			Repo:          "org/repo",
+			Repos:         []RepoMount{{Name: "org/repo", Branch: "caic-0"}},
 			Harness:       "test",
-			Branch:        "caic-0",
 			Container:     "fake-container",
 		}
 
@@ -754,7 +744,7 @@ func TestRunner(t *testing.T) {
 	t.Run("BranchDiffStat", func(t *testing.T) {
 		sc := &stubContainer{}
 		r := &Runner{Container: sc, Dir: "/repo"}
-		ds := r.BranchDiffStat(t.Context(), "feature")
+		ds := r.BranchDiffStat(t.Context(), "feature", nil)
 		if !sc.fetched {
 			t.Error("BranchDiffStat did not call Fetch")
 		}
@@ -772,26 +762,26 @@ type stubContainer struct {
 	fetchFn  func(string) error // If set, called with the branch during Fetch.
 }
 
-func (s *stubContainer) Start(_ context.Context, _, _ string, _ []string, _ StartOptions) (_, _ string, _ error) {
+func (s *stubContainer) Start(_ context.Context, _ []md.Repo, _ []string, _ *StartOptions) (_, _ string, _ error) {
 	return "stub", "", nil
 }
 
-func (s *stubContainer) Diff(_ context.Context, _, _ string, _ ...string) (string, error) {
+func (s *stubContainer) Diff(_ context.Context, _ []md.Repo, _ ...string) (string, error) {
 	return "5\t1\tmain.go\n", nil
 }
 
-func (s *stubContainer) Fetch(_ context.Context, _, branch string) error {
+func (s *stubContainer) Fetch(_ context.Context, repos []md.Repo) error {
 	s.fetched = true
 	if s.fetchErr != nil {
 		return s.fetchErr
 	}
-	if s.fetchFn != nil {
-		return s.fetchFn(branch)
+	if s.fetchFn != nil && len(repos) > 0 {
+		return s.fetchFn(repos[0].Branch)
 	}
 	return nil
 }
 
-func (s *stubContainer) Kill(context.Context, string, string) error { return nil }
+func (s *stubContainer) Kill(_ context.Context, _ string, _ []md.Repo) error { return nil }
 
 // recvMsg reads a single message from ch, respecting the test context and a
 // 1-second safety timeout.

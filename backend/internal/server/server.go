@@ -248,8 +248,12 @@ type mdBackend struct {
 	llmModel    string
 }
 
-func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []string, opts task.StartOptions) (name, tailscaleFQDN string, err error) {
-	slog.Info("md start", "dir", dir, "br", branch, "hns", opts.Harness, "ts", opts.Tailscale, "usb", opts.USB, "dpy", opts.Display)
+func (b *mdBackend) Start(ctx context.Context, repos []md.Repo, labels []string, opts *task.StartOptions) (name, tailscaleFQDN string, err error) {
+	if len(repos) > 0 {
+		slog.Info("md start", "dir", repos[0].GitRoot, "br", repos[0].Branch, "hns", opts.Harness, "ts", opts.Tailscale, "usb", opts.USB, "dpy", opts.Display)
+	} else {
+		slog.Info("md start", "hns", opts.Harness, "ts", opts.Tailscale, "usb", opts.USB, "dpy", opts.Display)
+	}
 	harnessMap := map[agent.Harness]md.Harness{
 		agent.Claude: md.HarnessClaude,
 		agent.Codex:  md.HarnessCodex,
@@ -273,7 +277,7 @@ func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []stri
 		client = &clientCopy
 		quiet = false
 	}
-	c := client.Container(md.Repo{GitRoot: dir, Branch: branch})
+	c := client.Container(repos...)
 	sr, err := c.Start(ctx, &md.StartOpts{Quiet: quiet, BaseImage: image, Labels: labels, AgentPaths: []md.AgentPaths{harnessPaths}, USB: opts.USB, Tailscale: opts.Tailscale, Display: opts.Display})
 	if err != nil {
 		return "", "", err
@@ -281,23 +285,33 @@ func (b *mdBackend) Start(ctx context.Context, dir, branch string, labels []stri
 	return c.Name, sr.TailscaleFQDN, nil
 }
 
-func (b *mdBackend) Diff(ctx context.Context, dir, branch string, args ...string) (string, error) {
-	slog.Info("md diff", "dir", dir, "br", branch, "args", args)
+func (b *mdBackend) Diff(ctx context.Context, repos []md.Repo, args ...string) (string, error) {
+	if len(repos) > 0 {
+		slog.Info("md diff", "dir", repos[0].GitRoot, "br", repos[0].Branch, "args", args)
+	}
 	var stdout bytes.Buffer
-	if err := b.client.Container(md.Repo{GitRoot: dir, Branch: branch}).Diff(ctx, 0, &stdout, io.Discard, args); err != nil {
+	if err := b.client.Container(repos...).Diff(ctx, 0, &stdout, io.Discard, args); err != nil {
 		return "", err
 	}
 	return stdout.String(), nil
 }
 
-func (b *mdBackend) Fetch(ctx context.Context, dir, branch string) error {
-	slog.Info("md fetch", "dir", dir, "br", branch)
-	return b.client.Container(md.Repo{GitRoot: dir, Branch: branch}).Fetch(ctx, b.llmProvider, b.llmModel)
+func (b *mdBackend) Fetch(ctx context.Context, repos []md.Repo) error {
+	if len(repos) > 0 {
+		slog.Info("md fetch", "dir", repos[0].GitRoot, "br", repos[0].Branch)
+	}
+	return b.client.Container(repos...).Fetch(ctx, b.llmProvider, b.llmModel)
 }
 
-func (b *mdBackend) Kill(ctx context.Context, dir, branch string) error {
-	slog.Info("md kill", "dir", dir, "br", branch)
-	return b.client.Container(md.Repo{GitRoot: dir, Branch: branch}).Kill(ctx)
+func (b *mdBackend) Kill(ctx context.Context, name string, repos []md.Repo) error {
+	if len(repos) > 0 {
+		slog.Info("md kill", "dir", repos[0].GitRoot, "br", repos[0].Branch)
+	} else {
+		slog.Info("md kill", "name", name)
+	}
+	ct := b.client.ContainerByName(name)
+	ct.Repos = repos
+	return ct.Kill(ctx)
 }
 
 type taskEntry struct {
@@ -564,6 +578,12 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 	if len(s.repos) == 0 {
 		return nil, fmt.Errorf("no usable git repos found under %s", rootDir)
 	}
+
+	// Always register a no-repo runner (keyed by "") for tasks that don't
+	// need a git repository.
+	noRepoRunner := &task.Runner{LogDir: logDir, Container: backend}
+	_ = noRepoRunner.Init(ctx) // populates Backends; no-op for no-repo (no branches to scan)
+	s.runners[""] = noRepoRunner
 
 	// Phase 3: Load terminated tasks from pre-loaded logs.
 	if logRes.err != nil {
@@ -919,13 +939,34 @@ func (s *Server) listTasks(ctx context.Context, _ *dto.EmptyReq) (*[]v1.Task, er
 }
 
 func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.CreateTaskResp, error) {
-	runner, ok := s.runners[req.Repo]
-	if !ok {
-		return nil, dto.BadRequest("unknown repo: " + req.Repo)
+	// Resolve primary runner (first repo, or no-repo).
+	var primaryRunner *task.Runner
+	if len(req.Repos) > 0 {
+		r, ok := s.runners[req.Repos[0].Name]
+		if !ok {
+			return nil, dto.BadRequest("unknown repo: " + req.Repos[0].Name)
+		}
+		primaryRunner = r
+	} else {
+		r, ok := s.runners[""]
+		if !ok {
+			return nil, dto.InternalError("no-repo runner not available")
+		}
+		primaryRunner = r
+	}
+
+	// Validate and resolve extra repo runners.
+	extraRunners := make([]*task.Runner, 0, max(0, len(req.Repos)-1))
+	for _, rs := range req.Repos[min(1, len(req.Repos)):] {
+		er, ok := s.runners[rs.Name]
+		if !ok {
+			return nil, dto.BadRequest("unknown extra repo: " + rs.Name)
+		}
+		extraRunners = append(extraRunners, er)
 	}
 
 	harness := toAgentHarness(req.Harness)
-	backend, ok := runner.Backends[harness]
+	backend, ok := primaryRunner.Backends[harness]
 	if !ok {
 		return nil, dto.BadRequest("unknown harness: " + string(req.Harness))
 	}
@@ -943,7 +984,27 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 		ownerID = u.ID
 	}
 
-	t := &task.Task{ID: ksid.NewID(), InitialPrompt: v1PromptToAgent(req.InitialPrompt), Repo: req.Repo, BaseBranch: req.BaseBranch, Harness: harness, Model: req.Model, DockerImage: req.Image, Tailscale: req.Tailscale, USB: req.USB, Display: req.Display, StartedAt: time.Now().UTC(), OwnerID: ownerID, Provider: s.provider}
+	// Build RepoMount slice — GitRoot filled immediately from runner.Dir.
+	mounts := make([]task.RepoMount, len(req.Repos))
+	for i, rs := range req.Repos {
+		r := s.runners[rs.Name]
+		mounts[i] = task.RepoMount{Name: rs.Name, BaseBranch: rs.BaseBranch, GitRoot: r.Dir}
+	}
+
+	t := &task.Task{
+		ID:            ksid.NewID(),
+		InitialPrompt: v1PromptToAgent(req.InitialPrompt),
+		Repos:         mounts,
+		Harness:       harness,
+		Model:         req.Model,
+		DockerImage:   req.Image,
+		Tailscale:     req.Tailscale,
+		USB:           req.USB,
+		Display:       req.Display,
+		StartedAt:     time.Now().UTC(),
+		OwnerID:       ownerID,
+		Provider:      s.provider,
+	}
 	t.SetTitle(req.InitialPrompt.Text)
 	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive request
 	entry := &taskEntry{task: t, done: make(chan struct{})}
@@ -955,7 +1016,22 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 
 	// Run in background using the server context, not the request context.
 	go func() {
-		h, err := runner.Start(s.ctx, t)
+		// Allocate branches for extra repos before starting the container.
+		for i, er := range extraRunners {
+			branch, err := er.AllocateBranch(s.ctx)
+			if err != nil {
+				result := task.Result{State: task.StateFailed, Err: fmt.Errorf("allocate branch for extra repo: %w", err)}
+				s.mu.Lock()
+				entry.result = &result
+				s.taskChanged()
+				s.mu.Unlock()
+				close(entry.done)
+				return
+			}
+			t.Repos[i+1].Branch = branch
+		}
+
+		h, err := primaryRunner.Start(s.ctx, t)
 		if err != nil {
 			result := task.Result{State: task.StateFailed, Err: err}
 			s.mu.Lock()
@@ -965,22 +1041,24 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 			close(entry.done)
 			return
 		}
-		s.watchSession(entry, runner, h)
+		s.watchSession(entry, primaryRunner, h)
 	}()
 
-	prefsStore, err := s.prefsForUser(ctx)
-	if err != nil {
-		return nil, dto.InternalError("open preferences: " + err.Error())
-	}
-	if err := prefsStore.Update(func(p *preferences.Preferences) {
-		p.TouchRepo(req.Repo, &preferences.RepoPrefs{
-			BaseBranch: req.BaseBranch,
-			Harness:    string(req.Harness),
-			Model:      req.Model,
-			BaseImage:  req.Image,
-		})
-	}); err != nil {
-		return nil, dto.InternalError("save preferences: " + err.Error())
+	if len(req.Repos) > 0 {
+		prefsStore, err := s.prefsForUser(ctx)
+		if err != nil {
+			return nil, dto.InternalError("open preferences: " + err.Error())
+		}
+		if err := prefsStore.Update(func(p *preferences.Preferences) {
+			p.TouchRepo(req.Repos[0].Name, &preferences.RepoPrefs{
+				BaseBranch: req.Repos[0].BaseBranch,
+				Harness:    string(req.Harness),
+				Model:      req.Model,
+				BaseImage:  req.Image,
+			})
+		}); err != nil {
+			return nil, dto.InternalError("save preferences: " + err.Error())
+		}
 	}
 
 	return &v1.CreateTaskResp{Status: "accepted", ID: t.ID}, nil
@@ -1320,7 +1398,11 @@ const (
 // regardless.
 func (s *Server) sendInput(ctx context.Context, entry *taskEntry, req *v1.InputReq) (*v1.StatusResp, error) {
 	if len(req.Prompt.Images) > 0 {
-		runner := s.runners[entry.task.Repo]
+		primaryName := ""
+		if p := entry.task.Primary(); p != nil {
+			primaryName = p.Name
+		}
+		runner := s.runners[primaryName]
 		if b := runner.Backends[entry.task.Harness]; b != nil && !b.SupportsImages() {
 			return nil, dto.BadRequest(string(entry.task.Harness) + " does not support images")
 		}
@@ -1342,9 +1424,13 @@ func (s *Server) sendInput(ctx context.Context, entry *taskEntry, req *v1.InputR
 			}
 		}
 		taskState := t.GetState()
+		var primaryBranchLog string
+		if p := t.Primary(); p != nil {
+			primaryBranchLog = p.Branch
+		}
 		slog.Warn("no active session",
 			"task", t.ID,
-			"br", t.Branch,
+			"br", primaryBranchLog,
 			"ctr", t.Container,
 			"state", taskState,
 			"relay", rs,
@@ -1370,7 +1456,11 @@ func (s *Server) restartTask(_ context.Context, entry *taskEntry, req *v1.Restar
 		}
 		prompt.Text = plan
 	}
-	runner := s.runners[t.Repo]
+	primaryName := ""
+	if p := t.Primary(); p != nil {
+		primaryName = p.Name
+	}
+	runner := s.runners[primaryName]
 	// Use the server-lifetime context, not the HTTP request context.
 	// The new agent session must outlive this request.
 	h, err := runner.RestartSession(s.ctx, t, prompt) //nolint:contextcheck // intentionally using server context
@@ -1395,7 +1485,11 @@ func (s *Server) handleGetCILog(w http.ResponseWriter, r *http.Request) {
 	}
 	t := entry.task
 	snap := t.Snapshot()
-	info := s.repoInfoFor(t.Repo)
+	ciPrimaryName := ""
+	if p := t.Primary(); p != nil {
+		ciPrimaryName = p.Name
+	}
+	info := s.repoInfoFor(ciPrimaryName)
 	if info == nil {
 		writeError(w, dto.BadRequest("no repo info found"))
 		return
@@ -1454,7 +1548,11 @@ func (s *Server) terminateTask(_ context.Context, entry *taskEntry, _ *dto.Empty
 	s.mu.Lock()
 	s.taskChanged()
 	s.mu.Unlock()
-	runner := s.runners[entry.task.Repo]
+	terminatePrimaryName := ""
+	if p := entry.task.Primary(); p != nil {
+		terminatePrimaryName = p.Name
+	}
+	runner := s.runners[terminatePrimaryName]
 	go s.cleanupTask(entry, runner, task.StateTerminated) //nolint:contextcheck // cleanupTask intentionally uses server context
 	return &v1.StatusResp{Status: "terminating"}, nil
 }
@@ -1468,7 +1566,13 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 		return nil, dto.Conflict("task is in a terminal state")
 	case task.StateBranching, task.StateProvisioning, task.StateStarting, task.StateRunning, task.StateWaiting, task.StateAsking, task.StateHasPlan, task.StatePulling, task.StatePushing:
 	}
-	runner := s.runners[t.Repo]
+	syncPrimaryName := ""
+	syncPrimaryBranch := ""
+	if p := t.Primary(); p != nil {
+		syncPrimaryName = p.Name
+		syncPrimaryBranch = p.Branch
+	}
+	runner := s.runners[syncPrimaryName]
 
 	if req.Target == v1.SyncTargetDefault {
 		if req.Force {
@@ -1481,7 +1585,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 		if message == "" {
 			message = t.InitialPrompt.Text
 		}
-		ds, issues, err := runner.SyncToDefault(ctx, t.Branch, t.Container, message)
+		ds, issues, err := runner.SyncToDefault(ctx, syncPrimaryBranch, t.Container, message, t.ExtraMDRepos())
 		if err != nil {
 			return nil, dto.InternalError(err.Error())
 		}
@@ -1495,7 +1599,7 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 	}
 
 	// Default: push to the task's own branch.
-	ds, issues, err := runner.SyncToOrigin(ctx, t.Branch, t.Container, req.Force)
+	ds, issues, err := runner.SyncToOrigin(ctx, syncPrimaryBranch, t.Container, req.Force, t.ExtraMDRepos())
 	if err != nil {
 		return nil, dto.InternalError(err.Error())
 	}
@@ -1506,18 +1610,22 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 		status = "blocked"
 	}
 	if status == "synced" {
-		if info := s.repoInfoFor(t.Repo); info != nil && s.forgeForInfo(ctx, info) != nil {
-			go s.startPRFlow(s.ctx, entry, t.Branch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
+		if info := s.repoInfoFor(syncPrimaryName); info != nil && s.forgeForInfo(ctx, info) != nil {
+			go s.startPRFlow(s.ctx, entry, syncPrimaryBranch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
 		}
 	}
-	return &v1.SyncResp{Status: status, Branch: t.Branch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
+	return &v1.SyncResp{Status: status, Branch: syncPrimaryBranch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
 }
 
 // startPRFlow creates a PR/MR for the synced branch and then launches CI
 // monitoring. Runs in a goroutine; logs errors and returns on failure.
 func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, baseBranch string) {
 	t := entry.task
-	info := s.repoInfoFor(t.Repo)
+	primaryName := ""
+	if p := t.Primary(); p != nil {
+		primaryName = p.Name
+	}
+	info := s.repoInfoFor(primaryName)
 	if info == nil || info.ForgeOwner == "" {
 		return
 	}
@@ -1535,7 +1643,7 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, base
 	}
 	pr, err := f.CreatePR(ctx, info.ForgeOwner, info.ForgeRepo, branch, baseBranch, title, body)
 	if err != nil {
-		slog.Warn("startPRFlow: create PR", "repo", t.Repo, "branch", branch, "err", err)
+		slog.Warn("startPRFlow: create PR", "repo", info.ForgeRepo, "branch", branch, "err", err)
 		return
 	}
 	slog.Info("PR created", "task", t.ID, "forge", f.Name(), "owner", info.ForgeOwner, "repo", info.ForgeRepo, "pr", pr.Number)
@@ -1791,7 +1899,7 @@ func (s *Server) setRepoCIStatus(relPath, sha string, result cicache.Result) {
 // Must be called with mu held.
 func (s *Server) repoHasActiveTasksLocked(relPath string) bool {
 	for _, e := range s.tasks {
-		if e.task.Repo == relPath && e.result == nil {
+		if p := e.task.Primary(); p != nil && p.Name == relPath && e.result == nil {
 			return true
 		}
 	}
@@ -1978,13 +2086,19 @@ func (s *Server) handleGetDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, dto.Conflict("task has no container"))
 		return
 	}
-	runner, ok := s.runners[t.Repo]
+	diffPrimaryName := ""
+	diffPrimaryBranch := ""
+	if p := t.Primary(); p != nil {
+		diffPrimaryName = p.Name
+		diffPrimaryBranch = p.Branch
+	}
+	runner, ok := s.runners[diffPrimaryName]
 	if !ok {
 		writeError(w, dto.InternalError("unknown repo"))
 		return
 	}
 	path := r.URL.Query().Get("path")
-	diff, err := runner.DiffContent(r.Context(), t.Branch, path)
+	diff, err := runner.DiffContent(r.Context(), diffPrimaryBranch, path)
 	if err != nil {
 		writeError(w, dto.InternalError(err.Error()))
 		return
@@ -2148,9 +2262,8 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 		t := &task.Task{
 			ID:            ksid.NewID(),
 			InitialPrompt: agent.Prompt{Text: lt.Prompt},
-			Repo:          lt.Repo,
+			Repos:         lt.Repos, // GitRoot is empty for terminated tasks
 			Harness:       lt.Harness,
-			Branch:        lt.Branch,
 			StartedAt:     lt.StartedAt,
 		}
 		t.SetState(lt.State)
@@ -2161,7 +2274,13 @@ func (s *Server) loadTerminatedTasksFrom(all []*task.LoadedTask) error {
 		}
 		// TODO: Figure out when it was terminated.
 		if err := lt.LoadMessages(); err != nil {
-			slog.Warn("load messages failed", "repo", lt.Repo, "br", lt.Branch, "err", err)
+			ltPrimary := lt.Primary()
+			ltRepo, ltBranch := "", ""
+			if ltPrimary != nil {
+				ltRepo = ltPrimary.Name
+				ltBranch = ltPrimary.Branch
+			}
+			slog.Warn("load messages failed", "repo", ltRepo, "br", ltBranch, "err", err)
 		}
 		if lt.Msgs != nil {
 			t.RestoreMessages(lt.Msgs)
@@ -2203,8 +2322,8 @@ func (s *Server) adoptContainers(ctx context.Context, containers []*md.Container
 	s.mu.Lock()
 	branchID := make(map[string]string, len(s.tasks))
 	for id, e := range s.tasks {
-		if e.task.Branch != "" {
-			branchID[e.task.Repo+"\x00"+e.task.Branch] = id
+		if p := e.task.Primary(); p != nil && p.Branch != "" {
+			branchID[p.Name+"\x00"+p.Branch] = id
 		}
 	}
 	s.mu.Unlock()
@@ -2212,6 +2331,7 @@ func (s *Server) adoptContainers(ctx context.Context, containers []*md.Container
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errs []error
+	claimed := make(map[string]bool, len(containers))
 	for _, ri := range s.repos {
 		repoName := filepath.Base(ri.AbsPath)
 		runner := s.runners[ri.RelPath]
@@ -2220,6 +2340,7 @@ func (s *Server) adoptContainers(ctx context.Context, containers []*md.Container
 			if !ok {
 				continue
 			}
+			claimed[c.Name] = true
 			wg.Go(func() {
 				if err := s.adoptOne(ctx, ri, runner, c, branch, branchID, allLogs); err != nil {
 					mu.Lock()
@@ -2230,6 +2351,25 @@ func (s *Server) adoptContainers(ctx context.Context, containers []*md.Container
 		}
 	}
 	wg.Wait()
+
+	// Adopt no-repo containers. md names them "md-agent-<hex>" when started
+	// with no repos (md.Client.Container with zero Repo arguments).
+	if noRepoRunner := s.runners[""]; noRepoRunner != nil {
+		for _, c := range containers {
+			if claimed[c.Name] || !strings.HasPrefix(c.Name, "md-agent-") {
+				continue
+			}
+			wg.Go(func() {
+				if err := s.adoptOne(ctx, repoInfo{}, noRepoRunner, c, "", branchID, allLogs); err != nil {
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+				}
+			})
+		}
+		wg.Wait()
+	}
+
 	return errors.Join(errs...)
 }
 
@@ -2256,15 +2396,26 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		return fmt.Errorf("parse caic label %q on %s: %w", labelVal, c.Name, err)
 	}
 
-	// Find the most recent log file for this repo+branch from the pre-loaded
-	// logs. Both repo and branch must match: different repos can share a
-	// branch name (e.g. "caic-0"), and matching on branch alone would return
-	// another repo's log, corrupting the title, prompt, and timestamps.
+	// Find the log file for this task. For repo-based tasks, match by repo+branch
+	// (most recent first) since different repos can share branch names. For no-repo
+	// tasks (branch==""), match by task ID parsed from the filename, which is the
+	// only reliable disambiguator when multiple no-repo tasks share the same empty
+	// repo+branch values.
+	taskIDStr := taskID.String()
 	var lt *task.LoadedTask
 	for i := len(allLogs) - 1; i >= 0; i-- {
-		if allLogs[i].Branch == branch && allLogs[i].Repo == ri.RelPath {
-			lt = allLogs[i]
-			break
+		log := allLogs[i]
+		if branch == "" && ri.RelPath == "" {
+			if log.TaskID == taskIDStr {
+				lt = log
+				break
+			}
+		} else {
+			lp := log.Primary()
+			if lp != nil && lp.Branch == branch && lp.Name == ri.RelPath {
+				lt = log
+				break
+			}
 		}
 	}
 
@@ -2309,12 +2460,25 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	if stateUpdatedAt.IsZero() {
 		stateUpdatedAt = time.Now().UTC()
 	}
+	var adoptRepos []task.RepoMount
+	if ri.RelPath != "" {
+		// Primary mount from repoInfo; extra mounts from log.
+		adoptRepos = []task.RepoMount{{Name: ri.RelPath, GitRoot: ri.AbsPath, Branch: branch}}
+		if lt != nil {
+			for _, lm := range lt.Repos[1:] {
+				gitRoot := ""
+				if er, ok := s.runners[lm.Name]; ok {
+					gitRoot = er.Dir
+				}
+				adoptRepos = append(adoptRepos, task.RepoMount{Name: lm.Name, BaseBranch: lm.BaseBranch, Branch: lm.Branch, GitRoot: gitRoot})
+			}
+		}
+	}
 	t := &task.Task{
 		ID:            taskID,
 		InitialPrompt: agent.Prompt{Text: prompt},
-		Repo:          ri.RelPath,
+		Repos:         adoptRepos,
 		Harness:       harnessName,
-		Branch:        branch,
 		Container:     c.Name,
 		StartedAt:     startedAt,
 		Tailscale:     c.Tailscale,
@@ -2374,7 +2538,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
 	s.mu.Lock()
-	if oldID, ok := branchID[ri.RelPath+"\x00"+branch]; ok {
+	if oldID, ok := branchID[ri.RelPath+"\x00"+branch]; ok && (ri.RelPath != "" || branch != "") {
 		// Replace the stale terminated entry with the live container.
 		delete(s.tasks, oldID)
 	}
@@ -2403,17 +2567,21 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 			h, err := runner.Reconnect(ctx, t)
 			if err != nil {
 				slog.Warn("container", "msg", "auto-reconnect failed",
-					"repo", t.Repo, "br", t.Branch, "ctr", t.Container,
+					"repo", ri.RelPath, "br", branch, "ctr", t.Container,
 					"st", strategy, "err", err)
 				s.notifyTaskChange()
 				return
 			}
-			slog.Debug("container", "msg", "auto-reconnect succeeded", "repo", t.Repo, "br", t.Branch, "ctr", t.Container, "st", strategy)
+			slog.Debug("container", "msg", "auto-reconnect succeeded", "repo", ri.RelPath, "br", branch, "ctr", t.Container, "st", strategy)
 			// Compute host-side diff stat after reconnect. Reconnect
 			// replays relay messages which may include stale
 			// DiffStatMessages (old relay code diffs against HEAD, not
 			// base); the host-side diff captures the full branch diff.
-			if ds := runner.BranchDiffStat(ctx, t.Branch); len(ds) > 0 {
+			var adoptPrimaryBranch string
+			if p := t.Primary(); p != nil {
+				adoptPrimaryBranch = p.Branch
+			}
+			if ds := runner.BranchDiffStat(ctx, adoptPrimaryBranch, t.ExtraMDRepos()); len(ds) > 0 {
 				t.SetLiveDiffStat(ds)
 			}
 			s.notifyTaskChange()
@@ -2463,7 +2631,13 @@ func (s *Server) watchSession(entry *taskEntry, runner *task.Runner, h *task.Ses
 			t := entry.task
 			t.DetachSession()
 			result, sessionErr := h.Session.Wait()
-			attrs := []any{"repo", t.Repo, "br", t.Branch, "ctr", t.Container}
+			watchPrimaryName := ""
+			watchPrimaryBranch := ""
+			if p := t.Primary(); p != nil {
+				watchPrimaryName = p.Name
+				watchPrimaryBranch = p.Branch
+			}
+			attrs := []any{"repo", watchPrimaryName, "br", watchPrimaryBranch, "ctr", t.Container}
 			if result != nil {
 				attrs = append(attrs, "result", result.Subtype)
 			}
@@ -2565,17 +2739,26 @@ func (s *Server) handleContainerDeath(containerName string) {
 	var found *taskEntry
 	var runner *task.Runner
 	for _, e := range s.tasks {
-		if e.task.Container == containerName {
-			found = e
-			runner = s.runners[e.task.Repo]
-			break
+		if e.task.Container != containerName {
+			continue
 		}
+		found = e
+		deathPrimaryName := ""
+		if p := e.task.Primary(); p != nil {
+			deathPrimaryName = p.Name
+		}
+		runner = s.runners[deathPrimaryName]
+		break
 	}
 	s.mu.Unlock()
 	if found == nil || runner == nil {
 		return
 	}
-	slog.Info("container", "msg", "died, cleaning up task", "ctr", containerName, "task", found.task.ID, "br", found.task.Branch)
+	deathBranch := ""
+	if p := found.task.Primary(); p != nil {
+		deathBranch = p.Branch
+	}
+	slog.Info("container", "msg", "died, cleaning up task", "ctr", containerName, "task", found.task.ID, "br", deathBranch)
 	go s.cleanupTask(found, runner, task.StateFailed)
 }
 
@@ -2646,10 +2829,14 @@ func tailscaleURL(t *task.Task) string {
 // effectiveBaseBranch returns the branch the task was forked from: the task's
 // own override if set, otherwise the runner's configured default.
 func (s *Server) effectiveBaseBranch(t *task.Task) string {
-	if t.BaseBranch != "" {
-		return t.BaseBranch
+	p := t.Primary()
+	if p == nil {
+		return ""
 	}
-	if runner, ok := s.runners[t.Repo]; ok {
+	if p.BaseBranch != "" {
+		return p.BaseBranch
+	}
+	if runner, ok := s.runners[p.Name]; ok {
 		return runner.BaseBranch
 	}
 	return ""
@@ -2659,14 +2846,29 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	// Read all volatile fields in a single locked snapshot to avoid
 	// data races with addMessage/RestoreMessages.
 	snap := e.task.Snapshot()
+
+	// Build Repos slice for API response.
+	taskRepos := make([]v1.TaskRepo, len(e.task.Repos))
+	for i, r := range e.task.Repos {
+		taskRepos[i] = v1.TaskRepo{Name: r.Name, BaseBranch: r.BaseBranch, Branch: r.Branch}
+	}
+	if len(taskRepos) == 0 {
+		taskRepos = nil
+	}
+
+	// Derive primary info for convenience fields.
+	var primaryName, remoteURL string
+	if p := e.task.Primary(); p != nil {
+		primaryName = p.Name
+		remoteURL = s.repoURL(primaryName)
+	}
+
 	j := v1.Task{
 		ID:             e.task.ID,
 		InitialPrompt:  e.task.InitialPrompt.Text,
 		Title:          snap.Title,
-		Repo:           e.task.Repo,
-		RemoteURL:      s.repoURL(e.task.Repo),
-		BaseBranch:     s.effectiveBaseBranch(e.task),
-		Branch:         e.task.Branch,
+		Repos:          taskRepos,
+		RemoteURL:      remoteURL,
 		Container:      e.task.Container,
 		State:          snap.State.String(),
 		StateUpdatedAt: float64(snap.StateUpdatedAt.UnixMilli()) / 1e3,
@@ -2698,9 +2900,11 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	j.ActiveCacheReadTokens = snap.LastAPIUsage.CacheReadInputTokens
 	if snap.ContextWindowLimit > 0 {
 		j.ContextWindowLimit = snap.ContextWindowLimit
-	} else if r := s.runners[e.task.Repo]; r != nil {
-		if b := r.Backends[e.task.Harness]; b != nil {
-			j.ContextWindowLimit = b.ContextWindowLimit(snap.Model)
+	} else if primaryName != "" {
+		if r := s.runners[primaryName]; r != nil {
+			if b := r.Backends[e.task.Harness]; b != nil {
+				j.ContextWindowLimit = b.ContextWindowLimit(snap.Model)
+			}
 		}
 	}
 	if e.result != nil {

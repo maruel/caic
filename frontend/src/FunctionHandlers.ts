@@ -126,7 +126,7 @@ export class FunctionHandlers {
     const harness = optString(args, "harness") ?? this.defaultHarness;
     const resp = await createTask({
       initialPrompt: { text: prompt },
-      repo,
+      repos: repo ? [{ name: repo }] : undefined,
       harness,
       ...(model ? { model } : {}),
     });

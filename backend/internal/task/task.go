@@ -14,6 +14,7 @@ import (
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	"github.com/caic-xyz/caic/backend/internal/forge"
+	"github.com/caic-xyz/md"
 	"github.com/maruel/genai"
 	"github.com/maruel/ksid"
 )
@@ -100,13 +101,21 @@ type SessionHandle struct {
 	LogW    io.WriteCloser
 }
 
+// RepoMount describes one repository in a task.
+// Repos[0] is primary; empty slice means no-repo task.
+type RepoMount struct {
+	Name       string // relative path, e.g. "github/caic"
+	BaseBranch string // branch to fork from; empty = runner default
+	Branch     string // allocated branch, e.g. "caic-0"
+	GitRoot    string // absolute host path; empty in terminated-task entries
+}
+
 // Task represents a single unit of work.
 type Task struct {
 	// Immutable fields — set at creation, never modified.
 	ID            ksid.ID
 	InitialPrompt agent.Prompt  // Initial prompt text and optional images.
-	Repo          string        // Relative repo path (for display/API).
-	BaseBranch    string        // Branch to fork from; empty means use the runner's default.
+	Repos         []RepoMount   // index 0 = primary; empty = no-repo
 	Harness       agent.Harness // Agent harness ("claude", "gemini", etc.).
 	Model         string        // User-requested model; passed to agent CLI.
 	DockerImage   string        // Custom Docker base image; empty means use the default.
@@ -118,7 +127,6 @@ type Task struct {
 	Provider      genai.Provider
 
 	// Write-once fields — set during setup/adoption, never modified after.
-	Branch        string
 	Container     string
 	TailscaleFQDN string // Tailscale FQDN assigned to the container (empty if not available).
 	RelayOffset   int64  // Bytes received from relay output.jsonl, for reconnect.
@@ -155,6 +163,31 @@ type Task struct {
 	forgePR               int
 	ciStatus              CIStatus
 	ciChecks              []CICheck
+}
+
+// Primary returns a pointer to the primary RepoMount (Repos[0]), or nil for no-repo tasks.
+func (t *Task) Primary() *RepoMount {
+	if len(t.Repos) == 0 {
+		return nil
+	}
+	return &t.Repos[0]
+}
+
+// MDRepos returns all repos as []md.Repo for use with the container backend.
+func (t *Task) MDRepos() []md.Repo {
+	out := make([]md.Repo, len(t.Repos))
+	for i, r := range t.Repos {
+		out[i] = md.Repo{GitRoot: r.GitRoot, Branch: r.Branch}
+	}
+	return out
+}
+
+// ExtraMDRepos returns all repos after the primary as []md.Repo.
+func (t *Task) ExtraMDRepos() []md.Repo {
+	if len(t.Repos) <= 1 {
+		return nil
+	}
+	return t.MDRepos()[1:]
 }
 
 // setState updates the state and records the transition time. The caller must

@@ -119,21 +119,27 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    text = buildAnnotatedString {
-                        if (!task.baseBranch.isNullOrBlank()) {
-                            append("${task.baseBranch}\u2192")
-                        }
-                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(task.branch)
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                val primaryBranch = task.repos?.firstOrNull()?.branch ?: ""
+                val primaryBaseBranch = task.repos?.firstOrNull()?.baseBranch
+                if (primaryBranch.isNotBlank()) {
+                    Text(
+                        text = buildAnnotatedString {
+                            if (!primaryBaseBranch.isNullOrBlank()) {
+                                append("${primaryBaseBranch}\u2192")
+                            }
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                                append(primaryBranch)
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
+                }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -228,7 +234,7 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                 DropdownMenuItem(
                     text = { Text("Copy branch name") },
                     onClick = {
-                        clipboard.setText(AnnotatedString(task.branch))
+                        clipboard.setText(AnnotatedString(task.repos?.firstOrNull()?.branch ?: ""))
                         showMenu = false
                     },
                 )

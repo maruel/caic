@@ -22,6 +22,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/agent/fake"
 	"github.com/caic-xyz/caic/backend/internal/server"
 	"github.com/caic-xyz/caic/backend/internal/task"
+	"github.com/caic-xyz/md"
 	"github.com/fsnotify/fsnotify"
 	"github.com/lmittmann/tint"
 	"github.com/mattn/go-colorable"
@@ -370,16 +371,19 @@ type fakeContainer struct{}
 
 var _ task.ContainerBackend = (*fakeContainer)(nil)
 
-func (*fakeContainer) Start(_ context.Context, _, branch string, _ []string, _ task.StartOptions) (_, _ string, _ error) {
-	return "md-test-" + strings.ReplaceAll(branch, "/", "-"), "", nil
+func (*fakeContainer) Start(_ context.Context, repos []md.Repo, _ []string, _ *task.StartOptions) (_, _ string, _ error) {
+	if len(repos) == 0 {
+		return "md-test-no-repo", "", nil
+	}
+	return "md-test-" + strings.ReplaceAll(repos[0].Branch, "/", "-"), "", nil
 }
 
-func (*fakeContainer) Diff(_ context.Context, _, _ string, _ ...string) (string, error) {
+func (*fakeContainer) Diff(_ context.Context, _ []md.Repo, _ ...string) (string, error) {
 	return "", nil
 }
 
-func (*fakeContainer) Fetch(_ context.Context, _, _ string) error { return nil }
-func (*fakeContainer) Kill(_ context.Context, _, _ string) error  { return nil }
+func (*fakeContainer) Fetch(_ context.Context, _ []md.Repo) error          { return nil }
+func (*fakeContainer) Kill(_ context.Context, _ string, _ []md.Repo) error { return nil }
 
 // fakeBackend implements agent.Backend with a shell process that emits
 // streaming text deltas followed by complete messages, simulating

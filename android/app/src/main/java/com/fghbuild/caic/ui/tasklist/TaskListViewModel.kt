@@ -11,6 +11,7 @@ import com.caic.sdk.v1.HarnessInfo
 import com.caic.sdk.v1.ImageData
 import com.caic.sdk.v1.Prompt
 import com.caic.sdk.v1.Repo
+import com.caic.sdk.v1.RepoSpec
 import com.caic.sdk.v1.Task
 import com.caic.sdk.v1.UserResp
 import com.caic.sdk.v1.UsageResp
@@ -90,8 +91,11 @@ class TaskListViewModel @Inject constructor(
     ) { tasks, connected, usage, settings, form ->
         val active = tasks.filter { it.state in activeStates }
             .sortedWith(
-                Comparator<Task> { a, b -> naturalCompare(a.repo, b.repo) }
-                    .thenComparator { a, b -> naturalCompare(a.branch, b.branch) }
+                Comparator<Task> { a, b ->
+                    naturalCompare(a.repos?.firstOrNull()?.name ?: "", b.repos?.firstOrNull()?.name ?: "")
+                }.thenComparator { a, b ->
+                    naturalCompare(a.repos?.firstOrNull()?.branch ?: "", b.repos?.firstOrNull()?.branch ?: "")
+                }
             )
         val terminal = tasks.filter { it.state !in activeStates }
             .sortedByDescending { it.id }
@@ -283,7 +287,7 @@ class TaskListViewModel @Inject constructor(
     fun createTask() {
         val form = _formState.value
         val prompt = form.prompt.trim()
-        if (prompt.isBlank() || form.selectedRepo.isBlank()) return
+        if (prompt.isBlank()) return
         _formState.value = form.copy(submitting = true, error = null)
         viewModelScope.launch {
             try {
@@ -295,8 +299,12 @@ class TaskListViewModel @Inject constructor(
                             text = prompt,
                             images = form.pendingImages.ifEmpty { null },
                         ),
-                        repo = form.selectedRepo,
-                        baseBranch = form.baseBranch.ifBlank { null },
+                        repos = if (form.selectedRepo.isNotEmpty()) listOf(
+                            RepoSpec(
+                                name = form.selectedRepo,
+                                baseBranch = form.baseBranch.ifBlank { null },
+                            )
+                        ) else null,
                         harness = form.selectedHarness,
                         model = form.selectedModel.ifBlank { null },
                     )

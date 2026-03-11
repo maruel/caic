@@ -13,6 +13,7 @@ import com.caic.sdk.v1.ImageData
 import com.caic.sdk.v1.CreateTaskReq
 import com.caic.sdk.v1.InputReq
 import com.caic.sdk.v1.Prompt
+import com.caic.sdk.v1.RepoSpec
 import com.caic.sdk.v1.RestartReq
 import com.caic.sdk.v1.SafetyIssue
 import com.caic.sdk.v1.SyncReq
@@ -352,12 +353,12 @@ class TaskDetailViewModel @Inject constructor(
                 } ?: error("no failed CI check found")
                 val ciLog = client.getTaskCILog(taskId, failedCheck.jobID.toString())
                 val prompt = "CI failed on GitHub Actions for step \"${ciLog.stepName}\", with log:\n```\n${ciLog.log}\n```"
+                val primaryRepo = task?.repos?.firstOrNull()
                 val resp = client.createTask(
                     CreateTaskReq(
                         initialPrompt = Prompt(text = prompt),
-                        repo = task?.repo ?: "",
+                        repos = primaryRepo?.let { listOf(RepoSpec(name = it.name, baseBranch = it.baseBranch)) },
                         harness = task?.harness ?: "",
-                        baseBranch = task?.baseBranch,
                         model = task?.model,
                     ),
                 )

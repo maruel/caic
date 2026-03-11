@@ -164,6 +164,14 @@ All errors return:
 |-------|------|----------|
 | `branches` | `string[]` | yes |
 
+### TaskRepo
+
+| Field | Type | Required |
+|-------|------|----------|
+| `name` | `string` | yes |
+| `baseBranch` | `string` |  |
+| `branch` | `string` | yes |
+
 ### DiffFileStat
 
 | Field | Type | Required |
@@ -180,10 +188,8 @@ All errors return:
 | `id` | `string` | yes |
 | `initialPrompt` | `string` | yes |
 | `title` | `string` | yes |
-| `repo` | `string` | yes |
+| `repos` | `TaskRepo[]` |  |
 | `remoteURL` | `string` |  |
-| `baseBranch` | `string` |  |
-| `branch` | `string` | yes |
 | `container` | `string` | yes |
 | `state` | `string` | yes |
 | `stateUpdatedAt` | `number` | yes |
@@ -232,13 +238,19 @@ All errors return:
 | `text` | `string` | yes |
 | `images` | `ImageData[]` |  |
 
+### RepoSpec
+
+| Field | Type | Required |
+|-------|------|----------|
+| `name` | `string` | yes |
+| `baseBranch` | `string` |  |
+
 ### CreateTaskReq
 
 | Field | Type | Required |
 |-------|------|----------|
 | `initialPrompt` | `Prompt` | yes |
-| `repo` | `string` | yes |
-| `baseBranch` | `string` |  |
+| `repos` | `RepoSpec[]` |  |
 | `model` | `string` |  |
 | `harness` | `string` | yes |
 | `image` | `string` |  |

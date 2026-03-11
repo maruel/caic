@@ -435,7 +435,7 @@ func (s *Server) createWebhookTask(_ context.Context, repo *repoInfo, prompt str
 	t := &task.Task{
 		ID:            ksid.NewID(),
 		InitialPrompt: agent.Prompt{Text: prompt},
-		Repo:          repo.RelPath,
+		Repos:         []task.RepoMount{{Name: repo.RelPath, GitRoot: runner.Dir}},
 		Harness:       harness,
 		StartedAt:     time.Now().UTC(),
 		Provider:      s.provider,

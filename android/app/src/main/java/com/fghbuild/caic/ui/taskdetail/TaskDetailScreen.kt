@@ -319,7 +319,7 @@ fun TaskDetailScreen(
                         ) {
                             val remoteURL = task?.remoteURL
                             Text(
-                                text = task?.repo ?: taskId,
+                                text = task?.repos?.firstOrNull()?.name ?: taskId,
                                 style = MaterialTheme.typography.titleMedium,
                                 color = if (remoteURL != null) MaterialTheme.colorScheme.primary else Color.Unspecified,
                                 maxLines = 1,
@@ -350,15 +350,16 @@ fun TaskDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                val primaryBranch = it.repos?.firstOrNull()?.branch ?: ""
                                 val branchURL = it.remoteURL?.let { url ->
                                     when {
-                                        "gitlab.com" in url -> "$url/-/compare/${it.branch}?expand=1"
-                                        "github.com" in url -> "$url/compare/${it.branch}?expand=1"
+                                        "gitlab.com" in url -> "$url/-/compare/${primaryBranch}?expand=1"
+                                        "github.com" in url -> "$url/compare/${primaryBranch}?expand=1"
                                         else -> null
                                     }
                                 }
                                 Text(
-                                    text = it.branch,
+                                    text = primaryBranch,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = if (branchURL != null) {
                                         MaterialTheme.colorScheme.primary
@@ -500,9 +501,9 @@ fun TaskDetailScreen(
                         onSyncToBaseBranch = { viewModel.syncTask(target = "default") },
                         onTerminate = viewModel::terminateTask,
                         taskTitle = task?.title ?: "",
-                        taskRepo = task?.repo ?: "",
-                        taskBranch = task?.branch ?: "",
-                        taskBaseBranch = task?.baseBranch ?: "",
+                        taskRepo = task?.repos?.firstOrNull()?.name ?: "",
+                        taskBranch = task?.repos?.firstOrNull()?.branch ?: "",
+                        taskBaseBranch = task?.repos?.firstOrNull()?.baseBranch ?: "",
                         sending = state.sending,
                         pendingAction = state.pendingAction,
                         remoteURL = task?.remoteURL,

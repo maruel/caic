@@ -65,14 +65,14 @@ fun DiffScreen(
                 title = {
                     Column {
                         Text(
-                            text = task?.repo ?: taskId,
+                            text = task?.repos?.firstOrNull()?.name ?: taskId,
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
                         task?.let {
                             Text(
-                                text = it.branch,
+                                text = it.repos?.firstOrNull()?.branch ?: "",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )

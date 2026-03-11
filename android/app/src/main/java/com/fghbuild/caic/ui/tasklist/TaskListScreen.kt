@@ -285,7 +285,7 @@ private fun MainContent(
         }
         val activeTasks = state.tasks.filter { it.state in activeStates }
         val terminalTasks = state.tasks.filter { it.state !in activeStates }
-        val repoGroups = activeTasks.groupBy { it.repo }
+        val repoGroups = activeTasks.groupBy { it.repos?.firstOrNull()?.name ?: "" }
         for ((repo, tasksInRepo) in repoGroups) {
             item(key = "repo_header_$repo") {
                 val uriHandler = LocalUriHandler.current
@@ -390,15 +390,15 @@ private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel)
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(modifier = Modifier.weight(1f)) {
-                if (state.repos.isNotEmpty()) {
-                    DropdownField(
-                        label = "Repository",
-                        selected = state.selectedRepo,
-                        options = state.repos.map { it.path },
-                        onSelect = viewModel::selectRepo,
-                        dividerAfter = state.recentRepoCount,
-                    )
-                }
+                val repoOptions = listOf("") + state.repos.map { it.path }
+                DropdownField(
+                    label = "Repository",
+                    selected = state.selectedRepo,
+                    options = repoOptions,
+                    onSelect = viewModel::selectRepo,
+                    dividerAfter = if (state.recentRepoCount > 0) state.recentRepoCount + 1 else 1,
+                    itemLabel = { if (it.isEmpty()) "No repository" else it },
+                )
             }
             IconButton(onClick = { showCloneDialog = true }, enabled = !state.cloning) {
                 if (state.cloning) {
@@ -407,40 +407,42 @@ private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel)
                     Icon(Icons.Default.ContentCopy, contentDescription = "Clone repository")
                 }
             }
-            var branchDropdownExpanded by remember { mutableStateOf(false) }
-            ExposedDropdownMenuBox(
-                expanded = branchDropdownExpanded && state.branches.isNotEmpty(),
-                onExpandedChange = { if (state.branches.isNotEmpty()) branchDropdownExpanded = it },
-                modifier = Modifier.weight(0.6f),
-            ) {
-                OutlinedTextField(
-                    value = state.baseBranch,
-                    onValueChange = viewModel::updateBaseBranch,
-                    label = { Text("Branch") },
-                    placeholder = { Text(defaultBranch.ifBlank { "main" }) },
-                    modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable),
-                    trailingIcon = {
-                        if (state.branches.isNotEmpty()) {
-                            ExposedDropdownMenuDefaults.TrailingIcon(expanded = branchDropdownExpanded)
-                        }
-                    },
-                    singleLine = true,
-                    enabled = !state.submitting,
-                )
-                if (state.branches.isNotEmpty()) {
-                    ExposedDropdownMenu(
-                        expanded = branchDropdownExpanded,
-                        onDismissRequest = { branchDropdownExpanded = false },
-                    ) {
-                        state.branches.forEach { branch ->
-                            DropdownMenuItem(
-                                text = { Text(branch) },
-                                onClick = {
-                                    viewModel.updateBaseBranch(branch)
-                                    branchDropdownExpanded = false
-                                },
-                                contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
-                            )
+            if (state.selectedRepo.isNotEmpty()) {
+                var branchDropdownExpanded by remember { mutableStateOf(false) }
+                ExposedDropdownMenuBox(
+                    expanded = branchDropdownExpanded && state.branches.isNotEmpty(),
+                    onExpandedChange = { if (state.branches.isNotEmpty()) branchDropdownExpanded = it },
+                    modifier = Modifier.weight(0.6f),
+                ) {
+                    OutlinedTextField(
+                        value = state.baseBranch,
+                        onValueChange = viewModel::updateBaseBranch,
+                        label = { Text("Branch") },
+                        placeholder = { Text(defaultBranch.ifBlank { "main" }) },
+                        modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable),
+                        trailingIcon = {
+                            if (state.branches.isNotEmpty()) {
+                                ExposedDropdownMenuDefaults.TrailingIcon(expanded = branchDropdownExpanded)
+                            }
+                        },
+                        singleLine = true,
+                        enabled = !state.submitting,
+                    )
+                    if (state.branches.isNotEmpty()) {
+                        ExposedDropdownMenu(
+                            expanded = branchDropdownExpanded,
+                            onDismissRequest = { branchDropdownExpanded = false },
+                        ) {
+                            state.branches.forEach { branch ->
+                                DropdownMenuItem(
+                                    text = { Text(branch) },
+                                    onClick = {
+                                        viewModel.updateBaseBranch(branch)
+                                        branchDropdownExpanded = false
+                                    },
+                                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                                )
+                            }
                         }
                     }
                 }
@@ -492,7 +494,7 @@ private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel)
                 .fillMaxWidth()
                 .onKeyEvent {
                     if (it.key == Key.Enter && it.type == KeyEventType.KeyUp &&
-                        hasContent && state.selectedRepo.isNotBlank() && !state.submitting
+                        hasContent && !state.submitting
                     ) {
                         requestNotificationPermission(); viewModel.createTask(); true
                     } else false
@@ -505,7 +507,7 @@ private fun TaskCreationForm(state: TaskListState, viewModel: TaskListViewModel)
                 } else {
                     IconButton(
                         onClick = { requestNotificationPermission(); viewModel.createTask() },
-                        enabled = hasContent && state.selectedRepo.isNotBlank(),
+                        enabled = hasContent,
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Create task")
                     }
@@ -561,11 +563,12 @@ private fun DropdownField(
     options: List<String>,
     onSelect: (String) -> Unit,
     dividerAfter: Int = 0,
+    itemLabel: (String) -> String = { it },
 ) {
     var expanded by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }) {
         OutlinedTextField(
-            value = selected,
+            value = itemLabel(selected),
             onValueChange = {},
             readOnly = true,
             label = { Text(label) },
@@ -577,7 +580,7 @@ private fun DropdownField(
         ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             options.forEachIndexed { index, option ->
                 DropdownMenuItem(
-                    text = { Text(option) },
+                    text = { Text(itemLabel(option)) },
                     onClick = {
                         onSelect(option)
                         expanded = false

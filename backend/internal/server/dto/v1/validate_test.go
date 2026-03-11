@@ -128,7 +128,11 @@ func TestValidate(t *testing.T) {
 	})
 
 	t.Run("CreateTaskReq", func(t *testing.T) {
-		valid := CreateTaskReq{InitialPrompt: Prompt{Text: "do stuff"}, Repo: "/repo", Harness: HarnessClaude}
+		valid := CreateTaskReq{
+			InitialPrompt: Prompt{Text: "do stuff"},
+			Repos:         []RepoSpec{{Name: "org/repo"}},
+			Harness:       HarnessClaude,
+		}
 
 		t.Run("Valid", func(t *testing.T) {
 			r := valid
@@ -136,15 +140,32 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
+		t.Run("ValidNoRepos", func(t *testing.T) {
+			r := CreateTaskReq{InitialPrompt: Prompt{Text: "do stuff"}, Harness: HarnessClaude}
+			if err := r.Validate(); err != nil {
+				t.Errorf("no repos should be allowed, got: %v", err)
+			}
+		})
 		t.Run("MissingPrompt", func(t *testing.T) {
 			r := valid
 			r.InitialPrompt = Prompt{}
 			assertBadRequest(t, r.Validate(), "prompt or images required")
 		})
-		t.Run("MissingRepo", func(t *testing.T) {
-			r := valid
-			r.Repo = ""
-			assertBadRequest(t, r.Validate(), "repo is required")
+		t.Run("EmptyRepoName", func(t *testing.T) {
+			r := CreateTaskReq{
+				InitialPrompt: Prompt{Text: "do stuff"},
+				Repos:         []RepoSpec{{Name: ""}},
+				Harness:       HarnessClaude,
+			}
+			assertBadRequest(t, r.Validate(), "repos contains entry with empty name")
+		})
+		t.Run("DuplicateRepoName", func(t *testing.T) {
+			r := CreateTaskReq{
+				InitialPrompt: Prompt{Text: "do stuff"},
+				Repos:         []RepoSpec{{Name: "org/repo"}, {Name: "org/repo"}},
+				Harness:       HarnessClaude,
+			}
+			assertBadRequest(t, r.Validate(), "repos contains duplicate name: org/repo")
 		})
 		t.Run("MissingHarness", func(t *testing.T) {
 			r := valid

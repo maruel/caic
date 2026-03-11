@@ -7,6 +7,7 @@ import com.caic.sdk.v1.CreateTaskReq
 import com.caic.sdk.v1.EventKinds
 import com.caic.sdk.v1.InputReq
 import com.caic.sdk.v1.Prompt
+import com.caic.sdk.v1.RepoSpec
 import com.caic.sdk.v1.SyncReq
 import com.caic.sdk.v1.Task
 import com.caic.sdk.v1.WebFetchReq
@@ -74,7 +75,7 @@ class FunctionHandlers(
         val resp = apiClient.createTask(
             CreateTaskReq(
                 initialPrompt = Prompt(text = prompt),
-                repo = repo,
+                repos = listOf(RepoSpec(name = repo)),
                 model = model,
                 harness = harness,
             )

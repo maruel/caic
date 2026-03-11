@@ -35,12 +35,23 @@ vi.mock("./AuthContext", () => ({
 }));
 
 // Stub EventSource to prevent real SSE connections.
+// FakeEventSource captures message listeners so tests can push SSE events.
+type MessageListener = (e: { data: string }) => void;
+const fakeESListeners: MessageListener[] = [];
+
 class FakeEventSource {
-  addEventListener = vi.fn();
+  addEventListener = vi.fn((type: string, handler: MessageListener) => {
+    if (type === "message") fakeESListeners.push(handler);
+  });
   close = vi.fn();
   onerror: ((e: Event) => void) | null = null;
 }
 vi.stubGlobal("EventSource", FakeEventSource);
+
+function dispatchSSE(data: unknown) {
+  const payload = { data: JSON.stringify(data) };
+  fakeESListeners.forEach((fn) => fn(payload));
+}
 
 // Imports must follow vi.mock declarations.
 import App from "./App";
@@ -51,7 +62,9 @@ const repoB: Repo = { path: "repos/b", baseBranch: "main", remoteURL: "" };
 const newRepo: Repo = { path: "repos/new", baseBranch: "main", remoteURL: "" };
 
 beforeEach(() => {
+  vi.clearAllMocks();
   navigateMock.mockClear();
+  fakeESListeners.length = 0;
   vi.mocked(api.listRepos).mockResolvedValue([repoA, repoB]);
   vi.mocked(api.getPreferences).mockResolvedValue({
     repositories: [{ path: "repos/a" }],
@@ -67,6 +80,66 @@ beforeEach(() => {
   vi.mocked(api.listRepoBranches).mockResolvedValue({ branches: ["main", "dev"] });
   vi.mocked(api.cloneRepo).mockResolvedValue(newRepo);
   vi.mocked(api.createTask).mockResolvedValue({ id: "task1" });
+});
+
+describe("App repo select: No repository", () => {
+  it("stays on No repository after manual selection", async () => {
+    const user = userEvent.setup();
+    render(() => <App />);
+
+    // Wait for initial load: repos/a is the recent repo and should be selected.
+    await waitFor(() => {
+      expect((screen.getByTestId("repo-select") as HTMLSelectElement).value).toBe("repos/a");
+    });
+
+    // User explicitly selects "No repository".
+    const sel = screen.getByTestId("repo-select") as HTMLSelectElement;
+    await user.selectOptions(sel, "");
+
+    // The selection must remain "No repository" (value="").
+    expect(sel.value).toBe("");
+  });
+
+  it("stays on No repository after repos SSE event updates CI status", async () => {
+    const user = userEvent.setup();
+    render(() => <App />);
+
+    await waitFor(() => {
+      expect((screen.getByTestId("repo-select") as HTMLSelectElement).value).toBe("repos/a");
+    });
+
+    const sel = screen.getByTestId("repo-select") as HTMLSelectElement;
+    await user.selectOptions(sel, "");
+    expect(sel.value).toBe("");
+
+    // Simulate a "repos" SSE event (e.g. CI status update) which triggers setRepos.
+    const repoAUpdated: Repo = { path: "repos/a", baseBranch: "main", remoteURL: "", defaultBranchCIStatus: "success" as const };
+    dispatchSSE({ kind: "repos", repos: [repoAUpdated] });
+
+    await waitFor(() => {
+      // Selection must remain "No repository" — not revert to the first repo.
+      expect(sel.value).toBe("");
+    });
+  });
+
+  it("creates task without repos when No repository is selected", async () => {
+    const user = userEvent.setup();
+    render(() => <App />);
+
+    await waitFor(() => {
+      expect((screen.getByTestId("repo-select") as HTMLSelectElement).value).toBe("repos/a");
+    });
+
+    const sel = screen.getByTestId("repo-select") as HTMLSelectElement;
+    await user.selectOptions(sel, "");
+
+    await user.type(screen.getByTestId("prompt-input"), "do something");
+    await user.click(screen.getByTestId("submit-task"));
+
+    await waitFor(() => expect(api.createTask).toHaveBeenCalledOnce());
+    const call = vi.mocked(api.createTask).mock.calls[0][0];
+    expect(call.repos).toBeUndefined();
+  });
 });
 
 describe("App repo select ordering", () => {

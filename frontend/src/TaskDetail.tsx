@@ -433,9 +433,8 @@ export default function TaskDetail(props: Props) {
       const prompt = `CI failed on GitHub Actions for step ${JSON.stringify(ciLog.stepName)}, with log:\n\`\`\`\n${ciLog.log}\n\`\`\``;
       const resp = await createTask({
         initialPrompt: { text: prompt },
-        repo: props.repo,
+        repos: props.repo ? [{ name: props.repo, ...(props.baseBranch ? { baseBranch: props.baseBranch } : {}) }] : undefined,
         harness: props.harness,
-        ...(props.baseBranch ? { baseBranch: props.baseBranch } : {}),
         ...(props.model ? { model: props.model } : {}),
       });
       navigate(`/tasks/${resp.id}`);

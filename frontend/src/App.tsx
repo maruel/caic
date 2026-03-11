@@ -141,7 +141,7 @@ export default function App() {
         nextIdx = curIdx === -1 || curIdx >= list.length - 1 ? 0 : curIdx + 1;
       }
       const next = list[nextIdx];
-      navigate(taskPath(next.id, next.repo, next.branch, next.title));
+      navigate(taskPath(next.id, next.repos?.[0]?.name ?? "", next.repos?.[0]?.branch ?? "", next.title));
       const card = document.querySelector<HTMLElement>(`[data-task-id="${next.id}"]`);
       card?.focus();
       e.preventDefault();
@@ -430,7 +430,7 @@ export default function App() {
     const p = prompt().trim();
     const imgs = pendingImages();
     const repo = selectedRepo();
-    if ((!p && imgs.length === 0) || !repo) return;
+    if (!p && imgs.length === 0) return;
     requestNotificationPermission();
     setSubmitting(true);
     {
@@ -451,7 +451,7 @@ export default function App() {
       const usb = usbEnabled();
       const disp = displayEnabled();
       const harness = selectedHarness();
-      const data = await createTask({ initialPrompt: { text: p, ...(imgs.length > 0 ? { images: imgs } : {}) }, repo, harness, ...(branch ? { baseBranch: branch } : {}), ...(model ? { model } : {}), ...(image ? { image } : {}), ...(ts ? { tailscale: true } : {}), ...(usb ? { usb: true } : {}), ...(disp ? { display: true } : {}) });
+      const data = await createTask({ initialPrompt: { text: p, ...(imgs.length > 0 ? { images: imgs } : {}) }, repos: repo ? [{ name: repo, ...(branch ? { baseBranch: branch } : {}) }] : undefined, harness, ...(model ? { model } : {}), ...(image ? { image } : {}), ...(ts ? { tailscale: true } : {}), ...(usb ? { usb: true } : {}), ...(disp ? { display: true } : {}) });
       if (model) prefModels[harness] = model;
       setPrompt("");
       setPendingImages([]);
@@ -530,24 +530,24 @@ export default function App() {
 
       <form onSubmit={(e) => { e.preventDefault(); submitTask(); }} class={`${styles.submitForm} ${selectedId() ? styles.hidden : ""}`}>
         <select
-          value={selectedRepo()}
           onChange={(e) => setSelectedRepo(e.currentTarget.value)}
           class={styles.repoSelect}
           data-testid="repo-select"
         >
+          <option value="" selected={selectedRepo() === ""}>No repository</option>
           <Show when={recentCount() > 0} fallback={
             <For each={repos()}>
-              {(r) => <option value={r.path}>{r.path}</option>}
+              {(r) => <option value={r.path} selected={selectedRepo() === r.path}>{r.path}</option>}
             </For>
           }>
             <optgroup label="Recent">
               <For each={[...repos().slice(0, recentCount())].sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0)}>
-                {(r) => <option value={r.path}>{r.path}</option>}
+                {(r) => <option value={r.path} selected={selectedRepo() === r.path}>{r.path}</option>}
               </For>
             </optgroup>
             <optgroup label="All repositories">
               <For each={repos().slice(recentCount())}>
-                {(r) => <option value={r.path}>{r.path}</option>}
+                {(r) => <option value={r.path} selected={selectedRepo() === r.path}>{r.path}</option>}
               </For>
             </optgroup>
           </Show>
@@ -559,21 +559,23 @@ export default function App() {
           title="Clone a repository"
           data-testid="clone-toggle"
         >+</button>
-        <input
-          type="text"
-          list="branch-list"
-          value={selectedBranch()}
-          onInput={(e) => setSelectedBranch(e.currentTarget.value)}
-          placeholder={repos().find((r) => r.path === selectedRepo())?.baseBranch ?? "branch"}
-          class={styles.branchInput}
-          data-testid="branch-input"
-          title="Base branch to fork from (leave empty for default)"
-        />
-        <datalist id="branch-list">
-          <For each={branches()}>
-            {(b) => <option value={b} />}
-          </For>
-        </datalist>
+        <Show when={selectedRepo()}>
+          <input
+            type="text"
+            list="branch-list"
+            value={selectedBranch()}
+            onInput={(e) => setSelectedBranch(e.currentTarget.value)}
+            placeholder={repos().find((r) => r.path === selectedRepo())?.baseBranch ?? "branch"}
+            class={styles.branchInput}
+            data-testid="branch-input"
+            title="Base branch to fork from (leave empty for default)"
+          />
+          <datalist id="branch-list">
+            <For each={branches()}>
+              {(b) => <option value={b} />}
+            </For>
+          </datalist>
+        </Show>
         <Show when={harnesses().length > 1}>
           <select
             value={selectedHarness()}
@@ -657,7 +659,7 @@ export default function App() {
           images={pendingImages()}
           onImagesChange={setPendingImages}
         >
-          <Button type="submit" disabled={initializing() || submitting() || (!prompt().trim() && pendingImages().length === 0) || !selectedRepo()} loading={initializing() || submitting()} title="Start a new container with this prompt" data-testid="submit-task">
+          <Button type="submit" disabled={initializing() || submitting() || (!prompt().trim() && pendingImages().length === 0)} loading={initializing() || submitting()} title="Start a new container with this prompt" data-testid="submit-task">
             <SendIcon width="1.2em" height="1.2em" />
           </Button>
         </PromptInput>
@@ -682,14 +684,14 @@ export default function App() {
           now={now}
           onSelect={(id) => {
             const found = tasks().find((t) => t.id === id);
-            navigate(found ? taskPath(found.id, found.repo, found.branch, found.title) : `/task/@${id}`);
+            navigate(found ? taskPath(found.id, found.repos?.[0]?.name ?? "", found.repos?.[0]?.branch ?? "", found.title) : `/task/@${id}`);
           }}
           onTerminate={handleTerminate}
           terminatingId={terminatingId}
           onDiffClick={(id) => {
             const found = tasks().find((t) => t.id === id);
             if (found?.diffStat?.length) {
-              navigate(taskPath(found.id, found.repo, found.branch, found.title) + "/diff");
+              navigate(taskPath(found.id, found.repos?.[0]?.name ?? "", found.repos?.[0]?.branch ?? "", found.title) + "/diff");
             }
           }}
         />
@@ -698,14 +700,14 @@ export default function App() {
           <Match when={isDiffPath(location.pathname) && selectedId()} keyed>
             {(id) => {
               const t = selectedTask();
-              const tp = t ? taskPath(t.id, t.repo, t.branch, t.title) : `/task/@${id}`;
+              const tp = t ? taskPath(t.id, t.repos?.[0]?.name ?? "", t.repos?.[0]?.branch ?? "", t.title) : `/task/@${id}`;
               return (
                 <div class={styles.detailPane}>
                   <DiffDetail
                     taskId={id}
                     diffStat={t?.diffStat ?? []}
-                    repo={t?.repo ?? ""}
-                    branch={t?.branch ?? ""}
+                    repo={t?.repos?.[0]?.name ?? ""}
+                    branch={t?.repos?.[0]?.branch ?? ""}
                     taskPath={tp}
                   />
                 </div>
@@ -721,10 +723,10 @@ export default function App() {
                   initialPrompt={selectedTask()?.initialPrompt}
                   inPlanMode={selectedTask()?.inPlanMode}
                   planContent={selectedTask()?.planContent}
-                  repo={selectedTask()?.repo ?? ""}
+                  repo={selectedTask()?.repos?.[0]?.name ?? ""}
                   remoteURL={selectedTask()?.remoteURL}
-                  branch={selectedTask()?.branch ?? ""}
-                  baseBranch={repos().find((r) => r.path === selectedTask()?.repo)?.baseBranch ?? "main"}
+                  branch={selectedTask()?.repos?.[0]?.branch ?? ""}
+                  baseBranch={selectedTask()?.repos?.[0]?.baseBranch ?? "main"}
                   forgeOwner={selectedTask()?.forgeOwner}
                   forgeRepo={selectedTask()?.forgeRepo}
                   forgePR={selectedTask()?.forgePR}

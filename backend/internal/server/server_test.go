@@ -219,7 +219,7 @@ func TestHandleTerminate(t *testing.T) {
 	})
 
 	t.Run("Waiting", func(t *testing.T) {
-		tk := &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, Repo: "r"}
+		tk := &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, Repos: []task.RepoMount{{Name: "r"}}}
 		tk.SetState(task.StateWaiting)
 		s := newTestServer(t)
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
@@ -249,7 +249,7 @@ func TestHandleTerminate(t *testing.T) {
 	})
 
 	t.Run("CancelledContext", func(t *testing.T) {
-		tk := &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, Repo: "r"}
+		tk := &task.Task{InitialPrompt: agent.Prompt{Text: "test"}, Repos: []task.RepoMount{{Name: "r"}}}
 		tk.SetState(task.StateRunning)
 		s := newTestServer(t)
 		s.runners["r"] = &task.Runner{BaseBranch: "main", Dir: t.TempDir()}
@@ -278,7 +278,7 @@ func TestHandleContainerDeath(t *testing.T) {
 		s := newTestServer(t)
 		tk := &task.Task{
 			InitialPrompt: agent.Prompt{Text: "test"},
-			Repo:          "r",
+			Repos:         []task.RepoMount{{Name: "r"}},
 			Container:     "md-repo-caic-0",
 		}
 		tk.SetState(task.StateRunning)
@@ -331,7 +331,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"initialPrompt":{"text":"test task"},"repo":"myrepo","harness":"claude"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test task"},"repos":[{"name":"myrepo"}],"harness":"claude"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -370,7 +370,7 @@ func TestHandleCreateTask(t *testing.T) {
 		s := newTestServer(t)
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"nonexistent","harness":"claude"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repos":[{"name":"nonexistent"}],"harness":"claude"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -395,7 +395,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"nonexistent"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repos":[{"name":"myrepo"}],"harness":"nonexistent"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -427,7 +427,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"stub","model":"nonexistent"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repos":[{"name":"myrepo"}],"harness":"stub","model":"nonexistent"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -460,7 +460,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"stub","model":"m1"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repos":[{"name":"myrepo"}],"harness":"stub","model":"m1"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -493,7 +493,7 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		handler := handle(s.createTask)
 
-		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repo":"myrepo","harness":"claude","image":"ghcr.io/my/image:v1"}`)
+		body := strings.NewReader(`{"initialPrompt":{"text":"test"},"repos":[{"name":"myrepo"}],"harness":"claude","image":"ghcr.io/my/image:v1"}`)
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
 		w := httptest.NewRecorder()
 		handler(w, req)
@@ -518,6 +518,55 @@ func TestHandleCreateTask(t *testing.T) {
 		}
 		if entry.task.DockerImage != "ghcr.io/my/image:v1" {
 			t.Errorf("Image = %q, want %q", entry.task.DockerImage, "ghcr.io/my/image:v1")
+		}
+	})
+
+	t.Run("NoRepoTask", func(t *testing.T) {
+		// Regression: creating a task with no repos panicked with
+		// "makeslice: cap out of range" because len(req.Repos)-1 == -1.
+		s := &Server{
+			ctx: t.Context(),
+			runners: map[string]*task.Runner{
+				"": {
+					Backends: map[agent.Harness]agent.Backend{agent.Claude: stubBackend{}},
+				},
+			},
+			tasks:    make(map[string]*taskEntry),
+			changed:  make(chan struct{}),
+			prefsDir: t.TempDir(),
+		}
+		handler := handle(s.createTask)
+
+		body := strings.NewReader(`{"initialPrompt":{"text":"no repo task"},"harness":"claude"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d: %s", w.Code, http.StatusOK, w.Body.String())
+		}
+		var resp v1.CreateTaskResp
+		if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.ID == 0 {
+			t.Error("response has zero 'id' field")
+		}
+	})
+
+	t.Run("NoRepoRunnerMissing", func(t *testing.T) {
+		// When no repos are specified and no "" runner is configured, return
+		// a clear error instead of panicking.
+		s := newTestServer(t) // no "" runner
+		handler := handle(s.createTask)
+
+		body := strings.NewReader(`{"initialPrompt":{"text":"no repo task"},"harness":"claude"}`)
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks", body)
+		w := httptest.NewRecorder()
+		handler(w, req)
+
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
 		}
 	})
 
@@ -601,8 +650,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		// Write 3 terminal task logs.
 		for i, state := range []string{"terminated", "failed", "terminated"} {
 			meta := mustJSON(t, agent.MetaMessage{
-				MessageType: "caic_meta", Version: 1, Prompt: fmt.Sprintf("task %d", i), Repo: "r",
-				Branch: "caic-" + strings.Repeat("0", i+1), Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
+				MessageType: "caic_meta", Version: 1, Prompt: fmt.Sprintf("task %d", i), Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-" + strings.Repeat("0", i+1)}}, Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
 			})
 			trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: state, CostUSD: float64(i + 1)})
 			writeLogFile(t, logDir, fmt.Sprintf("%d.jsonl", i), meta, trailer)
@@ -658,7 +706,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "fix bug",
-			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, map[string]any{
 			"type": "system", "subtype": "init", "model": "claude-opus-4-6",
@@ -716,7 +764,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		// but the messages contain a ResultMessage with cost.
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "fix bug",
-			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, map[string]any{
 			"type": "system", "subtype": "init", "model": "claude-opus-4-6",
@@ -768,7 +816,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		// Each must retain its own title and prompt.
 		metaA := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1,
-			Prompt: "optimize genai provider", Repo: "genai", Branch: "caic-0",
+			Prompt: "optimize genai provider", Repos: []agent.MetaRepo{{Name: "genai", Branch: "caic-0"}},
 			Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 			Title: "Skip Unnecessary MD Container Build",
 		})
@@ -780,7 +828,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 
 		metaB := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1,
-			Prompt: "skip docker rebuilds", Repo: "md", Branch: "caic-0",
+			Prompt: "skip docker rebuilds", Repos: []agent.MetaRepo{{Name: "md", Branch: "caic-0"}},
 			Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 1, 0, 0, 0, time.UTC),
 			Title: "Skip Docker Rebuilds",
 		})
@@ -808,7 +856,11 @@ func TestLoadTerminatedTasks(t *testing.T) {
 
 		// Verify each task has the title matching its own repo.
 		for _, e := range s.tasks {
-			switch e.task.Repo {
+			var repoName string
+			if p := e.task.Primary(); p != nil {
+				repoName = p.Name
+			}
+			switch repoName {
 			case "genai":
 				if got := e.task.Title(); got != "Optimize GenAI Provider" {
 					t.Errorf("genai title = %q, want %q", got, "Optimize GenAI Provider")
@@ -818,7 +870,7 @@ func TestLoadTerminatedTasks(t *testing.T) {
 					t.Errorf("md title = %q, want %q", got, "Skip Unnecessary Docker Image Rebuilds")
 				}
 			default:
-				t.Errorf("unexpected repo %q", e.task.Repo)
+				t.Errorf("unexpected repo %q", repoName)
 			}
 		}
 
@@ -826,8 +878,8 @@ func TestLoadTerminatedTasks(t *testing.T) {
 		// This mirrors the branchID construction in adoptContainers.
 		branchID := make(map[string]string, len(s.tasks))
 		for id, e := range s.tasks {
-			if e.task.Branch != "" {
-				key := e.task.Repo + "\x00" + e.task.Branch
+			if p := e.task.Primary(); p != nil && p.Branch != "" {
+				key := p.Name + "\x00" + p.Branch
 				branchID[key] = id
 			}
 		}
@@ -947,7 +999,7 @@ func TestHandleTaskRawEvents(t *testing.T) {
 		// Write a terminated task log with real agent messages.
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "fix the bug",
-			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, map[string]any{
 			"type": "system", "subtype": "init", "model": "claude-opus-4-6",
@@ -1040,7 +1092,7 @@ func TestHandleTaskRawEvents(t *testing.T) {
 		// by the final assistant message, simulating --include-partial-messages output.
 		meta := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "explain streaming",
-			Repo: "r", Branch: "caic-0", Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+			Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		})
 		initMsg := mustJSON(t, map[string]any{
 			"type": "system", "subtype": "init", "model": "claude-opus-4-6",
