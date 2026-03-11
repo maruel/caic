@@ -3,7 +3,7 @@ import { createEffect, createSignal, For, Show, Switch, Match, onCleanup } from 
 import { Portal } from "solid-js/web";
 import { useNavigate, useLocation } from "@solidjs/router";
 import type { HarnessInfo, Repo, Task, TaskListEvent, UsageResp, ImageData as APIImageData } from "@sdk/types.gen";
-import { getConfig, getPreferences, listHarnesses, listRepos, listRepoBranches, createTask, cloneRepo, getUsage, terminateTask } from "./api";
+import { getConfig, getPreferences, updatePreferences, listHarnesses, listRepos, listRepoBranches, createTask, cloneRepo, getUsage, terminateTask } from "./api";
 import { useAuth } from "./AuthContext";
 import Login from "./Login";
 import TaskDetail from "./TaskDetail";
@@ -16,6 +16,7 @@ import UsageBadges from "./UsageBadges";
 import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
 import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
 import DisplayIcon from "@material-symbols/svg-400/outlined/desktop_windows.svg?solid";
+import SettingsIcon from "@material-symbols/svg-400/outlined/settings.svg?solid";
 import TailscaleIcon from "./tailscale.svg?solid";
 import CloneRepoDialog from "./CloneRepoDialog";
 import VoiceOverlay from "./VoiceOverlay";
@@ -96,6 +97,9 @@ export default function App() {
   const [displayEnabled, setDisplayEnabled] = createSignal(false);
   const [recentCount, setRecentCount] = createSignal(0);
   const [terminatingId, setTerminatingId] = createSignal<string | null>(null);
+
+  const [autoFixCI, setAutoFixCI] = createSignal(false);
+  const [settingsOpen, setSettingsOpen] = createSignal(false);
 
   // Clone repo dialog state.
   const [cloneOpen, setCloneOpen] = createSignal(false);
@@ -266,6 +270,9 @@ export default function App() {
           setTailscaleAvailable(config.tailscaleAvailable);
           setUSBAvailable(config.usbAvailable);
           setDisplayAvailable(config.displayAvailable);
+        }
+        if (prefs?.settings) {
+          setAutoFixCI(prefs.settings.autoFixOnCIFailure);
         }
         if (usageData) setUsage(usageData);
       } finally {
@@ -548,6 +555,10 @@ export default function App() {
                 <Show when={menuOpen()}>
                   <div class={styles.userDropdown}>
                     <span class={styles.dropdownUser}>{user().username}</span>
+                    <button class={styles.dropdownItem} onClick={() => { setMenuOpen(false); setSettingsOpen(true); }}>
+                      <SettingsIcon width="1em" height="1em" style={{ "vertical-align": "middle", "margin-right": "0.4em" }} />
+                      Settings
+                    </button>
                     <button class={styles.dropdownItem} onClick={() => { setMenuOpen(false); void auth.logout(); }}>Sign out</button>
                   </div>
                 </Show>
@@ -873,6 +884,40 @@ export default function App() {
           </Match>
         </Switch>
       </div>
+      <Show when={settingsOpen()}>
+        <div
+          class={styles.settingsOverlay}
+          role="button"
+          tabIndex={-1}
+          onClick={() => setSettingsOpen(false)}
+          onKeyDown={(e) => { if (e.key === "Escape") setSettingsOpen(false); }}
+        >
+          {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- click/key propagation stop is supplementary to the overlay backdrop dismiss */}
+          <div
+            class={styles.settingsPanel}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Settings"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <h2 class={styles.settingsPanelTitle}>Settings</h2>
+            <label class={styles.settingsLabel}>
+              <input
+                type="checkbox"
+                checked={autoFixCI()}
+                onChange={async (e) => {
+                  const val = e.currentTarget.checked;
+                  setAutoFixCI(val);
+                  await updatePreferences({ settings: { autoFixOnCIFailure: val } });
+                }}
+              />
+              Auto-fix CI failures
+            </label>
+            <p class={styles.settingsDescription}>When CI fails on a PR and the agent has finished, automatically start a new task to fix it.</p>
+          </div>
+        </div>
+      </Show>
       <VoiceOverlay tasks={tasks} recentRepo={() => repos()[0]?.path ?? ""} selectedHarness={selectedHarness} selectedModel={selectedModel} />
     </div>
     </Show>

@@ -4,6 +4,8 @@ package com.fghbuild.caic.ui.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.caic.sdk.v1.ApiClient
+import com.caic.sdk.v1.UpdatePreferencesReq
+import com.caic.sdk.v1.UserSettings
 import com.fghbuild.caic.data.SettingsRepository
 import com.fghbuild.caic.data.SettingsState
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +25,7 @@ data class SettingsScreenState(
     val settings: SettingsState = SettingsState(),
     val connectionStatus: ConnectionStatus = ConnectionStatus.Idle,
     val serverLabel: String = "",
+    val autoFixCI: Boolean = false,
 )
 
 private const val DEBOUNCE_MS = 500L
@@ -60,6 +63,7 @@ class SettingsViewModel @Inject constructor(
                         connectionStatus = if (serverChanged) ConnectionStatus.Idle else prev.connectionStatus,
                     )
                 }
+                if (settings.serverURL.isNotBlank()) loadServerPreferences(settings.serverURL, settings.authToken)
             }
         }
         // Debounce URL writes to DataStore.
@@ -125,6 +129,34 @@ class SettingsViewModel @Inject constructor(
                 _state.update { it.copy(connectionStatus = ConnectionStatus.Success) }
             } catch (_: Exception) {
                 _state.update { it.copy(connectionStatus = ConnectionStatus.Failed) }
+            }
+        }
+    }
+
+    private fun loadServerPreferences(serverURL: String, authToken: String?) {
+        viewModelScope.launch {
+            try {
+                val client = ApiClient(serverURL, tokenProvider = { authToken })
+                val prefs = client.getPreferences()
+                _state.update { prev ->
+                    prev.copy(autoFixCI = prefs.settings.autoFixOnCIFailure)
+                }
+            } catch (_: Exception) {
+                // Server may not be reachable; leave defaults.
+            }
+        }
+    }
+
+    fun updateAutoFixCI(enabled: Boolean) {
+        _state.update { it.copy(autoFixCI = enabled) }
+        viewModelScope.launch {
+            try {
+                val settings = settingsRepository.settings.value
+                val client = ApiClient(settings.serverURL, tokenProvider = { settings.authToken })
+                client.updatePreferences(UpdatePreferencesReq(settings = UserSettings(autoFixOnCIFailure = enabled)))
+            } catch (_: Exception) {
+                // Revert optimistic update on failure.
+                _state.update { it.copy(autoFixCI = !enabled) }
             }
         }
     }

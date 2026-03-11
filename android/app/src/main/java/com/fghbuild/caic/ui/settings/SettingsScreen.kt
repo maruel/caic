@@ -151,6 +151,19 @@ fun SettingsScreen(
                 }
             }
 
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+            Text("GitHub", style = MaterialTheme.typography.titleMedium)
+            ListItem(
+                headlineContent = { Text("Auto-fix CI failures") },
+                supportingContent = { Text("Automatically start a new task when PR CI fails") },
+                trailingContent = {
+                    Switch(
+                        checked = screenState.autoFixCI,
+                        onCheckedChange = { viewModel.updateAutoFixCI(it) },
+                    )
+                },
+            )
+
         }
     }
 }

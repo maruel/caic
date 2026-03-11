@@ -10,6 +10,7 @@ RESTful JSON API served at `/api/v1/`. SSE endpoints stream newline-delimited JS
 |--------|------|---------|----------|
 | GET | `/api/v1/server/config` |  | `Config` |
 | GET | `/api/v1/server/preferences` |  | `PreferencesResp` |
+| POST | `/api/v1/server/preferences` | `UpdatePreferencesReq` | `PreferencesResp` |
 | GET | `/api/v1/server/harnesses` |  | `HarnessInfo[]` |
 | GET | `/api/v1/server/repos` |  | `Repo[]` |
 | POST | `/api/v1/server/repos` | `CloneRepoReq` | `Repo` |
@@ -85,6 +86,7 @@ All errors return:
 | `tailscaleAvailable` | `boolean` | yes |
 | `usbAvailable` | `boolean` | yes |
 | `displayAvailable` | `boolean` | yes |
+| `gitHubAppEnabled` | `boolean` |  |
 | `authProviders` | `string[]` |  |
 
 ### UserResp
@@ -112,6 +114,12 @@ All errors return:
 | `model` | `string` |  |
 | `baseImage` | `string` |  |
 
+### UserSettings
+
+| Field | Type | Required |
+|-------|------|----------|
+| `autoFixOnCIFailure` | `boolean` | yes |
+
 ### PreferencesResp
 
 | Field | Type | Required |
@@ -120,6 +128,13 @@ All errors return:
 | `harness` | `string` |  |
 | `models` | `Record<string, unknown>` |  |
 | `baseImage` | `string` |  |
+| `settings` | `UserSettings` | yes |
+
+### UpdatePreferencesReq
+
+| Field | Type | Required |
+|-------|------|----------|
+| `settings` | `UserSettings` | yes |
 
 ### HarnessInfo
 

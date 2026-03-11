@@ -53,6 +53,7 @@ var Routes = []Route{
 	{Name: "getMe", Method: "GET", Path: "/api/v1/auth/me", Resp: reflect.TypeFor[UserResp]()},
 	{Name: "logout", Method: "POST", Path: "/api/v1/auth/logout", Resp: reflect.TypeFor[StatusResp]()},
 	{Name: "getPreferences", Method: "GET", Path: "/api/v1/server/preferences", Resp: reflect.TypeFor[PreferencesResp]()},
+	{Name: "updatePreferences", Method: "POST", Path: "/api/v1/server/preferences", Req: reflect.TypeFor[UpdatePreferencesReq](), Resp: reflect.TypeFor[PreferencesResp]()},
 	{Name: "listHarnesses", Method: "GET", Path: "/api/v1/server/harnesses", Resp: reflect.TypeFor[HarnessInfo](), IsArray: true},
 	{Name: "listRepos", Method: "GET", Path: "/api/v1/server/repos", Resp: reflect.TypeFor[Repo](), IsArray: true},
 	{Name: "cloneRepo", Method: "POST", Path: "/api/v1/server/repos", Req: reflect.TypeFor[CloneRepoReq](), Resp: reflect.TypeFor[Repo]()},

@@ -114,6 +114,9 @@ func (r *WebFetchReq) Validate() error {
 	return nil
 }
 
+// Validate is a no-op; all settings values are accepted.
+func (r *UpdatePreferencesReq) Validate() error { return nil }
+
 // validateImages checks that each ImageData entry has a valid media type and non-empty data.
 func validateImages(images []ImageData) error {
 	for _, img := range images {

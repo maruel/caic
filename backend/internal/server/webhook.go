@@ -252,7 +252,7 @@ func (s *Server) handleIssuesEvent(ctx context.Context, ev *github.IssuesEvent) 
 	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
 	prompt := fmt.Sprintf("Fix the following GitHub issue:\n\nTitle: %s\nURL: %s\n\n%s",
 		ev.Issue.Title, ev.Issue.HTMLURL, ev.Issue.Body)
-	s.createWebhookTask(ctx, repo, prompt, ev.Installation.ID, ev.Repository.FullName, ev.Issue.Number)
+	s.createWebhookTask(ctx, repo, prompt, ev.Installation.ID, ev.Repository.FullName, ev.Issue.Number, "")
 }
 
 // handlePullRequestEvent creates a task when a PR is opened or reopened.
@@ -273,7 +273,7 @@ func (s *Server) handlePullRequestEvent(ctx context.Context, ev *github.PullRequ
 		ev.PullRequest.Base.Ref,
 		ev.PullRequest.HTMLURL,
 		ev.PullRequest.Body)
-	s.createWebhookTask(ctx, repo, prompt, 0, "", 0)
+	s.createWebhookTask(ctx, repo, prompt, 0, "", 0, "")
 }
 
 // handleIssueCommentEvent creates a task when @caic is mentioned in a comment.
@@ -296,7 +296,7 @@ func (s *Server) handleIssueCommentEvent(ctx context.Context, ev *github.IssueCo
 		ev.Issue.Title,
 		ev.Comment.HTMLURL,
 		ev.Comment.Body)
-	s.createWebhookTask(ctx, repo, prompt, 0, "", 0)
+	s.createWebhookTask(ctx, repo, prompt, 0, "", 0, "")
 }
 
 // handleInstallationEvent enforces the owner allowlist on new installs.
@@ -411,7 +411,7 @@ func (s *Server) repoByForge(fullName string) *repoInfo {
 
 // createWebhookTask creates a task triggered by a webhook event.
 // issueNumber > 0 and forgeFullName != "" enables post-completion comment.
-func (s *Server) createWebhookTask(_ context.Context, repo *repoInfo, prompt string, installationID int64, forgeFullName string, issueNumber int) {
+func (s *Server) createWebhookTask(_ context.Context, repo *repoInfo, prompt string, installationID int64, forgeFullName string, issueNumber int, ownerID string) {
 	runner, ok := s.runners[repo.RelPath]
 	if !ok {
 		slog.Warn("webhook: runner not found", "repo", repo.RelPath)
@@ -439,6 +439,7 @@ func (s *Server) createWebhookTask(_ context.Context, repo *repoInfo, prompt str
 		Harness:       harness,
 		StartedAt:     time.Now().UTC(),
 		Provider:      s.provider,
+		OwnerID:       ownerID,
 	}
 	t.SetTitle(prompt)
 	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive request

@@ -19,6 +19,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	"github.com/caic-xyz/caic/backend/internal/auth"
 	"github.com/caic-xyz/caic/backend/internal/forge"
+	"github.com/caic-xyz/caic/backend/internal/preferences"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
 	v1 "github.com/caic-xyz/caic/backend/internal/server/dto/v1"
 	"github.com/caic-xyz/caic/backend/internal/task"
@@ -60,14 +61,24 @@ func decodeError(t *testing.T, w *httptest.ResponseRecorder) dto.ErrorDetails {
 	return resp.Error
 }
 
+func newTestPrefs(t *testing.T) *preferences.Store {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "preferences.json")
+	store, err := preferences.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	return store
+}
+
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
 	return &Server{
-		ctx:      t.Context(),
-		runners:  map[string]*task.Runner{},
-		tasks:    make(map[string]*taskEntry),
-		changed:  make(chan struct{}),
-		prefsDir: t.TempDir(),
+		ctx:     t.Context(),
+		runners: map[string]*task.Runner{},
+		tasks:   make(map[string]*taskEntry),
+		changed: make(chan struct{}),
+		prefs:   newTestPrefs(t),
 	}
 }
 
@@ -325,9 +336,9 @@ func TestHandleCreateTask(t *testing.T) {
 					Backends:   map[agent.Harness]agent.Backend{agent.Claude: stubBackend{}},
 				},
 			},
-			tasks:    make(map[string]*taskEntry),
-			changed:  make(chan struct{}),
-			prefsDir: t.TempDir(),
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+			prefs:   newTestPrefs(t),
 		}
 		handler := handle(s.createTask)
 
@@ -454,9 +465,9 @@ func TestHandleCreateTask(t *testing.T) {
 					Backends:   map[agent.Harness]agent.Backend{"stub": stubBackend{}},
 				},
 			},
-			tasks:    make(map[string]*taskEntry),
-			changed:  make(chan struct{}),
-			prefsDir: t.TempDir(),
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+			prefs:   newTestPrefs(t),
 		}
 		handler := handle(s.createTask)
 
@@ -487,9 +498,9 @@ func TestHandleCreateTask(t *testing.T) {
 					Backends:   map[agent.Harness]agent.Backend{agent.Claude: stubBackend{}},
 				},
 			},
-			tasks:    make(map[string]*taskEntry),
-			changed:  make(chan struct{}),
-			prefsDir: t.TempDir(),
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+			prefs:   newTestPrefs(t),
 		}
 		handler := handle(s.createTask)
 
@@ -531,9 +542,9 @@ func TestHandleCreateTask(t *testing.T) {
 					Backends: map[agent.Harness]agent.Backend{agent.Claude: stubBackend{}},
 				},
 			},
-			tasks:    make(map[string]*taskEntry),
-			changed:  make(chan struct{}),
-			prefsDir: t.TempDir(),
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+			prefs:   newTestPrefs(t),
 		}
 		handler := handle(s.createTask)
 
@@ -1517,6 +1528,70 @@ func TestForgeFor(t *testing.T) {
 		f := s.forgeFor(t.Context(), forge.KindGitHub)
 		if f != nil {
 			t.Fatal("forgeFor should return nil without user context or PAT")
+		}
+	})
+}
+
+func TestPrefsPerUser(t *testing.T) {
+	t.Run("separate users get separate preferences", func(t *testing.T) {
+		s := newTestServer(t)
+
+		if err := s.prefs.Update("user-alice", func(p *preferences.Preferences) {
+			p.Settings.AutoFixOnCIFailure = true
+		}); err != nil {
+			t.Fatalf("update alice: %v", err)
+		}
+
+		p1 := s.prefs.Get("user-alice")
+		p2 := s.prefs.Get("user-bob")
+		if !p1.Settings.AutoFixOnCIFailure {
+			t.Error("alice: AutoFixOnCIFailure should be true")
+		}
+		if p2.Settings.AutoFixOnCIFailure {
+			t.Error("bob: AutoFixOnCIFailure should be false (independent of alice)")
+		}
+	})
+
+	t.Run("all users stored in single file", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "preferences.json")
+		store, err := preferences.Open(path)
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		if err := store.Update("alice", func(p *preferences.Preferences) {
+			p.Settings.AutoFixOnCIFailure = true
+		}); err != nil {
+			t.Fatalf("update alice: %v", err)
+		}
+		if err := store.Update("bob", func(p *preferences.Preferences) {
+			p.Harness = "codex"
+		}); err != nil {
+			t.Fatalf("update bob: %v", err)
+		}
+		// Reload from disk to verify both users persisted in the same file.
+		store2, err := preferences.Open(path)
+		if err != nil {
+			t.Fatalf("Open reload: %v", err)
+		}
+		if !store2.Get("alice").Settings.AutoFixOnCIFailure {
+			t.Error("alice: AutoFixOnCIFailure not persisted")
+		}
+		if store2.Get("bob").Harness != "codex" {
+			t.Error("bob: Harness not persisted")
+		}
+	})
+
+	t.Run("default user in no-auth mode", func(t *testing.T) {
+		s := newTestServer(t)
+		// No auth in context — userIDFromCtx returns "default".
+		id := userIDFromCtx(t.Context())
+		if id != "default" {
+			t.Errorf("expected 'default', got %q", id)
+		}
+		// Prefs for default user are usable.
+		p := s.prefs.Get(id)
+		if p.Version == 0 {
+			t.Error("default prefs should have non-zero version")
 		}
 	})
 }

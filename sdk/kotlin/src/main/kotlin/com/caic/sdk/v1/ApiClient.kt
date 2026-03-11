@@ -88,6 +88,7 @@ class ApiClient(
     suspend fun getMe(): UserResp = request("GET", "/api/v1/auth/me")
     suspend fun logout(): StatusResp = request("POST", "/api/v1/auth/logout")
     suspend fun getPreferences(): PreferencesResp = request("GET", "/api/v1/server/preferences")
+    suspend fun updatePreferences(req: UpdatePreferencesReq): PreferencesResp = request("POST", "/api/v1/server/preferences", json.encodeToString(req))
     suspend fun listHarnesses(): List<HarnessInfo> = request("GET", "/api/v1/server/harnesses")
     suspend fun listRepos(): List<Repo> = request("GET", "/api/v1/server/repos")
     suspend fun cloneRepo(req: CloneRepoReq): Repo = request("POST", "/api/v1/server/repos", json.encodeToString(req))

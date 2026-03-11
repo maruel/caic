@@ -47,6 +47,7 @@ type Config struct {
 	TailscaleAvailable bool     `json:"tailscaleAvailable"`
 	USBAvailable       bool     `json:"usbAvailable"`
 	DisplayAvailable   bool     `json:"displayAvailable"`
+	GitHubAppEnabled   bool     `json:"gitHubAppEnabled,omitempty"`
 	AuthProviders      []string `json:"authProviders,omitempty"` // e.g. ["github","gitlab"]
 }
 
@@ -308,12 +309,26 @@ type RepoPrefsResp struct {
 	BaseImage  string `json:"baseImage,omitempty"`
 }
 
+// UserSettings holds user-configurable behavioral settings.
+type UserSettings struct {
+	// AutoFixOnCIFailure automatically starts a new task to fix CI when a
+	// task's PR CI fails and the original task can no longer receive input.
+	// Only effective when the GitHub App is configured.
+	AutoFixOnCIFailure bool `json:"autoFixOnCIFailure"`
+}
+
 // PreferencesResp is the response for GET /api/v1/server/preferences.
 type PreferencesResp struct {
 	Repositories []RepoPrefsResp   `json:"repositories"`
 	Harness      string            `json:"harness,omitempty"`
 	Models       map[string]string `json:"models,omitempty"`
 	BaseImage    string            `json:"baseImage,omitempty"`
+	Settings     UserSettings      `json:"settings"`
+}
+
+// UpdatePreferencesReq is the request body for POST /api/v1/server/preferences.
+type UpdatePreferencesReq struct {
+	Settings UserSettings `json:"settings"`
 }
 
 // CloneRepoReq is the request body for POST /api/v1/server/repos.

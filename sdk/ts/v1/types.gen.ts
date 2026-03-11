@@ -352,6 +352,7 @@ export interface Config {
   tailscaleAvailable: boolean;
   usbAvailable: boolean;
   displayAvailable: boolean;
+  gitHubAppEnabled?: boolean;
   authProviders?: string[]; // e.g. ["github","gitlab"]
 }
 /**
@@ -674,6 +675,17 @@ export interface RepoPrefsResp {
   baseImage?: string;
 }
 /**
+ * UserSettings holds user-configurable behavioral settings.
+ */
+export interface UserSettings {
+  /**
+   * AutoFixOnCIFailure automatically starts a new task to fix CI when a
+   * task's PR CI fails and the original task can no longer receive input.
+   * Only effective when the GitHub App is configured.
+   */
+  autoFixOnCIFailure: boolean;
+}
+/**
  * PreferencesResp is the response for GET /api/v1/server/preferences.
  */
 export interface PreferencesResp {
@@ -681,6 +693,13 @@ export interface PreferencesResp {
   harness?: string;
   models?: { [key: string]: string};
   baseImage?: string;
+  settings: UserSettings;
+}
+/**
+ * UpdatePreferencesReq is the request body for POST /api/v1/server/preferences.
+ */
+export interface UpdatePreferencesReq {
+  settings: UserSettings;
 }
 /**
  * CloneRepoReq is the request body for POST /api/v1/server/repos.

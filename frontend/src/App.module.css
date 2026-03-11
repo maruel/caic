@@ -398,6 +398,46 @@
   transition: none;
 }
 
+.settingsOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.settingsPanel {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+  padding: 1.5rem;
+  min-width: 20rem;
+  max-width: 28rem;
+  width: 90vw;
+}
+
+.settingsPanelTitle {
+  margin: 0 0 1rem;
+  font-size: 1.1rem;
+}
+
+.settingsLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+  margin-bottom: 0.25rem;
+}
+
+.settingsDescription {
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
 /* Mobile: <=768px */
 @media (max-width: 768px) {
   .app {

@@ -8,6 +8,7 @@ export const {
   getMe,
   logout,
   getPreferences,
+  updatePreferences,
   listHarnesses,
   listRepos,
   cloneRepo,

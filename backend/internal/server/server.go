@@ -229,9 +229,8 @@ type Server struct {
 	ipgeoChecker   *ipgeo.Checker   // nil when CAIC_IPGEO_DB not set
 	ipgeoAllowlist *ipgeo.Allowlist // nil when CAIC_IPGEO_ALLOWLIST not set
 
-	// User preferences.
-	prefsDir    string   // directory for per-user preference files
-	prefsStores sync.Map // map[string]*preferences.Store, keyed by userID
+	// User preferences — all users in a single file.
+	prefs *preferences.Store
 
 	// Guarded by mu.
 	mu                  sync.Mutex
@@ -489,21 +488,10 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 	githubAllowedUsers := parseAllowedUsers(cfg.GitHubOAuthAllowedUsers)
 	gitlabAllowedUsers := parseAllowedUsers(cfg.GitLabOAuthAllowedUsers)
 
-	// Migrate legacy preferences.json to preferences/default.json on first startup in no-auth mode.
-	prefsDir := filepath.Join(cfg.ConfigDir, "preferences")
-	legacyPrefsPath := filepath.Join(cfg.ConfigDir, "preferences.json")
-	if authStore == nil {
-		defaultPrefsPath := filepath.Join(prefsDir, "default.json")
-		if _, err := os.Stat(legacyPrefsPath); err == nil {
-			if _, err := os.Stat(defaultPrefsPath); errors.Is(err, os.ErrNotExist) {
-				if mkErr := os.MkdirAll(filepath.Dir(defaultPrefsPath), 0o700); mkErr == nil {
-					if data, readErr := os.ReadFile(legacyPrefsPath); readErr == nil { //nolint:gosec // G304: internal config path
-						_ = os.WriteFile(defaultPrefsPath, data, 0o600) //nolint:gosec // G703: path is constructed from config dir, not user input
-						slog.Info("migrated preferences.json to preferences/default.json")
-					}
-				}
-			}
-		}
+	prefsPath := filepath.Join(cfg.ConfigDir, "preferences.json")
+	prefsStore, err := preferences.Open(prefsPath)
+	if err != nil {
+		return nil, fmt.Errorf("open preferences: %w", err)
 	}
 
 	backend := &mdBackend{client: mdClient}
@@ -521,7 +509,7 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 		runners:             make(map[string]*task.Runner, len(repoRes.paths)),
 		mdClient:            mdClient,
 		logDir:              logDir,
-		prefsDir:            prefsDir,
+		prefs:               prefsStore,
 		authStore:           authStore,
 		sessionSecret:       sessionSecret,
 		githubOAuth:         githubOAuth,
@@ -685,6 +673,7 @@ func (s *Server) buildHandler() (http.Handler, error) {
 	// Protected routes.
 	apiMux := http.NewServeMux()
 	apiMux.HandleFunc("GET /api/v1/server/preferences", handle(s.getPreferences))
+	apiMux.HandleFunc("POST /api/v1/server/preferences", handle(s.updatePreferences))
 	apiMux.HandleFunc("GET /api/v1/server/harnesses", handle(s.listHarnesses))
 	apiMux.HandleFunc("GET /api/v1/server/repos", handle(s.listRepos))
 	apiMux.HandleFunc("POST /api/v1/server/repos", handle(s.cloneRepo))
@@ -800,6 +789,7 @@ func (s *Server) getConfig(_ context.Context, _ *dto.EmptyReq) (*v1.Config, erro
 		TailscaleAvailable: s.mdClient.TailscaleAPIKey != "",
 		USBAvailable:       runtime.GOOS == "linux",
 		DisplayAvailable:   true,
+		GitHubAppEnabled:   s.githubApp != nil,
 	}
 	if s.authEnabled() {
 		cfg.AuthProviders = s.authProviders()
@@ -808,11 +798,7 @@ func (s *Server) getConfig(_ context.Context, _ *dto.EmptyReq) (*v1.Config, erro
 }
 
 func (s *Server) getPreferences(ctx context.Context, _ *dto.EmptyReq) (*v1.PreferencesResp, error) {
-	prefsStore, err := s.prefsForUser(ctx)
-	if err != nil {
-		return nil, dto.InternalError("open preferences: " + err.Error())
-	}
-	prefs := prefsStore.Get()
+	prefs := s.prefs.Get(userIDFromCtx(ctx))
 	recent := prefs.RecentRepos(time.Now())
 	repos := make([]v1.RepoPrefsResp, len(recent))
 	for i, r := range recent {
@@ -829,7 +815,20 @@ func (s *Server) getPreferences(ctx context.Context, _ *dto.EmptyReq) (*v1.Prefe
 		Harness:      prefs.Harness,
 		Models:       prefs.Models,
 		BaseImage:    prefs.BaseImage,
+		Settings: v1.UserSettings{
+			AutoFixOnCIFailure: prefs.Settings.AutoFixOnCIFailure,
+		},
 	}, nil
+}
+
+func (s *Server) updatePreferences(ctx context.Context, req *v1.UpdatePreferencesReq) (*v1.PreferencesResp, error) {
+	if err := s.prefs.Update(userIDFromCtx(ctx), func(p *preferences.Preferences) {
+		p.Settings.AutoFixOnCIFailure = req.Settings.AutoFixOnCIFailure
+	}); err != nil {
+		return nil, dto.InternalError("save preferences: " + err.Error())
+	}
+	// Return the updated preferences.
+	return s.getPreferences(ctx, nil)
 }
 
 func (s *Server) listHarnesses(_ context.Context, _ *dto.EmptyReq) (*[]v1.HarnessInfo, error) {
@@ -1095,11 +1094,7 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 	}()
 
 	if len(req.Repos) > 0 {
-		prefsStore, err := s.prefsForUser(ctx)
-		if err != nil {
-			return nil, dto.InternalError("open preferences: " + err.Error())
-		}
-		if err := prefsStore.Update(func(p *preferences.Preferences) {
+		if err := s.prefs.Update(userIDFromCtx(ctx), func(p *preferences.Preferences) {
 			p.TouchRepo(req.Repos[0].Name, &preferences.RepoPrefs{
 				BaseBranch: req.Repos[0].BaseBranch,
 				Harness:    string(req.Harness),
@@ -1832,7 +1827,46 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f f
 	s.notifyTaskChange()
 	if err := t.SendInput(ctx, agent.Prompt{Text: summary}); err != nil {
 		slog.Warn("monitorCI: send input", "task", t.ID, "err", err)
+		// No active session — attempt auto-fix for CI failures if enabled.
+		if result.Status == cicache.StatusFailure {
+			snap := t.Snapshot()
+			if snap.ForgePR > 0 {
+				s.maybeAutoFix(t, f, summary)
+			}
+		}
 	}
+}
+
+// maybeAutoFix creates a new task to fix CI failures when auto-fix is enabled
+// in the task owner's preferences. It is called when the original task's agent
+// session is no longer active and cannot receive CI failure input directly.
+func (s *Server) maybeAutoFix(t *task.Task, f forge.Forge, ciSummary string) {
+	ownerID := t.OwnerID
+	if ownerID == "" {
+		ownerID = "default"
+	}
+	if !s.prefs.Get(ownerID).Settings.AutoFixOnCIFailure {
+		return
+	}
+	primary := t.Primary()
+	if primary == nil {
+		slog.Warn("maybeAutoFix: task has no primary repo")
+		return
+	}
+	repo := s.repoInfoFor(primary.Name)
+	if repo == nil {
+		slog.Warn("maybeAutoFix: repo not found", "repo", primary.Name)
+		return
+	}
+	snap := t.Snapshot()
+	prURL := f.PRURL(snap.ForgeOwner, snap.ForgeRepo, snap.ForgePR)
+	prompt := fmt.Sprintf("CI failed on PR #%d", snap.ForgePR)
+	if prURL != "" {
+		prompt += fmt.Sprintf(" (%s)", prURL)
+	}
+	prompt += fmt.Sprintf(". Please fix the failing CI checks on branch %q and push the fix:\n\n%s", primary.Branch, ciSummary)
+	slog.Info("auto-fix: creating task", "repo", primary.Name, "pr", snap.ForgePR, "branch", primary.Branch)
+	s.createWebhookTask(s.ctx, repo, prompt, 0, "", 0, t.OwnerID)
 }
 
 // evaluateCheckRuns inspects runs for a SHA and returns a cicache.Result plus
@@ -2046,23 +2080,12 @@ func (s *Server) forgeFor(ctx context.Context, kind forge.Kind) forge.Forge {
 	return nil
 }
 
-// prefsForUser returns (lazily opening) the preferences store for the user
-// in ctx. In no-auth mode, uses userID="default".
-func (s *Server) prefsForUser(ctx context.Context) (*preferences.Store, error) {
-	userID := "default"
+// userIDFromCtx returns the authenticated user's ID, or "default" in no-auth mode.
+func userIDFromCtx(ctx context.Context) string {
 	if u, ok := auth.UserFromContext(ctx); ok {
-		userID = u.ID
+		return u.ID
 	}
-	if v, ok := s.prefsStores.Load(userID); ok {
-		return v.(*preferences.Store), nil
-	}
-	path := filepath.Join(s.prefsDir, "preferences", userID+".json")
-	store, err := preferences.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open preferences for %s: %w", userID, err)
-	}
-	actual, _ := s.prefsStores.LoadOrStore(userID, store)
-	return actual.(*preferences.Store), nil
+	return "default"
 }
 
 // hexDecode decodes a hex string to bytes, returning an error if invalid.

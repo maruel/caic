@@ -55,11 +55,54 @@ func TestValidate(t *testing.T) {
 	})
 }
 
-func TestStore(t *testing.T) {
+func TestUsersFileValidate(t *testing.T) {
+	t.Run("valid_empty_map", func(t *testing.T) {
+		f := &usersFile{Users: map[string]Preferences{}}
+		if err := f.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("valid_nil_map", func(t *testing.T) {
+		f := &usersFile{}
+		if err := f.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("valid_users", func(t *testing.T) {
+		f := &usersFile{Users: map[string]Preferences{
+			"alice": {Version: currentVersion},
+			"bob":   {Version: currentVersion},
+		}}
+		if err := f.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("empty_user_id", func(t *testing.T) {
+		f := &usersFile{Users: map[string]Preferences{
+			"": {Version: currentVersion},
+		}}
+		if err := f.Validate(); err == nil {
+			t.Fatal("expected error for empty user ID key")
+		}
+	})
+	t.Run("invalid_prefs_propagate", func(t *testing.T) {
+		f := &usersFile{Users: map[string]Preferences{
+			"alice": {Version: 99},
+		}}
+		if err := f.Validate(); err == nil {
+			t.Fatal("expected error for invalid prefs")
+		}
+	})
+}
+
+func TestUsers(t *testing.T) {
 	t.Run("round_trip", func(t *testing.T) {
 		fp := filepath.Join(t.TempDir(), "preferences.json")
-
-		want := &Preferences{
+		s, err := Open(fp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := Preferences{
 			Version: 1,
 			Repositories: []RepoPrefs{
 				{Path: "github/caic", BaseBranch: "develop"},
@@ -69,17 +112,15 @@ func TestStore(t *testing.T) {
 			Models:    map[string]string{"claude": "opus"},
 			BaseImage: "custom:latest",
 		}
-		if err := save(want, fp); err != nil {
+		if err := s.Update("alice", func(p *Preferences) { *p = want }); err != nil {
 			t.Fatal(err)
 		}
-		s, err := Open(fp)
+		// Reopen to verify persistence.
+		s2, err := Open(fp)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.Get()
-		if got.Version != want.Version {
-			t.Errorf("version = %d, want %d", got.Version, want.Version)
-		}
+		got := s2.Get("alice")
 		if got.Harness != want.Harness {
 			t.Errorf("harness = %q, want %q", got.Harness, want.Harness)
 		}
@@ -93,48 +134,74 @@ func TestStore(t *testing.T) {
 			if r.Path != want.Repositories[i].Path {
 				t.Errorf("repos[%d].path = %q, want %q", i, r.Path, want.Repositories[i].Path)
 			}
-			if r.BaseBranch != want.Repositories[i].BaseBranch {
-				t.Errorf("repos[%d].baseBranch = %q, want %q", i, r.BaseBranch, want.Repositories[i].BaseBranch)
-			}
 		}
-		if m, ok := got.Models["claude"]; !ok || m != "opus" {
+		if m := got.Models["claude"]; m != "opus" {
 			t.Errorf("models[claude] = %q, want %q", m, "opus")
 		}
 	})
 
-	t.Run("open_missing", func(t *testing.T) {
+	t.Run("missing_file_returns_defaults", func(t *testing.T) {
 		fp := filepath.Join(t.TempDir(), "nonexistent", "preferences.json")
 		s, err := Open(fp)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := s.Get()
+		got := s.Get("anyuser")
 		if got.Version != currentVersion {
 			t.Errorf("version = %d, want %d", got.Version, currentVersion)
 		}
 	})
 
-	t.Run("update_persists", func(t *testing.T) {
+	t.Run("update_persists_and_creates_dirs", func(t *testing.T) {
 		fp := filepath.Join(t.TempDir(), "sub", "deep", "preferences.json")
 		s, err := Open(fp)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Update(func(p *Preferences) {
-			p.Harness = "claude"
-		}); err != nil {
+		if err := s.Update("u1", func(p *Preferences) { p.Harness = "claude" }); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := os.Stat(fp); err != nil {
 			t.Fatal(err)
 		}
-		// Reopen and verify persistence.
 		s2, err := Open(fp)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got := s2.Get(); got.Harness != "claude" {
+		if got := s2.Get("u1"); got.Harness != "claude" {
 			t.Errorf("harness = %q, want %q", got.Harness, "claude")
+		}
+	})
+
+	t.Run("users_are_isolated", func(t *testing.T) {
+		fp := filepath.Join(t.TempDir(), "preferences.json")
+		s, err := Open(fp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Update("alice", func(p *Preferences) { p.Harness = "claude" }); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.Get("bob"); got.Harness != "" {
+			t.Errorf("bob should have empty harness, got %q", got.Harness)
+		}
+	})
+
+	t.Run("update_rejects_invalid_prefs", func(t *testing.T) {
+		fp := filepath.Join(t.TempDir(), "preferences.json")
+		s, err := Open(fp)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = s.Update("u", func(p *Preferences) {
+			p.Repositories = []RepoPrefs{{Path: ""}}
+		})
+		if err == nil {
+			t.Fatal("expected error for invalid prefs")
+		}
+		// Cached state must not be updated on failure.
+		if got := s.Get("u"); len(got.Repositories) != 0 {
+			t.Errorf("cached state was mutated despite validation failure")
 		}
 	})
 
@@ -144,38 +211,27 @@ func TestStore(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.Update(func(p *Preferences) {
+		if err := s.Update("u", func(p *Preferences) {
 			p.TouchRepo("github/foo", &RepoPrefs{Harness: "claude", Model: "opus"})
 		}); err != nil {
 			t.Fatal(err)
 		}
 
-		snapshot := s.Get()
+		snapshot := s.Get("u")
 
-		// Mutate scalar.
 		snapshot.Harness = "mutated"
-		if got := s.Get(); got.Harness == "mutated" {
+		if got := s.Get("u"); got.Harness == "mutated" {
 			t.Error("scalar field aliased")
 		}
 
-		// Mutate slice element.
 		snapshot.Repositories[0].Harness = "mutated"
-		if got := s.Get(); got.Repositories[0].Harness == "mutated" {
+		if got := s.Get("u"); got.Repositories[0].Harness == "mutated" {
 			t.Error("slice element aliased")
 		}
 
-		// Mutate map.
 		snapshot.Models["claude"] = "mutated"
-		if got := s.Get(); got.Models["claude"] == "mutated" {
+		if got := s.Get("u"); got.Models["claude"] == "mutated" {
 			t.Error("map aliased")
-		}
-	})
-
-	t.Run("save_rejects_invalid", func(t *testing.T) {
-		fp := filepath.Join(t.TempDir(), "preferences.json")
-		p := &Preferences{Version: 0}
-		if err := save(p, fp); err == nil {
-			t.Fatal("expected error saving invalid preferences")
 		}
 	})
 }

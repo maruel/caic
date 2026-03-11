@@ -1,5 +1,6 @@
 // Package preferences manages persistent user preferences with in-memory
-// caching and atomic file persistence.
+// caching and atomic file persistence. All users' preferences are stored in a
+// single JSON file keyed by user ID ("default" for unauthenticated access).
 package preferences
 
 import (
@@ -28,6 +29,8 @@ type Preferences struct {
 	// BaseImage overrides the default container base image. Empty means use
 	// the default.
 	BaseImage string `json:"baseImage,omitempty"`
+	// Settings holds user-configurable behavioral settings.
+	Settings Settings `json:"settings,omitempty"`
 }
 
 // Validate checks that the preferences are well-formed.
@@ -119,6 +122,13 @@ func (p *Preferences) clone() Preferences {
 	return c
 }
 
+// Settings holds user-configurable behavioral settings.
+type Settings struct {
+	// AutoFixOnCIFailure automatically starts a new task to fix CI when a
+	// task's PR CI fails and the original task can no longer receive input.
+	AutoFixOnCIFailure bool `json:"autoFixOnCIFailure,omitempty"`
+}
+
 // RepoPrefs stores per-repository user preferences. Fields override the
 // global defaults in Preferences when set.
 type RepoPrefs struct {
@@ -137,38 +147,78 @@ type RepoPrefs struct {
 	LastUsed int64 `json:"lastUsed,omitempty"`
 }
 
-// Store manages persistent user preferences with in-memory caching.
+// Store manages all users' preferences in a single JSON file.
 // All methods are safe for concurrent use.
 type Store struct {
 	mu     sync.Mutex
 	path   string
-	cached *Preferences
+	cached map[string]Preferences // keyed by userID
 }
 
-// Open creates a Store backed by the given file path. The file is read once;
-// subsequent reads are served from cache. Returns default preferences if the
-// file does not exist.
+// Open opens (or creates) a multi-user preferences file at path.
+// If the file does not exist, an empty store is returned.
 func Open(path string) (*Store, error) {
-	p, err := load(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is caller-provided
 	if err != nil {
-		return nil, err
+		if errors.Is(err, os.ErrNotExist) {
+			return &Store{path: path, cached: map[string]Preferences{}}, nil
+		}
+		return nil, fmt.Errorf("read preferences: %w", err)
 	}
-	return &Store{path: path, cached: p}, nil
+	var mf usersFile
+	if err := json.Unmarshal(data, &mf); err != nil {
+		return nil, fmt.Errorf("parse preferences: %w", err)
+	}
+	if err := mf.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid preferences: %w", err)
+	}
+	if mf.Users == nil {
+		mf.Users = map[string]Preferences{}
+	}
+	return &Store{path: path, cached: mf.Users}, nil
 }
 
-// Get returns a deep copy of the current preferences.
-func (s *Store) Get() Preferences {
+// Get returns a copy of preferences for userID. Returns defaults when userID has no stored prefs.
+func (s *Store) Get(userID string) Preferences {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.cached.clone()
+	p, ok := s.cached[userID]
+	if !ok {
+		return *newPreferences()
+	}
+	return p.clone()
 }
 
-// Update applies fn to the current preferences and persists the result.
-func (s *Store) Update(fn func(*Preferences)) error {
+// Update applies fn to userID's preferences and atomically saves the file.
+func (s *Store) Update(userID string, fn func(*Preferences)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	fn(s.cached)
-	return save(s.cached, s.path)
+	p, ok := s.cached[userID]
+	if !ok {
+		p = *newPreferences()
+	}
+	fn(&p)
+	if err := p.Validate(); err != nil {
+		return fmt.Errorf("validate preferences: %w", err)
+	}
+	s.cached[userID] = p
+	data, err := json.MarshalIndent(usersFile{Users: s.cached}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal preferences: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
+		return fmt.Errorf("create preferences dir: %w", err)
+	}
+	tmp := s.path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("write preferences: %w", err)
+	}
+	if err := os.Rename(tmp, s.path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("rename preferences: %w", err)
+	}
+	return nil
 }
 
 // currentVersion is the preferences file format version.
@@ -181,43 +231,24 @@ const recentWindow = 7 * 24 * time.Hour
 // regardless of last-used time.
 const minRecentRepos = 10
 
-func load(path string) (*Preferences, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path is caller-provided, validated at startup
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return &Preferences{Version: currentVersion}, nil
-		}
-		return nil, fmt.Errorf("read preferences: %w", err)
-	}
-	p := &Preferences{}
-	if err := json.Unmarshal(data, p); err != nil {
-		return nil, fmt.Errorf("parse preferences: %w", err)
-	}
-	if err := p.Validate(); err != nil {
-		return nil, fmt.Errorf("invalid preferences: %w", err)
-	}
-	return p, nil
+func newPreferences() *Preferences {
+	return &Preferences{Version: currentVersion}
 }
 
-func save(prefs *Preferences, path string) error {
-	if err := prefs.Validate(); err != nil {
-		return fmt.Errorf("save preferences: %w", err)
-	}
-	data, err := json.MarshalIndent(prefs, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal preferences: %w", err)
-	}
-	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return fmt.Errorf("create preferences dir: %w", err)
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return fmt.Errorf("write preferences: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("rename preferences: %w", err)
+// usersFile is the on-disk JSON format for the Store.
+type usersFile struct {
+	Users map[string]Preferences `json:"users,omitempty"`
+}
+
+// Validate checks that the on-disk format is well-formed.
+func (f *usersFile) Validate() error {
+	for id, p := range f.Users {
+		if id == "" {
+			return errors.New("users: empty user ID key")
+		}
+		if err := p.Validate(); err != nil {
+			return fmt.Errorf("users[%q]: %w", id, err)
+		}
 	}
 	return nil
 }

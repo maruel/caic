@@ -48,6 +48,7 @@ data class Config(
     val tailscaleAvailable: Boolean,
     val usbAvailable: Boolean,
     val displayAvailable: Boolean,
+    val gitHubAppEnabled: Boolean? = null,
     val authProviders: List<String>? = null,
 )
 
@@ -72,12 +73,21 @@ data class RepoPrefsResp(
 )
 
 @Serializable
+data class UserSettings(
+    @SerialName("autoFixOnCIFailure") val autoFixOnCIFailure: Boolean,
+)
+
+@Serializable
 data class PreferencesResp(
     val repositories: List<RepoPrefsResp>,
     val harness: String? = null,
     val models: Map<String, String>? = null,
     val baseImage: String? = null,
+    val settings: UserSettings,
 )
+
+@Serializable
+data class UpdatePreferencesReq(val settings: UserSettings)
 
 @Serializable
 data class HarnessInfo(
