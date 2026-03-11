@@ -327,10 +327,23 @@ func serveFake(ctx context.Context, addr, rootDir string, cfg *server.Config) er
 	return err
 }
 
-// initFakeRepo creates a bare remote and a clone with one commit on main.
+// initFakeRepo creates two fake repos (clone and clone2) in tmpDir so that the
+// add-repo button is visible after the first repo is auto-selected on load.
+// Returns the path to the primary clone.
 func initFakeRepo(tmpDir string) (string, error) {
-	bare := filepath.Join(tmpDir, "remote.git")
-	clone := filepath.Join(tmpDir, "clone")
+	if err := initOneRepo(tmpDir, "remote.git", "clone"); err != nil {
+		return "", err
+	}
+	if err := initOneRepo(tmpDir, "remote2.git", "clone2"); err != nil {
+		return "", err
+	}
+	return filepath.Join(tmpDir, "clone"), nil
+}
+
+// initOneRepo initialises a bare remote and a clone under tmpDir.
+func initOneRepo(tmpDir, bareName, cloneName string) error {
+	bare := filepath.Join(tmpDir, bareName)
+	clone := filepath.Join(tmpDir, cloneName)
 	for _, args := range [][]string{
 		{"init", "--bare", bare},
 		{"init", clone},
@@ -339,11 +352,11 @@ func initFakeRepo(tmpDir string) (string, error) {
 		{"-C", clone, "checkout", "-b", "main"},
 	} {
 		if err := runGit(args...); err != nil {
-			return "", err
+			return err
 		}
 	}
 	if err := os.WriteFile(filepath.Join(clone, "README.md"), []byte("hello\n"), 0o600); err != nil {
-		return "", err
+		return err
 	}
 	for _, args := range [][]string{
 		{"-C", clone, "add", "."},
@@ -352,10 +365,10 @@ func initFakeRepo(tmpDir string) (string, error) {
 		{"-C", clone, "push", "-u", "origin", "main"},
 	} {
 		if err := runGit(args...); err != nil {
-			return "", err
+			return err
 		}
 	}
-	return clone, nil
+	return nil
 }
 
 func runGit(args ...string) error {
