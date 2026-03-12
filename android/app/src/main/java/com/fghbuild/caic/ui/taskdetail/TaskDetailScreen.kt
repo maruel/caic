@@ -405,13 +405,20 @@ fun TaskDetailScreen(
                                     )
                                 }
                                 val appColors = MaterialTheme.appColors
+                                val checks = it.ciChecks
+                                val pendingLabel = if (!checks.isNullOrEmpty()) {
+                                    val done = checks.count { c -> c.conclusion.isNotEmpty() }
+                                    "CI: $done/${checks.size}"
+                                } else {
+                                    "CI: pending"
+                                }
                                 when (it.ciStatus) {
                                     "pending" -> Surface(
                                         shape = RoundedCornerShape(4.dp),
                                         color = appColors.warningBg,
                                     ) {
                                         Text(
-                                            text = "CI: pending",
+                                            text = pendingLabel,
                                             style = MaterialTheme.typography.labelSmall,
                                             color = appColors.warningText,
                                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),

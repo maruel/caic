@@ -1142,6 +1142,8 @@ func (s *Server) createTask(ctx context.Context, req *v1.CreateTaskReq) (*v1.Cre
 		s.watchSession(entry, primaryRunner, h)
 	}()
 
+	go s.maybeFakeCI(t)
+
 	if len(req.Repos) > 0 {
 		if err := s.prefs.Update(userIDFromCtx(ctx), func(p *preferences.Preferences) {
 			p.TouchRepo(req.Repos[0].Name, &preferences.RepoPrefs{
@@ -1793,6 +1795,12 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, f forge.Forg
 	}
 	slog.Info("PR created", "task", t.ID, "forge", f.Name(), "owner", info.ForgeOwner, "repo", info.ForgeRepo, "pr", pr.Number)
 	t.SetPR(info.ForgeOwner, info.ForgeRepo, pr.Number)
+	t.WriteToLog(&agent.MetaPRMessage{
+		MessageType: "caic_pr",
+		ForgeOwner:  info.ForgeOwner,
+		ForgeRepo:   info.ForgeRepo,
+		ForgePR:     pr.Number,
+	})
 	s.mu.Lock()
 	entry.ciSHA = pr.HeadSHA
 	s.mu.Unlock()
@@ -2692,6 +2700,9 @@ func (s *Server) loadPurgedTasksFrom(all []*task.LoadedTask) error {
 		} else {
 			t.SetTitle(lt.Prompt)
 		}
+		if lt.ForgePR > 0 {
+			t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
+		}
 		// TODO: Figure out when it was purged.
 		if err := lt.LoadMessages(); err != nil {
 			ltPrimary := lt.Primary()
@@ -2931,7 +2942,10 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	} else {
 		t.SetTitle(prompt)
 	}
-	if forgeIssue > 0 && ri.ForgeOwner != "" {
+	if lt != nil && lt.ForgePR > 0 {
+		// Restore PR created during a previous session (persisted in log).
+		t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
+	} else if forgeIssue > 0 && ri.ForgeOwner != "" {
 		// Ensure forge owner/repo are set so the bot can resolve a commenter.
 		t.SetPR(ri.ForgeOwner, ri.ForgeRepo, 0)
 	}

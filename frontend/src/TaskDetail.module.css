@@ -320,7 +320,8 @@ a.headerPR:hover {
 .ciStatus {
   font-size: 0.75rem;
   font-weight: 600;
-  padding: 0.15rem 0.5rem;
+  margin-left: 0.4em;
+  padding: 0.1rem 0.45rem;
   border-radius: var(--radius-sm);
   white-space: nowrap;
   flex-shrink: 0;

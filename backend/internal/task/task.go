@@ -321,6 +321,30 @@ func (t *Task) SetPR(owner, repo string, pr int) {
 	t.mu.Unlock()
 }
 
+// GetPR returns the forge PR number (0 if no PR has been created).
+func (t *Task) GetPR() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.forgePR
+}
+
+// WriteToLog appends a JSON-encoded message to the session's JSONL log file.
+// It is a no-op if no session is attached.
+func (t *Task) WriteToLog(m agent.Message) {
+	t.mu.Lock()
+	h := t.handle
+	t.mu.Unlock()
+	if h == nil || h.LogW == nil {
+		return
+	}
+	data, err := agent.MarshalMessage(m)
+	if err != nil {
+		return
+	}
+	data = append(data, '\n')
+	_, _ = h.LogW.Write(data)
+}
+
 // SetCIStatus updates the ciStatus and ciChecks fields under the mutex.
 func (t *Task) SetCIStatus(status CIStatus, checks []CICheck) {
 	t.mu.Lock()

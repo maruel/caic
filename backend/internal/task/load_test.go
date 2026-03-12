@@ -191,6 +191,59 @@ func TestLoadLogs(t *testing.T) {
 	})
 }
 
+func TestLoadLogs_PRPersistence(t *testing.T) {
+	t.Run("HeaderOnly", func(t *testing.T) {
+		dir := t.TempDir()
+		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "pr task", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-1"}}, Harness: "claude"})
+		prMsg := mustJSON(t, agent.MetaPRMessage{MessageType: "caic_pr", ForgeOwner: "octocat", ForgeRepo: "hello", ForgePR: 42})
+		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
+		writeLogFile(t, dir, "1-r-caic-1.jsonl", meta, prMsg, trailer)
+
+		tasks, err := LoadLogs(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 {
+			t.Fatalf("len = %d, want 1", len(tasks))
+		}
+		lt := tasks[0]
+		if lt.ForgeOwner != "octocat" {
+			t.Errorf("ForgeOwner = %q, want %q", lt.ForgeOwner, "octocat")
+		}
+		if lt.ForgeRepo != "hello" {
+			t.Errorf("ForgeRepo = %q, want %q", lt.ForgeRepo, "hello")
+		}
+		if lt.ForgePR != 42 {
+			t.Errorf("ForgePR = %d, want 42", lt.ForgePR)
+		}
+	})
+	t.Run("FullParse", func(t *testing.T) {
+		dir := t.TempDir()
+		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "pr task", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-2"}}, Harness: "claude"})
+		asst := claudeAssistant(t, map[string]any{"type": "text", "text": "done"})
+		prMsg := mustJSON(t, agent.MetaPRMessage{MessageType: "caic_pr", ForgeOwner: "org", ForgeRepo: "repo", ForgePR: 99})
+		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
+		writeLogFile(t, dir, "2-r-caic-2.jsonl", meta, asst, prMsg, trailer)
+
+		tasks, err := LoadLogs(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lt := tasks[0]
+		// Header-only parse should find PR in tail.
+		if lt.ForgePR != 99 {
+			t.Errorf("ForgePR = %d, want 99 (header parse)", lt.ForgePR)
+		}
+		// Full parse via LoadMessages should also find it.
+		if err := lt.LoadMessages(); err != nil {
+			t.Fatal(err)
+		}
+		if lt.ForgePR != 99 {
+			t.Errorf("ForgePR = %d, want 99 (full parse)", lt.ForgePR)
+		}
+	})
+}
+
 func TestParseState(t *testing.T) {
 	for _, tt := range []struct {
 		in   string

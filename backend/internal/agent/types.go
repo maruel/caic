@@ -345,6 +345,18 @@ type MetaResultMessage struct {
 // Type implements Message.
 func (m *MetaResultMessage) Type() string { return "caic_result" }
 
+// MetaPRMessage is written to the JSONL log when a PR is created so that the
+// PR number can be restored on server restart.
+type MetaPRMessage struct {
+	MessageType string `json:"type"`
+	ForgeOwner  string `json:"forge_owner"`
+	ForgeRepo   string `json:"forge_repo"`
+	ForgePR     int    `json:"forge_pr"`
+}
+
+// Type implements Message.
+func (m *MetaPRMessage) Type() string { return "caic_pr" }
+
 // MarshalMessage serializes a Message to JSON. For RawMessage, returns the
 // original bytes to preserve unknown fields. For typed messages, uses
 // json.Marshal.

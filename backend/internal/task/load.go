@@ -39,6 +39,9 @@ type LoadedTask struct {
 	LastStateUpdateAt time.Time // Derived from log file mtime; best-effort for adopt.
 	State             State
 	ForgeIssue        int // Originating issue number for bot comment callbacks.
+	ForgeOwner        string
+	ForgeRepo         string
+	ForgePR           int // PR number created during the task; 0 if none.
 	Msgs              []agent.Message
 	Result            *Result
 
@@ -120,6 +123,11 @@ func (lt *LoadedTask) LoadMessages() error {
 		return err
 	}
 	lt.Msgs = full.Msgs
+	if full.ForgePR > 0 {
+		lt.ForgeOwner = full.ForgeOwner
+		lt.ForgeRepo = full.ForgeRepo
+		lt.ForgePR = full.ForgePR
+	}
 	return nil
 }
 
@@ -193,43 +201,52 @@ func loadLogHeader(path string) (_ *LoadedTask, retErr error) {
 		ForgeIssue:        meta.ForgeIssue,
 	}
 
-	// Read the tail of the file to find a caic_result trailer.
+	// Read the tail of the file to find caic_pr and caic_result records.
 	const tailSize = 65536 // 64 KiB — sufficient for any realistic trailer.
 	size := info.Size()
 	offset := max(int64(0), size-tailSize)
 	buf := make([]byte, size-offset)
 	n, _ := f.ReadAt(buf, offset)
 	if n > 0 {
-		// Find the last non-empty line.
-		tail := bytes.TrimRight(buf[:n], "\n\r\t ")
-		if i := bytes.LastIndexByte(tail, '\n'); i >= 0 {
-			tail = tail[i+1:]
-		}
-		if bytes.Contains(tail, []byte(`"caic_result"`)) {
-			var mr agent.MetaResultMessage
-			rd := json.NewDecoder(bytes.NewReader(tail))
-			rd.DisallowUnknownFields()
-			if err := rd.Decode(&mr); err == nil {
-				lt.State = parseState(mr.State)
-				if mr.Title != "" {
-					lt.Title = mr.Title
+		for _, line := range bytes.Split(buf[:n], []byte("\n")) {
+			line = bytes.TrimSpace(line)
+			if len(line) == 0 {
+				continue
+			}
+			if bytes.Contains(line, []byte(`"caic_pr"`)) {
+				var mp agent.MetaPRMessage
+				if json.Unmarshal(line, &mp) == nil && mp.ForgePR > 0 {
+					lt.ForgeOwner = mp.ForgeOwner
+					lt.ForgeRepo = mp.ForgeRepo
+					lt.ForgePR = mp.ForgePR
 				}
-				lt.Result = &Result{
-					State:    lt.State,
-					CostUSD:  mr.CostUSD,
-					Duration: time.Duration(mr.Duration * float64(time.Second)),
-					NumTurns: mr.NumTurns,
-					Usage: agent.Usage{
-						InputTokens:              mr.InputTokens,
-						OutputTokens:             mr.OutputTokens,
-						CacheCreationInputTokens: mr.CacheCreationInputTokens,
-						CacheReadInputTokens:     mr.CacheReadInputTokens,
-					},
-					DiffStat:    mr.DiffStat,
-					AgentResult: mr.AgentResult,
-				}
-				if mr.Error != "" {
-					lt.Result.Err = errors.New(mr.Error)
+			}
+			if bytes.Contains(line, []byte(`"caic_result"`)) {
+				var mr agent.MetaResultMessage
+				rd := json.NewDecoder(bytes.NewReader(line))
+				rd.DisallowUnknownFields()
+				if err := rd.Decode(&mr); err == nil {
+					lt.State = parseState(mr.State)
+					if mr.Title != "" {
+						lt.Title = mr.Title
+					}
+					lt.Result = &Result{
+						State:    lt.State,
+						CostUSD:  mr.CostUSD,
+						Duration: time.Duration(mr.Duration * float64(time.Second)),
+						NumTurns: mr.NumTurns,
+						Usage: agent.Usage{
+							InputTokens:              mr.InputTokens,
+							OutputTokens:             mr.OutputTokens,
+							CacheCreationInputTokens: mr.CacheCreationInputTokens,
+							CacheReadInputTokens:     mr.CacheReadInputTokens,
+						},
+						DiffStat:    mr.DiffStat,
+						AgentResult: mr.AgentResult,
+					}
+					if mr.Error != "" {
+						lt.Result.Err = errors.New(mr.Error)
+					}
 				}
 			}
 		}
@@ -302,6 +319,16 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 		}
 
 		if err := json.Unmarshal(line, &envelope); err != nil {
+			continue
+		}
+
+		if envelope.Type == "caic_pr" {
+			var mp agent.MetaPRMessage
+			if json.Unmarshal(line, &mp) == nil && mp.ForgePR > 0 {
+				lt.ForgeOwner = mp.ForgeOwner
+				lt.ForgeRepo = mp.ForgeRepo
+				lt.ForgePR = mp.ForgePR
+			}
 			continue
 		}
 
