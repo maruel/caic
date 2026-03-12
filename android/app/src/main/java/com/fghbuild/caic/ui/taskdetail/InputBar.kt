@@ -78,7 +78,8 @@ fun InputBar(
     taskBaseBranch: String = "",
     sending: Boolean,
     pendingAction: String?,
-    remoteURL: String? = null,
+    forge: String? = null,
+    forgePR: Int? = null,
     pendingImages: List<ImageData> = emptyList(),
     supportsImages: Boolean = false,
     onAttachGallery: () -> Unit = {},
@@ -170,17 +171,24 @@ fun InputBar(
             if (pendingAction == "sync") {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(8.dp))
             } else {
+                val syncLabel = when {
+                    (forge == "github" || forge == "gitlab") && (forgePR == null || forgePR == 0) -> "Create PR"
+                    else -> "Push"
+                }
                 var syncMenuExpanded by remember { mutableStateOf(false) }
                 Box {
-                    Tip("Sync") {
+                    Tip(syncLabel) {
                         IconButton(onClick = onSync, enabled = !busy) {
-                            when {
-                                remoteURL?.contains("github.com") == true ->
-                                    Icon(painterResource(R.drawable.ic_github), contentDescription = "Sync")
-                                remoteURL?.contains("gitlab.com") == true ->
-                                    Icon(painterResource(R.drawable.ic_gitlab), contentDescription = "Sync")
-                                else ->
-                                    Icon(Icons.Default.Sync, contentDescription = "Sync")
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                when (forge) {
+                                    "github" ->
+                                        Icon(painterResource(R.drawable.ic_github), contentDescription = syncLabel)
+                                    "gitlab" ->
+                                        Icon(painterResource(R.drawable.ic_gitlab), contentDescription = syncLabel)
+                                    else ->
+                                        Icon(Icons.Default.Sync, contentDescription = syncLabel)
+                                }
+                                Text(syncLabel, style = MaterialTheme.typography.labelSmall)
                             }
                         }
                     }
@@ -200,10 +208,6 @@ fun InputBar(
                             expanded = syncMenuExpanded,
                             onDismissRequest = { syncMenuExpanded = false },
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Push to $taskBranch") },
-                                onClick = { syncMenuExpanded = false; onSync() },
-                            )
                             DropdownMenuItem(
                                 text = { Text("Push to $taskBaseBranch") },
                                 onClick = { syncMenuExpanded = false; onSyncToBaseBranch() },

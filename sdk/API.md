@@ -162,6 +162,7 @@ All errors return:
 | `path` | `string` | yes |
 | `baseBranch` | `string` | yes |
 | `remoteURL` | `string` |  |
+| `forge` | `string` |  |
 | `defaultBranchCIStatus` | `string` |  |
 | `defaultBranchChecks` | `ForgeCheck[]` |  |
 
@@ -187,6 +188,7 @@ All errors return:
 | `baseBranch` | `string` |  |
 | `branch` | `string` | yes |
 | `remoteURL` | `string` |  |
+| `forge` | `string` |  |
 
 ### DiffFileStat
 
@@ -518,6 +520,7 @@ All errors return:
 | `branch` | `string` |  |
 | `diffStat` | `DiffFileStat[]` |  |
 | `safetyIssues` | `SafetyIssue[]` |  |
+| `prNumber` | `number` |  |
 
 ### DiffResp
 

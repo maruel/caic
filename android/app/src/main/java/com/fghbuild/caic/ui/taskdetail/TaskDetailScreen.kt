@@ -350,11 +350,12 @@ fun TaskDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                val primaryBranch = it.repos?.firstOrNull()?.branch ?: ""
-                                val branchURL = it.repos?.firstOrNull()?.remoteURL?.let { url ->
-                                    when {
-                                        "gitlab.com" in url -> "$url/-/compare/${primaryBranch}?expand=1"
-                                        "github.com" in url -> "$url/compare/${primaryBranch}?expand=1"
+                                val primaryRepo = it.repos?.firstOrNull()
+                                val primaryBranch = primaryRepo?.branch ?: ""
+                                val branchURL = primaryRepo?.remoteURL?.let { url ->
+                                    when (primaryRepo.forge) {
+                                        "gitlab" -> "$url/-/compare/${primaryBranch}?expand=1"
+                                        "github" -> "$url/compare/${primaryBranch}?expand=1"
                                         else -> null
                                     }
                                 }
@@ -386,13 +387,13 @@ fun TaskDetailScreen(
                                 val forgeRepo = it.forgeRepo
                                 val forgePR = it.forgePR
                                 if (forgeOwner != null && forgeRepo != null && forgePR != null && forgePR > 0) {
-                                    val isGitLab = it.repos?.firstOrNull()?.remoteURL?.let { url -> "gitlab.com" in url } == true
-                                    val prURL = if (isGitLab) {
+                                    val forge = it.repos?.firstOrNull()?.forge
+                                    val prURL = if (forge == "gitlab") {
                                         "https://gitlab.com/$forgeOwner/$forgeRepo/-/merge_requests/$forgePR"
                                     } else {
                                         "https://github.com/$forgeOwner/$forgeRepo/pull/$forgePR"
                                     }
-                                    val prLabel = if (isGitLab) "MR #$forgePR" else "PR #$forgePR"
+                                    val prLabel = if (forge == "gitlab") "MR #$forgePR" else "PR #$forgePR"
                                     Text(
                                         text = "·",
                                         style = MaterialTheme.typography.bodySmall,
@@ -506,7 +507,8 @@ fun TaskDetailScreen(
                         taskBaseBranch = task?.repos?.firstOrNull()?.baseBranch ?: "",
                         sending = state.sending,
                         pendingAction = state.pendingAction,
-                        remoteURL = task?.repos?.firstOrNull()?.remoteURL,
+                        forge = task?.repos?.firstOrNull()?.forge,
+                        forgePR = task?.forgePR,
                         pendingImages = state.pendingImages,
                         supportsImages = state.supportsImages,
                         onAttachGallery = {

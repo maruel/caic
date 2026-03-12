@@ -862,6 +862,7 @@ export default function App() {
                   planContent={selectedTask()?.planContent}
                   repo={selectedTask()?.repos?.[0]?.name ?? ""}
                   remoteURL={selectedTask()?.repos?.[0]?.remoteURL}
+                  forge={selectedTask()?.repos?.[0]?.forge}
                   branch={selectedTask()?.repos?.[0]?.branch ?? ""}
                   baseBranch={selectedTask()?.repos?.[0]?.baseBranch ?? "main"}
                   forgeOwner={selectedTask()?.forgeOwner}

@@ -3,7 +3,6 @@
 package github
 
 import (
-	"bytes"
 	"context"
 	"crypto"
 	"crypto/rand"
@@ -21,16 +20,20 @@ import (
 	"sync"
 	"time"
 
+	"github.com/maruel/roundtrippers"
+
 	"github.com/caic-xyz/caic/backend/internal/forge"
 )
 
 // AppClient authenticates as a GitHub App using RS256 JWTs and caches
 // installation access tokens.
 type AppClient struct {
-	AppID      int64
-	privateKey *rsa.PrivateKey
-	mu         sync.Mutex
-	tokenCache map[int64]cachedToken // keyed by installation ID
+	AppID         int64
+	Transport     http.RoundTripper // throttle transport passed to NewClient; must be set
+	privateKey    *rsa.PrivateKey
+	jwtHTTPClient *http.Client
+	mu            sync.Mutex
+	tokenCache    map[int64]cachedToken // keyed by installation ID
 }
 
 type cachedToken struct {
@@ -38,9 +41,26 @@ type cachedToken struct {
 	expiresAt time.Time
 }
 
+// jwtTransport injects a freshly-generated RS256 JWT into every request's
+// Authorization header. Placed inside Retry so each attempt gets a fresh token.
+type jwtTransport struct {
+	app  *AppClient
+	next http.RoundTripper
+}
+
+func (t *jwtTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	jwt, err := t.app.generateJWT()
+	if err != nil {
+		return nil, err
+	}
+	req2 := req.Clone(req.Context())
+	req2.Header.Set("Authorization", "Bearer "+jwt)
+	return t.next.RoundTrip(req2)
+}
+
 // NewAppClient parses a PEM-encoded RSA private key and returns an AppClient.
 // Both PKCS8 and PKCS1 key formats are supported.
-func NewAppClient(appID int64, privateKeyPEM []byte) (*AppClient, error) {
+func NewAppClient(appID int64, privateKeyPEM []byte, transport http.RoundTripper) (*AppClient, error) {
 	block, _ := pem.Decode(privateKeyPEM)
 	if block == nil {
 		return nil, errors.New("github app: failed to decode PEM block")
@@ -65,11 +85,25 @@ func NewAppClient(appID int64, privateKeyPEM []byte) (*AppClient, error) {
 		}
 		key = rsaKey
 	}
-	return &AppClient{
+	a := &AppClient{
 		AppID:      appID,
+		Transport:  transport,
 		privateKey: key,
 		tokenCache: make(map[int64]cachedToken),
-	}, nil
+	}
+	// Transport chain: static headers → retry → fresh JWT per attempt → throttle.
+	a.jwtHTTPClient = &http.Client{
+		Transport: &roundtrippers.Header{
+			Transport: &roundtrippers.Retry{
+				Transport: &jwtTransport{app: a, next: transport},
+			},
+			Header: http.Header{
+				"Accept":               {"application/vnd.github+json"},
+				"X-GitHub-Api-Version": {"2026-03-10"},
+			},
+		},
+	}
+	return a, nil
 }
 
 // generateJWT creates a signed RS256 JWT for GitHub App authentication.
@@ -111,21 +145,12 @@ func (a *AppClient) InstallationToken(ctx context.Context, installationID int64)
 	}
 	a.mu.Unlock()
 
-	jwt, err := a.generateJWT()
-	if err != nil {
-		return "", err
-	}
-
 	url := fmt.Sprintf("https://api.github.com/app/installations/%d/access_tokens", installationID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, http.NoBody)
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+jwt)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.jwtHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -155,19 +180,12 @@ func (a *AppClient) InstallationToken(ctx context.Context, installationID int64)
 // DeleteInstallation removes the app installation, effectively uninstalling it.
 // Used to reject installs from non-allowlisted owners.
 func (a *AppClient) DeleteInstallation(ctx context.Context, installationID int64) error {
-	jwt, err := a.generateJWT()
-	if err != nil {
-		return err
-	}
 	url := fmt.Sprintf("https://api.github.com/app/installations/%d", installationID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, http.NoBody)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+jwt)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.jwtHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -182,19 +200,12 @@ func (a *AppClient) DeleteInstallation(ctx context.Context, installationID int64
 // RepoInstallation returns the installation ID for the app on the given repository.
 // This is used to obtain an installation token when no installation ID is cached.
 func (a *AppClient) RepoInstallation(ctx context.Context, owner, repo string) (int64, error) {
-	jwt, err := a.generateJWT()
-	if err != nil {
-		return 0, err
-	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/installation", owner, repo)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return 0, err
 	}
-	req.Header.Set("Authorization", "Bearer "+jwt)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := a.jwtHTTPClient.Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -221,7 +232,7 @@ func (a *AppClient) ForgeClient(ctx context.Context, installationID int64) (forg
 	if err != nil {
 		return nil, err
 	}
-	return &Client{Token: token}, nil
+	return NewClient(token, a.Transport), nil
 }
 
 // PostComment posts a comment on the given issue or pull request using an installation token.
@@ -230,29 +241,5 @@ func (a *AppClient) PostComment(ctx context.Context, installationID int64, owner
 	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(struct {
-		Body string `json:"body"`
-	}{Body: body})
-	if err != nil {
-		return err
-	}
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/issues/%d/comments", owner, repo, issueNumber)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusCreated {
-		respData, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("github app post comment: status %d: %s", resp.StatusCode, respData)
-	}
-	return nil
+	return NewClient(token, a.Transport).PostComment(ctx, owner, repo, issueNumber, body)
 }

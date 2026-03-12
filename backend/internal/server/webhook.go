@@ -501,7 +501,7 @@ func (s *Server) postWebhookComment(entry *taskEntry) {
 	}
 	// Fall back to PAT if no app configured.
 	if s.githubToken != "" {
-		client := &github.Client{Token: s.githubToken}
+		client := github.NewClient(s.githubToken, s.githubPATThrottle)
 		ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
 		defer cancel()
 		if err := client.PostComment(ctx, owner, repo, entry.webhookIssueNumber, body); err != nil {

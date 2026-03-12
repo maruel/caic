@@ -591,12 +591,12 @@ func (r *Runner) SyncToOrigin(ctx context.Context, branch, container string, for
 	fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer fetchCancel()
 	r.branchMu.Lock()
-	ds := r.diffStat(fetchCtx, branch)
 	r.log.Info("fetch", "br", branch)
 	if err := r.Container.Fetch(fetchCtx, append([]md.Repo{{GitRoot: r.Dir, Branch: branch}}, extraRepos...)); err != nil {
 		r.branchMu.Unlock()
-		return ds, nil, err
+		return nil, nil, err
 	}
+	ds := r.diffStat(fetchCtx, branch)
 	r.branchMu.Unlock()
 
 	ref := "refs/remotes/" + container + "/" + branch
@@ -629,12 +629,12 @@ func (r *Runner) SyncToDefault(ctx context.Context, branch, container, message s
 	fetchCtx, fetchCancel := context.WithTimeout(context.WithoutCancel(ctx), r.GitTimeout)
 	defer fetchCancel()
 	r.branchMu.Lock()
-	ds := r.diffStat(fetchCtx, branch)
 	r.log.Info("fetch for default sync", "br", branch)
 	if err := r.Container.Fetch(fetchCtx, append([]md.Repo{{GitRoot: r.Dir, Branch: branch}}, extraRepos...)); err != nil {
 		r.branchMu.Unlock()
-		return ds, nil, err
+		return nil, nil, err
 	}
+	ds := r.diffStat(fetchCtx, branch)
 	r.branchMu.Unlock()
 
 	ref := "refs/remotes/" + container + "/" + branch
