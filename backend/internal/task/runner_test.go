@@ -122,6 +122,42 @@ func TestRunner(t *testing.T) {
 				t.Errorf("nextID = %d, want 4", r.nextID)
 			}
 		})
+		t.Run("SkipsLocalOnly", func(t *testing.T) {
+			// Local-only branches (e.g. from stopped tasks that were never
+			// pushed) must also be accounted for.
+			clone := initTestRepo(t, "main")
+			runGit(t, clone, "branch", "caic-5")
+			// Do NOT push — simulates a stopped task whose branch was
+			// never synced to origin.
+
+			r := &Runner{
+				BaseBranch: "main",
+				Dir:        clone,
+			}
+			if err := r.Init(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if r.nextID != 6 {
+				t.Errorf("nextID = %d, want 6", r.nextID)
+			}
+		})
+		t.Run("IgnoresNonCaicPrefix", func(t *testing.T) {
+			// Branches like "foo-caic-9" must not be matched.
+			clone := initTestRepo(t, "main")
+			runGit(t, clone, "branch", "foo-caic-9")
+			runGit(t, clone, "branch", "caic-2")
+
+			r := &Runner{
+				BaseBranch: "main",
+				Dir:        clone,
+			}
+			if err := r.Init(t.Context()); err != nil {
+				t.Fatal(err)
+			}
+			if r.nextID != 3 {
+				t.Errorf("nextID = %d, want 3", r.nextID)
+			}
+		})
 	})
 
 	t.Run("Setup", func(t *testing.T) {

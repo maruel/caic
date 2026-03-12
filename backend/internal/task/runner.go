@@ -1121,25 +1121,33 @@ func writeContextCleared(w io.Writer) {
 	}
 }
 
-// maxBranchSeqNum finds the highest sequence number N among remote branches
-// matching "caic-N" across all remotes. Returns -1 if no matching branches
-// exist.
+// maxBranchSeqNum finds the highest sequence number N among all branches
+// (local and remote) matching "caic-N". Returns -1 if no matching branches
+// exist. Checking both local and remote is necessary because stopped tasks
+// leave local branches that may never be pushed.
 func maxBranchSeqNum(ctx context.Context, dir string) (int, error) {
-	cmd := exec.CommandContext(ctx, "git", "branch", "-r", "--format=%(refname:short)")
+	cmd := exec.CommandContext(ctx, "git", "branch", "-a", "--format=%(refname:short)")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		return -1, fmt.Errorf("git branch -r: %w", err)
+		return -1, fmt.Errorf("git branch -a: %w", err)
 	}
 	highest := -1
 	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
-		// Match "<remote>/caic-N" for any remote name.
-		_, after, ok := strings.Cut(line, "/caic-")
-		if !ok {
+		// Match "caic-N" (local) or "<remote>/caic-N" (remote).
+		// Use strings.Cut on "/caic-" for remote refs and
+		// strings.HasPrefix for local refs to avoid matching unrelated
+		// branch names that happen to contain "caic-".
+		var numStr string
+		if strings.HasPrefix(line, "caic-") {
+			numStr = line[len("caic-"):]
+		} else if _, after, ok := strings.Cut(line, "/caic-"); ok {
+			numStr = after
+		} else {
 			continue
 		}
-		n, err := strconv.Atoi(after)
+		n, err := strconv.Atoi(numStr)
 		if err != nil {
 			continue
 		}
