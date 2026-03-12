@@ -161,6 +161,19 @@ describe("groupMessages", () => {
     expect(groups[0].events.some((e) => e.kind === "thinkingDelta")).toBe(true);
     expect(groups[0].events.some((e) => e.kind === "textDelta")).toBe(true);
   });
+
+  it("userInput after ask+result is grouped with the ask", () => {
+    const askEvent: EventMessage = {
+      kind: "ask", ts: 1,
+      ask: {
+        toolUseID: "ask_1",
+        questions: [{ question: "Which?", options: [{ label: "A" }, { label: "B" }] }],
+      },
+    };
+    const groups = groupMessages([askEvent, resultEvent(), { kind: "userInput", ts: 3, userInput: { text: "A" } }]);
+    const askGroup = groups.find((g) => g.kind === "ask");
+    expect(askGroup?.answerText).toBe("A");
+  });
 });
 
 describe("groupSessions", () => {

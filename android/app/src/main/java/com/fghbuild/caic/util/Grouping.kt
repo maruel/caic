@@ -182,10 +182,18 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                 groups.add(MutableGroup(kind = GroupKind.ASK, events = mutableListOf(ev), ask = ask))
             }
             EventKinds.UserInput -> {
-                val prev = lastGroup()
-                if (prev != null && prev.kind == GroupKind.ASK && prev.answerText == null) {
-                    prev.answerText = ev.userInput?.text
-                    prev.events.add(ev)
+                // Look backwards past result/other groups to find the most recent
+                // unanswered ask group. The agent emits a result event after
+                // AskUserQuestion, so the ask group is typically not the last group.
+                var askGroup: MutableGroup? = null
+                for (i in groups.indices.reversed()) {
+                    val g = groups[i]
+                    if (g.kind == GroupKind.ASK && g.answerText == null) { askGroup = g; break }
+                    if (g.kind != GroupKind.OTHER) break // stop at non-other boundaries
+                }
+                if (askGroup != null) {
+                    askGroup.answerText = ev.userInput?.text
+                    askGroup.events.add(ev)
                 } else {
                     groups.add(MutableGroup(kind = GroupKind.USER_INPUT, events = mutableListOf(ev)))
                 }

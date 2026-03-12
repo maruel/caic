@@ -117,6 +117,17 @@ class GroupingTest {
             assertEquals("yes", groups[0].answerText)
         }
 
+        t.run("ask followed by result then userInput merges answerText") {
+            val groups = groupMessages(listOf(
+                askEvent("a1", "Which?"),
+                resultEvent(),
+                userInputEvent("A"),
+            ))
+            val askGroup = groups.find { it.kind == GroupKind.ASK }
+            assertNotNull(askGroup)
+            assertEquals("A", askGroup?.answerText)
+        }
+
         t.run("userInput without preceding ask creates standalone group") {
             val groups = groupMessages(listOf(userInputEvent("hello")))
             assertEquals(1, groups.size)

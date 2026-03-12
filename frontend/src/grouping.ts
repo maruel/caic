@@ -156,10 +156,18 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
         }
         break;
       case "userInput": {
-        const prev = lastGroup();
-        if (prev && prev.kind === "ask" && !prev.answerText) {
-          prev.answerText = ev.userInput?.text;
-          prev.events.push(ev);
+        // Look backwards past result/other groups to find the most recent
+        // unanswered ask group. The agent emits a result event after
+        // AskUserQuestion, so the ask group is typically not the last group.
+        let askGroup: MessageGroup | undefined;
+        for (let i = groups.length - 1; i >= 0; i--) {
+          const g = groups[i];
+          if (g.kind === "ask" && !g.answerText) { askGroup = g; break; }
+          if (g.kind !== "other") break; // stop at non-other boundaries
+        }
+        if (askGroup) {
+          askGroup.answerText = ev.userInput?.text;
+          askGroup.events.push(ev);
         } else {
           groups.push({ kind: "userInput", events: [ev], toolCalls: [] });
         }
