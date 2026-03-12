@@ -130,6 +130,7 @@ type Task struct {
 	Display       bool          // Enable Xvfb display in the container.
 	StartedAt     time.Time     // When the task was created.
 	OwnerID       string        // Internal user ID of the creator; empty in no-auth mode.
+	ForgeIssue    int           // Originating issue number for bot comment callbacks; 0 = none.
 	Provider      genai.Provider
 
 	// Write-once fields — set during setup/adoption, never modified after.
@@ -360,6 +361,7 @@ type Snapshot struct {
 	ForgeOwner         string
 	ForgeRepo          string
 	ForgePR            int
+	ForgeIssue         int
 	CIStatus           CIStatus
 	CIChecks           []CICheck
 }
@@ -394,6 +396,7 @@ func (t *Task) Snapshot() Snapshot {
 		ForgeOwner:         t.forgeOwner,
 		ForgeRepo:          t.forgeRepo,
 		ForgePR:            t.forgePR,
+		ForgeIssue:         t.ForgeIssue,
 		CIStatus:           t.ciStatus,
 		CIChecks:           append([]CICheck(nil), t.ciChecks...),
 	}

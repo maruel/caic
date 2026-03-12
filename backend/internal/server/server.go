@@ -29,6 +29,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/agent"
 	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
 	"github.com/caic-xyz/caic/backend/internal/auth"
+	"github.com/caic-xyz/caic/backend/internal/bot"
 	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/container"
 	"github.com/caic-xyz/caic/backend/internal/forge"
@@ -202,6 +203,7 @@ type Server struct {
 	logDir   string
 	ciCache  *cicache.Cache
 	provider genai.Provider // nil if LLM not configured
+	bot      *bot.Bot       // handles forge event-driven task automation
 
 	// Agent backends.
 	geminiAPIKey string
@@ -400,10 +402,6 @@ type taskEntry struct {
 	// CI monitoring: set when a PR is created; used by check_suite webhook handler to
 	// find the task waiting for CI results.
 	ciSHA string // PR head SHA being monitored; empty when no CI monitoring active
-	// Webhook callback: when set, post a comment on the originating issue after task is purged.
-	webhookInstallationID int64  // 0 when no app configured
-	webhookForgeFullName  string // "owner/repo"
-	webhookIssueNumber    int    // 0 when not a comment-triggerable event
 }
 
 // New creates a new Server. It discovers repos under rootDir, creates a Runner
@@ -653,6 +651,10 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 		return nil, fmt.Errorf("no usable git repos found under %s", rootDir)
 	}
 
+	// Wire the bot with the server as its client.
+	// Eventually we may want to use a clearer observer pattern.
+	s.bot = bot.New(ctx, s)
+
 	// Always register a no-repo runner (keyed by "") for tasks that don't
 	// need a git repository.
 	noRepoRunner := &task.Runner{LogDir: logDir, Container: backend}
@@ -676,6 +678,9 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 			return nil, fmt.Errorf("adopt containers: %w", err)
 		}
 	}
+
+	// Resume bot comment watchers for adopted tasks with pending forge issues.
+	s.bot.ResumePendingComments()
 
 	if cfg.IPGeoDB != "" {
 		checker, err := ipgeo.Open(cfg.IPGeoDB)
@@ -1665,7 +1670,7 @@ func (s *Server) purgeTask(_ context.Context, entry *taskEntry, _ *dto.EmptyReq)
 		purgePrimaryName = p.Name
 	}
 	runner := s.runners[purgePrimaryName]
-	go s.cleanupTask(entry, runner, task.StatePurged) //nolint:contextcheck // cleanupTask intentionally uses server context
+	go s.cleanupTask(entry, runner, task.StatePurged)
 	return &v1.StatusResp{Status: "purging"}, nil
 }
 
@@ -1822,7 +1827,7 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 			return // webhook will handle completion
 		}
 		if len(runs) > 0 {
-			result, done := evaluateCheckRuns(owner, repo, runs)
+			result, done := bot.EvaluateCheckRuns(owner, repo, runs)
 			if done {
 				if err := s.ciCache.Put(owner, repo, sha, result); err != nil {
 					slog.Warn("monitorCI: cache put", "err", err)
@@ -1861,7 +1866,7 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 		if len(runs) == 0 {
 			continue
 		}
-		result, done := evaluateCheckRuns(owner, repo, runs)
+		result, done := bot.EvaluateCheckRuns(owner, repo, runs)
 		if !done {
 			t.SetCIStatus(task.CIStatusPending, nil)
 			s.notifyTaskChange()
@@ -1955,29 +1960,7 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f f
 	var summary string
 	if result.Status == cicache.StatusFailure {
 		ciStatus = task.CIStatusFailure
-		var sb strings.Builder
-		var numFailed int
-		for _, c := range result.Checks {
-			if c.Conclusion != cicache.CheckConclusionSuccess &&
-				c.Conclusion != cicache.CheckConclusionNeutral &&
-				c.Conclusion != cicache.CheckConclusionSkipped {
-				numFailed++
-			}
-		}
-		fmt.Fprintf(&sb, "%s CI: %d check(s) failed:\n", f.Name(), numFailed)
-		for _, c := range result.Checks {
-			if c.Conclusion != cicache.CheckConclusionSuccess &&
-				c.Conclusion != cicache.CheckConclusionNeutral &&
-				c.Conclusion != cicache.CheckConclusionSkipped {
-				if jobURL := f.CIJobURL(c.Owner, c.Repo, c.RunID, c.JobID); jobURL != "" {
-					fmt.Fprintf(&sb, "- %s (%s): %s\n", c.Name, c.Conclusion, jobURL)
-				} else {
-					fmt.Fprintf(&sb, "- %s (%s)\n", c.Name, c.Conclusion)
-				}
-			}
-		}
-		sb.WriteString("\nPlease fix the failures above.")
-		summary = strings.TrimRight(sb.String(), "\n")
+		summary = bot.FailureSummary(f, result)
 	} else {
 		// CI passed — attempt a squash merge.
 		snap := t.Snapshot()
@@ -2071,39 +2054,160 @@ func (s *Server) maybeAutoFix(t *task.Task, f forge.Forge, ciSummary string) {
 	}
 	prompt += fmt.Sprintf(". Please fix the failing CI checks on branch %q and push the fix:\n\n%s", primary.Branch, ciSummary)
 	slog.Info("auto-fix: creating task", "repo", primary.Name, "pr", snap.ForgePR, "branch", primary.Branch)
-	s.createWebhookTask(s.ctx, repo, prompt, 0, "", 0, t.OwnerID)
+	if _, err := s.CreateTask(s.ctx, bot.TaskRequest{Repo: repo.RelPath, Prompt: prompt, OwnerID: t.OwnerID}); err != nil {
+		slog.Warn("maybeAutoFix: create task", "repo", primary.Name, "err", err)
+	}
 }
 
-// evaluateCheckRuns inspects runs for a SHA and returns a cicache.Result plus
-// whether all checks have completed (done=true). Only call with len(runs)>0.
-func evaluateCheckRuns(owner, repo string, runs []forge.CheckRun) (cicache.Result, bool) {
-	for _, r := range runs {
-		if r.Status != forge.CheckRunStatusCompleted {
-			return cicache.Result{}, false
+// ResolveRepo implements bot.Client. It maps a forge full name to repo info.
+func (s *Server) ResolveRepo(forgeFullName string) *bot.RepoInfo {
+	owner, repo, ok := strings.Cut(forgeFullName, "/")
+	if !ok {
+		return nil
+	}
+	for _, ri := range s.repos {
+		if strings.EqualFold(ri.ForgeOwner, owner) && strings.EqualFold(ri.ForgeRepo, repo) {
+			return &bot.RepoInfo{
+				RelPath:    ri.RelPath,
+				ForgeKind:  ri.ForgeKind,
+				ForgeOwner: ri.ForgeOwner,
+				ForgeRepo:  ri.ForgeRepo,
+			}
 		}
 	}
-	checks := make([]cicache.ForgeCheck, 0, len(runs))
-	anyFailed := false
-	for _, r := range runs {
-		checks = append(checks, cicache.ForgeCheck{
-			Name:       r.Name,
-			Owner:      owner,
-			Repo:       repo,
-			RunID:      r.RunID,
-			JobID:      r.JobID,
-			Conclusion: cicache.CheckConclusion(r.Conclusion),
+	return nil
+}
+
+// CreateTask implements bot.Client. It creates and starts a task using the
+// same code path as the HTTP API handler, returning the new task ID.
+func (s *Server) CreateTask(ctx context.Context, req bot.TaskRequest) (string, error) {
+	runner, ok := s.runners[req.Repo]
+	if !ok {
+		return "", fmt.Errorf("runner not found for repo %s", req.Repo)
+	}
+	// Pick harness: prefer agent.Claude if available, otherwise take the first one.
+	var harness agent.Harness
+	if _, ok := runner.Backends[agent.Claude]; ok {
+		harness = agent.Claude
+	} else {
+		for h := range runner.Backends {
+			harness = h
+			break
+		}
+	}
+	if harness == "" {
+		return "", fmt.Errorf("no backend available for repo %s", req.Repo)
+	}
+	t := &task.Task{
+		ID:            ksid.NewID(),
+		InitialPrompt: agent.Prompt{Text: req.Prompt},
+		Repos:         []task.RepoMount{{Name: req.Repo, GitRoot: runner.Dir}},
+		Harness:       harness,
+		StartedAt:     time.Now().UTC(),
+		Provider:      s.provider,
+		OwnerID:       req.OwnerID,
+		ForgeIssue:    req.IssueNumber,
+	}
+	if req.IssueNumber > 0 {
+		// Set forge owner/repo so ListPendingBotTasks can resolve the commenter.
+		for _, ri := range s.repos {
+			if ri.RelPath == req.Repo && ri.ForgeOwner != "" {
+				t.SetPR(ri.ForgeOwner, ri.ForgeRepo, 0)
+				break
+			}
+		}
+	}
+	t.SetTitle(req.Prompt)
+	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive request
+	entry := &taskEntry{task: t, done: make(chan struct{})}
+	s.mu.Lock()
+	s.tasks[t.ID.String()] = entry
+	s.taskChanged()
+	s.mu.Unlock()
+	go func() {
+		h, err := runner.Start(s.ctx, t)
+		if err != nil {
+			result := task.Result{State: task.StateFailed, Err: err}
+			s.mu.Lock()
+			entry.result = &result
+			s.taskChanged()
+			s.mu.Unlock()
+			close(entry.done)
+			return
+		}
+		s.watchSession(entry, runner, h)
+	}()
+	slog.Info("bot task created", "id", t.ID, "repo", req.Repo, "harness", harness)
+	return t.ID.String(), nil
+}
+
+// WatchTaskCompletion implements bot.Client. It blocks until the task reaches
+// a state where the agent has finished (waiting, stopped, failed, or purged),
+// then returns the state name and the agent's result text.
+func (s *Server) WatchTaskCompletion(ctx context.Context, taskID string) (state, result string, err error) {
+	s.mu.Lock()
+	entry, ok := s.tasks[taskID]
+	s.mu.Unlock()
+	if !ok {
+		return "", "", fmt.Errorf("task %s not found", taskID)
+	}
+	for {
+		st := entry.task.GetState()
+		switch st { //nolint:exhaustive // only terminal/idle states are relevant
+		case task.StateWaiting, task.StateStopped, task.StateFailed, task.StatePurged:
+			return st.String(), lastResultText(entry.task), nil
+		}
+		s.mu.Lock()
+		ch := s.changed
+		s.mu.Unlock()
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		}
+	}
+}
+
+// ListPendingBotTasks implements bot.Client. It returns non-terminal tasks
+// that have a ForgeIssue set (i.e. tasks the bot should post a completion
+// comment on). Called during startup to resume comment watchers.
+func (s *Server) ListPendingBotTasks() []bot.PendingBotTask {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []bot.PendingBotTask
+	for id, entry := range s.tasks {
+		snap := entry.task.Snapshot()
+		if snap.ForgeIssue <= 0 {
+			continue
+		}
+		st := snap.State
+		if st == task.StateWaiting || st == task.StateStopped || st == task.StateFailed || st == task.StatePurged {
+			continue // already terminal for bot purposes
+		}
+		out = append(out, bot.PendingBotTask{
+			TaskID:      id,
+			ForgeOwner:  snap.ForgeOwner,
+			ForgeRepo:   snap.ForgeRepo,
+			IssueNumber: snap.ForgeIssue,
 		})
-		if r.Conclusion != forge.CheckRunConclusionSuccess &&
-			r.Conclusion != forge.CheckRunConclusionNeutral &&
-			r.Conclusion != forge.CheckRunConclusionSkipped {
-			anyFailed = true
+	}
+	return out
+}
+
+// ResolveCommenter implements bot.Client. It returns a Commenter for the
+// given forge owner by looking up the cached GitHub App installation ID,
+// falling back to the PAT. Returns nil if no commenter is available.
+func (s *Server) ResolveCommenter(ctx context.Context, owner string) bot.Commenter {
+	installID := s.installationID(owner)
+	if installID == 0 && s.githubApp != nil {
+		// Try to discover the installation ID via the API.
+		id, err := s.githubApp.RepoInstallation(ctx, owner, "")
+		if err == nil && id > 0 {
+			s.storeInstallationID(owner, id)
+			installID = id
 		}
 	}
-	status := cicache.StatusSuccess
-	if anyFailed {
-		status = cicache.StatusFailure
-	}
-	return cicache.Result{Status: status, Checks: checks}, true
+	return s.commenterFor(installID)
 }
 
 // pollRepoCIOnce fetches the default branch CI status for a single repo.
@@ -2132,7 +2236,7 @@ func (s *Server) pollRepoCIOnce(ctx context.Context, info repoInfo, f forge.Forg
 	if len(runs) == 0 {
 		return
 	}
-	result, done := evaluateCheckRuns(info.ForgeOwner, info.ForgeRepo, runs)
+	result, done := bot.EvaluateCheckRuns(info.ForgeOwner, info.ForgeRepo, runs)
 	if !done {
 		// Still pending — store pending status without caching.
 		s.setRepoCIStatus(info.RelPath, sha, cicache.Result{Status: cicache.StatusPending})
@@ -2801,6 +2905,10 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 			}
 		}
 	}
+	var forgeIssue int
+	if lt != nil {
+		forgeIssue = lt.ForgeIssue
+	}
 	t := &task.Task{
 		ID:            taskID,
 		InitialPrompt: agent.Prompt{Text: prompt},
@@ -2813,6 +2921,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		USB:           c.USB,
 		Display:       c.Display,
 		Provider:      s.provider,
+		ForgeIssue:    forgeIssue,
 	}
 	t.SetStateAt(task.StateRunning, stateUpdatedAt)
 	// Set an immediate fallback title; GenerateTitle is fired async below
@@ -2821,6 +2930,10 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		t.SetTitle(lt.Title)
 	} else {
 		t.SetTitle(prompt)
+	}
+	if forgeIssue > 0 && ri.ForgeOwner != "" {
+		// Ensure forge owner/repo are set so the bot can resolve a commenter.
+		t.SetPR(ri.ForgeOwner, ri.ForgeRepo, 0)
 	}
 
 	if relayAlive && len(relayMsgs) > 0 {
@@ -2943,10 +3056,6 @@ func (s *Server) cleanupTask(entry *taskEntry, runner *task.Runner, reason task.
 		s.taskChanged()
 		s.mu.Unlock()
 		close(entry.done)
-		// Post a comment back to GitHub if this was a webhook-triggered task.
-		if entry.webhookIssueNumber > 0 && entry.webhookForgeFullName != "" {
-			go s.postWebhookComment(entry)
-		}
 	})
 }
 
@@ -3308,6 +3417,7 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	j.ForgeOwner = snap.ForgeOwner
 	j.ForgeRepo = snap.ForgeRepo
 	j.ForgePR = snap.ForgePR
+	j.ForgeIssue = snap.ForgeIssue
 	j.CIStatus = v1.CIStatus(snap.CIStatus)
 	if len(snap.CIChecks) > 0 {
 		j.CIChecks = make([]v1.ForgeCheck, len(snap.CIChecks))

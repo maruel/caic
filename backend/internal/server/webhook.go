@@ -5,19 +5,16 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
-	"github.com/caic-xyz/caic/backend/internal/agent"
+	"github.com/caic-xyz/caic/backend/internal/bot"
 	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/forge"
 	"github.com/caic-xyz/caic/backend/internal/github"
 	"github.com/caic-xyz/caic/backend/internal/task"
-	"github.com/maruel/ksid"
 )
 
 const maxWebhookBodyBytes = 10 << 20 // 10 MB
@@ -202,7 +199,7 @@ func (s *Server) webhookOnCI(ctx context.Context, kind forge.Kind, owner, repo, 
 		return
 	}
 
-	result, done := evaluateCheckRuns(owner, repo, runs)
+	result, done := bot.EvaluateCheckRuns(owner, repo, runs)
 
 	for _, e := range affected {
 		if !done {
@@ -234,25 +231,19 @@ func (s *Server) handleIssuesEvent(ctx context.Context, ev *github.IssuesEvent) 
 	if ev.Action != "opened" {
 		return
 	}
-	hasCaicLabel := false
-	for _, l := range ev.Issue.Labels {
-		if l.Name == "caic" {
-			hasCaicLabel = true
-			break
-		}
-	}
-	if !hasCaicLabel {
-		return
-	}
-	repo := s.repoByForge(ev.Repository.FullName)
-	if repo == nil {
-		slog.Warn("webhook: no repo for", "full_name", ev.Repository.FullName)
-		return
-	}
 	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
-	prompt := fmt.Sprintf("Fix the following GitHub issue:\n\nTitle: %s\nURL: %s\n\n%s",
-		ev.Issue.Title, ev.Issue.HTMLURL, ev.Issue.Body)
-	s.createWebhookTask(ctx, repo, prompt, ev.Installation.ID, ev.Repository.FullName, ev.Issue.Number, "")
+	labels := make([]string, len(ev.Issue.Labels))
+	for i, l := range ev.Issue.Labels {
+		labels[i] = l.Name
+	}
+	s.bot.OnIssueOpened(ctx, &bot.IssueEvent{
+		ForgeFullName: ev.Repository.FullName,
+		Number:        ev.Issue.Number,
+		Title:         ev.Issue.Title,
+		Body:          ev.Issue.Body,
+		HTMLURL:       ev.Issue.HTMLURL,
+		Labels:        labels,
+	}, s.commenterFor(ev.Installation.ID))
 }
 
 // handlePullRequestEvent creates a task when a PR is opened or reopened.
@@ -261,19 +252,16 @@ func (s *Server) handlePullRequestEvent(ctx context.Context, ev *github.PullRequ
 	if ev.Action != "opened" && ev.Action != "reopened" {
 		return
 	}
-	repo := s.repoByForge(ev.Repository.FullName)
-	if repo == nil {
-		slog.Warn("webhook: no repo for", "full_name", ev.Repository.FullName)
-		return
-	}
 	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
-	prompt := fmt.Sprintf("Review and fix the following pull request:\n\nTitle: %s\nBranch: %s → %s\nURL: %s\n\n%s",
-		ev.PullRequest.Title,
-		ev.PullRequest.Head.Ref,
-		ev.PullRequest.Base.Ref,
-		ev.PullRequest.HTMLURL,
-		ev.PullRequest.Body)
-	s.createWebhookTask(ctx, repo, prompt, 0, "", 0, "")
+	s.bot.OnPROpened(ctx, &bot.PREvent{
+		ForgeFullName: ev.Repository.FullName,
+		Number:        ev.PullRequest.Number,
+		Title:         ev.PullRequest.Title,
+		Body:          ev.PullRequest.Body,
+		HTMLURL:       ev.PullRequest.HTMLURL,
+		HeadRef:       ev.PullRequest.Head.Ref,
+		BaseRef:       ev.PullRequest.Base.Ref,
+	})
 }
 
 // handleIssueCommentEvent creates a task when @caic is mentioned in a comment.
@@ -282,21 +270,14 @@ func (s *Server) handleIssueCommentEvent(ctx context.Context, ev *github.IssueCo
 	if ev.Action != "created" {
 		return
 	}
-	if !strings.Contains(ev.Comment.Body, "@caic") {
-		return
-	}
-	repo := s.repoByForge(ev.Repository.FullName)
-	if repo == nil {
-		slog.Warn("webhook: no repo for", "full_name", ev.Repository.FullName)
-		return
-	}
 	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
-	prompt := fmt.Sprintf("A user mentioned @caic in a comment on issue #%d:\n\nIssue: %s\nComment URL: %s\n\n%s",
-		ev.Issue.Number,
-		ev.Issue.Title,
-		ev.Comment.HTMLURL,
-		ev.Comment.Body)
-	s.createWebhookTask(ctx, repo, prompt, 0, "", 0, "")
+	s.bot.OnIssueComment(ctx, bot.CommentEvent{
+		ForgeFullName: ev.Repository.FullName,
+		IssueNumber:   ev.Issue.Number,
+		IssueTitle:    ev.Issue.Title,
+		CommentBody:   ev.Comment.Body,
+		CommentURL:    ev.Comment.HTMLURL,
+	}, s.commenterFor(ev.Installation.ID))
 }
 
 // handleInstallationEvent enforces the owner allowlist on new installs.
@@ -346,7 +327,7 @@ func (s *Server) handleCheckSuiteEvent(ctx context.Context, ev *github.CheckSuit
 		slog.Warn("handleCheckSuiteEvent: get check-runs", "sha", sha, "err", err)
 		return
 	}
-	result, done := evaluateCheckRuns(repo.ForgeOwner, repo.ForgeRepo, runs)
+	result, done := bot.EvaluateCheckRuns(repo.ForgeOwner, repo.ForgeRepo, runs)
 	if !done {
 		return
 	}
@@ -395,11 +376,10 @@ func (s *Server) storeInstallationIDFromFullName(fullName string, id int64) {
 
 // repoByForge finds the repoInfo whose forge matches "owner/repo".
 func (s *Server) repoByForge(fullName string) *repoInfo {
-	parts := strings.SplitN(fullName, "/", 2)
-	if len(parts) != 2 {
+	owner, repo, ok := strings.Cut(fullName, "/")
+	if !ok {
 		return nil
 	}
-	owner, repo := parts[0], parts[1]
 	for i := range s.repos {
 		r := &s.repos[i]
 		if strings.EqualFold(r.ForgeOwner, owner) && strings.EqualFold(r.ForgeRepo, repo) {
@@ -409,103 +389,26 @@ func (s *Server) repoByForge(fullName string) *repoInfo {
 	return nil
 }
 
-// createWebhookTask creates a task triggered by a webhook event.
-// issueNumber > 0 and forgeFullName != "" enables post-completion comment.
-func (s *Server) createWebhookTask(_ context.Context, repo *repoInfo, prompt string, installationID int64, forgeFullName string, issueNumber int, ownerID string) {
-	runner, ok := s.runners[repo.RelPath]
-	if !ok {
-		slog.Warn("webhook: runner not found", "repo", repo.RelPath)
-		return
+// commenterFor returns a bot.Commenter for posting comments via the GitHub App
+// (when installationID is non-zero) or the configured PAT, or nil if neither
+// is available.
+func (s *Server) commenterFor(installationID int64) bot.Commenter {
+	if s.githubApp != nil && installationID != 0 {
+		return &appInstallCommenter{app: s.githubApp, installationID: installationID}
 	}
-	// Pick harness: prefer agent.Claude if available, otherwise take the first one.
-	var harness agent.Harness
-	if _, ok := runner.Backends[agent.Claude]; ok {
-		harness = agent.Claude
-	} else {
-		for h := range runner.Backends {
-			harness = h
-			break
-		}
+	if s.githubToken != "" {
+		return github.NewClient(s.githubToken, s.githubPATThrottle)
 	}
-	if harness == "" {
-		slog.Warn("webhook: no backend available", "repo", repo.RelPath)
-		return
-	}
-
-	t := &task.Task{
-		ID:            ksid.NewID(),
-		InitialPrompt: agent.Prompt{Text: prompt},
-		Repos:         []task.RepoMount{{Name: repo.RelPath, GitRoot: runner.Dir}},
-		Harness:       harness,
-		StartedAt:     time.Now().UTC(),
-		Provider:      s.provider,
-		OwnerID:       ownerID,
-	}
-	t.SetTitle(prompt)
-	go t.GenerateTitle(s.ctx) //nolint:contextcheck // fire-and-forget; must outlive request
-	entry := &taskEntry{task: t, done: make(chan struct{})}
-	// Store webhook callback info for post-completion comment.
-	if issueNumber > 0 && forgeFullName != "" {
-		entry.webhookInstallationID = installationID
-		entry.webhookForgeFullName = forgeFullName
-		entry.webhookIssueNumber = issueNumber
-	}
-
-	s.mu.Lock()
-	s.tasks[t.ID.String()] = entry
-	s.taskChanged()
-	s.mu.Unlock()
-
-	go func() {
-		h, err := runner.Start(s.ctx, t)
-		if err != nil {
-			result := task.Result{State: task.StateFailed, Err: err}
-			s.mu.Lock()
-			entry.result = &result
-			s.taskChanged()
-			s.mu.Unlock()
-			close(entry.done)
-			return
-		}
-		s.watchSession(entry, runner, h)
-	}()
-
-	slog.Info("webhook task created", "id", t.ID, "repo", repo.RelPath, "harness", harness)
+	return nil
 }
 
-// postWebhookComment posts a comment on the originating GitHub issue/PR after a webhook-triggered task completes.
-func (s *Server) postWebhookComment(entry *taskEntry) {
-	if s.githubApp == nil && s.githubToken == "" {
-		return
-	}
-	parts := strings.SplitN(entry.webhookForgeFullName, "/", 2)
-	if len(parts) != 2 {
-		return
-	}
-	owner, repo := parts[0], parts[1]
-	t := entry.task
-	snap := t.Snapshot()
-	var body string
-	if entry.result != nil && entry.result.AgentResult != "" {
-		body = fmt.Sprintf("caic task completed (state: %s)\n\n%s", snap.State, entry.result.AgentResult)
-	} else {
-		body = fmt.Sprintf("caic task completed (state: %s)", snap.State)
-	}
-	if s.githubApp != nil && entry.webhookInstallationID != 0 {
-		ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
-		defer cancel()
-		if err := s.githubApp.PostComment(ctx, entry.webhookInstallationID, owner, repo, entry.webhookIssueNumber, body); err != nil {
-			slog.Warn("webhook comment failed", "err", err, "repo", entry.webhookForgeFullName)
-		}
-		return
-	}
-	// Fall back to PAT if no app configured.
-	if s.githubToken != "" {
-		client := github.NewClient(s.githubToken, s.githubPATThrottle)
-		ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
-		defer cancel()
-		if err := client.PostComment(ctx, owner, repo, entry.webhookIssueNumber, body); err != nil {
-			slog.Warn("webhook comment (PAT) failed", "err", err)
-		}
-	}
+// appInstallCommenter adapts githubAppClient.PostComment to bot.Commenter by
+// binding a fixed installation ID.
+type appInstallCommenter struct {
+	app            githubAppClient
+	installationID int64
+}
+
+func (c *appInstallCommenter) PostComment(ctx context.Context, owner, repo string, issueNumber int, body string) error {
+	return c.app.PostComment(ctx, c.installationID, owner, repo, issueNumber, body)
 }

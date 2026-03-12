@@ -301,6 +301,7 @@ type MetaMessage struct {
 	Harness     Harness    `json:"harness"`
 	Model       string     `json:"model,omitempty"`
 	StartedAt   time.Time  `json:"started_at"`
+	ForgeIssue  int        `json:"forge_issue,omitempty"` // Originating issue/PR number for bot comment callbacks.
 }
 
 // Type implements Message.

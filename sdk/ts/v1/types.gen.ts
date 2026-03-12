@@ -495,6 +495,7 @@ export interface Task {
   forgeOwner?: string;
   forgeRepo?: string;
   forgePR?: number /* int */;
+  forgeIssue?: number /* int */;
   ciStatus?: CIStatus;
   ciChecks?: ForgeCheck[];
   owner?: string; // username of creator; omitted in no-auth mode

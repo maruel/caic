@@ -228,6 +228,7 @@ All errors return:
 | `forgeOwner` | `string` |  |
 | `forgeRepo` | `string` |  |
 | `forgePR` | `number` |  |
+| `forgeIssue` | `number` |  |
 | `ciStatus` | `string` |  |
 | `ciChecks` | `ForgeCheck[]` |  |
 | `owner` | `string` |  |

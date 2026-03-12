@@ -1077,6 +1077,7 @@ func (r *Runner) openLog(t *Task) (io.WriteCloser, error) {
 		Harness:     t.Harness,
 		Model:       t.Model,
 		StartedAt:   t.StartedAt,
+		ForgeIssue:  t.ForgeIssue,
 	}
 	if data, err := json.Marshal(meta); err == nil {
 		_, _ = f.Write(append(data, '\n'))

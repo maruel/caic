@@ -154,6 +154,7 @@ type Task struct {
 	ForgeOwner                         string       `json:"forgeOwner,omitempty"`
 	ForgeRepo                          string       `json:"forgeRepo,omitempty"`
 	ForgePR                            int          `json:"forgePR,omitempty"`
+	ForgeIssue                         int          `json:"forgeIssue,omitempty"`
 	CIStatus                           CIStatus     `json:"ciStatus,omitempty"`
 	CIChecks                           []ForgeCheck `json:"ciChecks,omitempty"`
 	Owner                              string       `json:"owner,omitempty"` // username of creator; omitted in no-auth mode
