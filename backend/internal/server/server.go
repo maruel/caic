@@ -1727,7 +1727,7 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, f forge.Forg
 //
 // With a GitHub App configured, it performs a single initial check and returns;
 // subsequent updates are delivered via check_suite webhook events.
-// Without an App, it polls every 30 s.
+// Without an App, it polls every 15 s.
 func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string) {
 	t := entry.task
 
@@ -1762,8 +1762,8 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 		return // check_suite webhook delivers the terminal result
 	}
 
-	// Without App: poll every 30 s.
-	ticker := time.NewTicker(30 * time.Second)
+	// Without App: poll every 15 s.
+	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
 		select {

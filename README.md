@@ -67,7 +67,7 @@ After a successful sync to the task's branch, caic automatically opens a pull re
 
 ### CI monitoring
 
-After the PR/MR is created, caic polls CI status every 30 seconds (GitHub check-runs or GitLab pipeline statuses). While checks are running, the task header shows **CI: pending**. When all checks finish:
+After the PR/MR is created, caic polls CI status every 15 seconds (GitHub check-runs or GitLab pipeline statuses). While checks are running, the task header shows **CI: pending**. When all checks finish:
 
 - **CI: passed** — all checks succeeded; the agent is notified with a summary.
 - **CI: failed** — one or more checks failed; the agent is notified with the names and URLs of the failing checks so it can act on them.
