@@ -11,6 +11,16 @@ import (
 //go:generate go tool tygo generate --config ../../../../../backend/tygo.yaml
 //go:generate go run github.com/caic-xyz/caic/backend/internal/cmd/gen-api-sdk
 
+// Forge identifies the code hosting forge.
+// Values must match forge.Kind constants.
+type Forge string
+
+// Supported forges.
+const (
+	ForgeGitHub Forge = "github"
+	ForgeGitLab Forge = "gitlab"
+)
+
 // Harness identifies the coding agent harness.
 // Values must match agent.Harness constants.
 type Harness string
@@ -99,6 +109,7 @@ type Repo struct {
 	Path                  string       `json:"path"`
 	BaseBranch            string       `json:"baseBranch"`
 	RemoteURL             string       `json:"remoteURL,omitempty"`
+	Forge                 Forge        `json:"forge,omitempty"` // "github", "gitlab", or empty if unknown.
 	DefaultBranchCIStatus CIStatus     `json:"defaultBranchCIStatus,omitempty"`
 	DefaultBranchChecks   []ForgeCheck `json:"defaultBranchChecks,omitempty"`
 }
@@ -115,6 +126,7 @@ type TaskRepo struct {
 	BaseBranch string `json:"baseBranch,omitempty"`
 	Branch     string `json:"branch"`
 	RemoteURL  string `json:"remoteURL,omitempty"`
+	Forge      Forge  `json:"forge,omitempty"` // "github", "gitlab", or empty if unknown.
 }
 
 // Task is the JSON representation sent to the frontend.

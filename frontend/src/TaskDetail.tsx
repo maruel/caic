@@ -39,6 +39,7 @@ interface Props {
   planContent?: string;
   repo: string;
   remoteURL?: string;
+  forge?: string;
   branch: string;
   baseBranch: string;
   forgeOwner?: string;
@@ -376,13 +377,10 @@ export default function TaskDetail(props: Props) {
   };
 
   const isWaiting = () => props.taskState === "waiting" || props.taskState === "asking" || props.taskState === "has_plan";
-  const isGitHub = () => !!props.remoteURL?.includes("github.com");
-  const isGitLab = () => !!props.remoteURL?.includes("gitlab.com");
-
   const branchCompareURL = () => {
     const url = props.remoteURL;
     if (!url) return undefined;
-    if (isGitLab()) return `${url}/-/compare/${props.branch}?expand=1`;
+    if (props.forge === "gitlab") return `${url}/-/compare/${props.branch}?expand=1`;
     return `${url}/compare/${props.branch}?expand=1`; // GitHub default
   };
 
@@ -391,14 +389,14 @@ export default function TaskDetail(props: Props) {
     const repo = props.forgeRepo;
     const pr = props.forgePR;
     if (!owner || !repo || !pr) return undefined;
-    if (isGitLab()) return `https://gitlab.com/${owner}/${repo}/-/merge_requests/${pr}`;
+    if (props.forge === "gitlab") return `https://gitlab.com/${owner}/${repo}/-/merge_requests/${pr}`;
     return `https://github.com/${owner}/${repo}/pull/${pr}`;
   };
 
   const prLabel = () => {
     const pr = props.forgePR;
     if (!pr) return undefined;
-    return isGitLab() ? `MR #${pr}` : `PR #${pr}`;
+    return props.forge === "gitlab" ? `MR #${pr}` : `PR #${pr}`;
   };
 
   function clearAndExecutePlan() {
@@ -606,18 +604,18 @@ export default function TaskDetail(props: Props) {
             <div class={styles.syncButtonGroup}>
               <Button type="button" variant="gray" loading={pendingAction() === "sync"} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => doSync(false)} title={`Push to ${props.branch}`}>
                 <Switch fallback={<SyncIcon width="1.1em" height="1.1em" />}>
-                  <Match when={isGitHub()}>
+                  <Match when={props.forge === "github"}>
                     <GitHubIcon width="1.1em" height="1.1em" style={{ color: "black" }} />
                   </Match>
-                  <Match when={isGitLab()}>
+                  <Match when={props.forge === "gitlab"}>
                     <GitLabIcon width="1.1em" height="1.1em" style={{ color: "#e24329" }} />
                   </Match>
                 </Switch>
+                {props.forge ? (props.forgePR ? " Push" : " Create PR") : " Push"}
               </Button>
               <button type="button" class={styles.syncDropdownToggle} disabled={!!pendingAction() || props.taskState === "terminating"} onClick={() => setSyncMenuOpen((v) => !v)} aria-label="Sync options">&#9660;</button>
               <Show when={syncMenuOpen()}>
                 <div class={styles.syncDropdown}>
-                  <button type="button" class={styles.syncDropdownItem} onClick={() => doSync(false)}>Push to {props.branch}</button>
                   <button type="button" class={styles.syncDropdownItem} onClick={() => doSync(false, SyncTargetDefault)}>Push to {props.baseBranch}</button>
                 </div>
               </Show>

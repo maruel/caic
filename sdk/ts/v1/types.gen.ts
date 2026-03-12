@@ -303,6 +303,19 @@ Exported request and response types for the caic API.
 */
 
 /**
+ * Forge identifies the code hosting forge.
+ * Values must match forge.Kind constants.
+ */
+export type Forge = string;
+/**
+ * Supported forges.
+ */
+export const ForgeGitHub: Forge = "github";
+/**
+ * Supported forges.
+ */
+export const ForgeGitLab: Forge = "gitlab";
+/**
  * Harness identifies the coding agent harness.
  * Values must match agent.Harness constants.
  */
@@ -434,6 +447,7 @@ export interface Repo {
   path: string;
   baseBranch: string;
   remoteURL?: string;
+  forge?: Forge; // "github", "gitlab", or empty if unknown.
   defaultBranchCIStatus?: CIStatus;
   defaultBranchChecks?: ForgeCheck[];
 }
@@ -452,6 +466,7 @@ export interface TaskRepo {
   baseBranch?: string;
   branch: string;
   remoteURL?: string;
+  forge?: Forge; // "github", "gitlab", or empty if unknown.
 }
 /**
  * Task is the JSON representation sent to the frontend.

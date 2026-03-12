@@ -11,16 +11,34 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/maruel/roundtrippers"
+
 	"github.com/caic-xyz/caic/backend/internal/forge"
 )
 
 // Client is a minimal GitLab API client authenticated with a personal access token.
 // It implements forge.Forge.
 type Client struct {
-	Token string
+	HTTPClient *http.Client
 }
 
 var _ forge.Forge = (*Client)(nil)
+
+// NewClient returns a Client that authenticates with token and throttles/retries
+// via throttle. The transport chain is: Header → Retry → throttle.
+func NewClient(token string, throttle http.RoundTripper) *Client {
+	return &Client{
+		HTTPClient: &http.Client{
+			Transport: &roundtrippers.Header{
+				Transport: &roundtrippers.Retry{Transport: throttle},
+				Header: http.Header{
+					"PRIVATE-TOKEN": {token},
+					"Content-Type":  {"application/json"},
+				},
+			},
+		},
+	}
+}
 
 const apiBase = "https://gitlab.com/api/v4"
 
@@ -75,8 +93,7 @@ func (c *Client) CreatePR(ctx context.Context, owner, repo, head, base, title, b
 	if err != nil {
 		return forge.PR{}, err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return forge.PR{}, err
 	}
@@ -102,8 +119,7 @@ func (c *Client) GetDefaultBranchSHA(ctx context.Context, owner, repo, branch st
 	if err != nil {
 		return "", err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -132,8 +148,7 @@ func (c *Client) GetCheckRuns(ctx context.Context, owner, repo, sha string) ([]f
 	if err != nil {
 		return nil, err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -196,11 +211,6 @@ func (c *Client) BranchCompareURL(remoteURL, branch string) string {
 // Name returns "GitLab".
 func (c *Client) Name() string { return "GitLab" }
 
-func (c *Client) setHeaders(req *http.Request) {
-	req.Header.Set("PRIVATE-TOKEN", c.Token)
-	req.Header.Set("Content-Type", "application/json")
-}
-
 // gitLabStatus maps GitLab pipeline status strings to forge.CheckRunStatus.
 func gitLabStatus(status string) forge.CheckRunStatus {
 	switch status {
@@ -233,6 +243,42 @@ func gitLabConclusion(status string, allowFailure bool) forge.CheckRunConclusion
 	}
 }
 
+// mergeMRRequest is the JSON body for PUT /projects/{id}/merge_requests/{mr_iid}/merge.
+type mergeMRRequest struct {
+	Squash              bool   `json:"squash"`
+	SquashCommitMessage string `json:"squash_commit_message"`
+}
+
+// MergePR squash-merges a merge request on GitLab.
+func (c *Client) MergePR(ctx context.Context, owner, repo string, prNumber int, commitTitle, commitMessage string) error {
+	msg := commitTitle
+	if commitMessage != "" {
+		msg += "\n\n" + commitMessage
+	}
+	payload, err := json.Marshal(mergeMRRequest{
+		Squash:              true,
+		SquashCommitMessage: msg,
+	})
+	if err != nil {
+		return err
+	}
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests/%d/merge", apiBase, projectID(owner, repo), prNumber)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, apiURL, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("gitlab merge MR: status %d: %s", resp.StatusCode, data)
+	}
+	return nil
+}
+
 // GetJobLog fetches the log for a GitLab CI job and returns the last
 // maxBytes bytes of its content. maxBytes <= 0 means no limit.
 func (c *Client) GetJobLog(ctx context.Context, owner, repo string, jobID int64, maxBytes int) (string, error) {
@@ -241,8 +287,7 @@ func (c *Client) GetJobLog(ctx context.Context, owner, repo string, jobID int64,
 	if err != nil {
 		return "", err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}

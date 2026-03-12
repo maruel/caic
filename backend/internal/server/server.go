@@ -44,6 +44,7 @@ import (
 	"github.com/maruel/genai"
 	"github.com/maruel/genai/providers"
 	"github.com/maruel/ksid"
+	"github.com/maruel/roundtrippers"
 )
 
 type repoInfo struct {
@@ -204,6 +205,15 @@ type Server struct {
 
 	// Agent backends.
 	geminiAPIKey string
+
+	// Throttle transports for forge API calls. GitHub OAuth, PAT, and App tokens
+	// each have separate GitHub-side rate-limit buckets and must not share a throttle.
+	// OAuth is per-user (separate buckets per authenticated user); guarded by mu.
+	githubOAuthThrottles map[string]http.RoundTripper // keyed by user ID
+	githubPATThrottle    http.RoundTripper
+	githubAppThrottle    http.RoundTripper
+	gitlabOAuthThrottles map[string]http.RoundTripper // keyed by user ID
+	gitlabPATThrottle    http.RoundTripper
 
 	// GitHub.
 	githubToken            string
@@ -505,34 +515,39 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 	}
 
 	s := &Server{
-		ctx:                 ctx,
-		absRoot:             absRoot,
-		runners:             make(map[string]*task.Runner, len(repoRes.paths)),
-		mdClient:            mdClient,
-		logDir:              logDir,
-		prefs:               prefsStore,
-		authStore:           authStore,
-		sessionSecret:       sessionSecret,
-		githubOAuth:         githubOAuth,
-		gitlabOAuth:         gitlabOAuth,
-		githubAllowedUsers:  githubAllowedUsers,
-		gitlabAllowedUsers:  gitlabAllowedUsers,
-		allowedHost:         allowedHost,
-		usage:               newUsageFetcher(ctx),
-		geminiAPIKey:        cfg.GeminiAPIKey,
-		githubToken:         cfg.GitHubToken,
-		gitlabToken:         cfg.GitLabToken,
-		ciCache:             cache,
-		backend:             backend,
-		tasks:               make(map[string]*taskEntry),
-		repoCIStatus:        make(map[string]repoCIState),
-		changed:             make(chan struct{}),
-		githubInstallations: make(map[string]int64),
+		ctx:                  ctx,
+		absRoot:              absRoot,
+		runners:              make(map[string]*task.Runner, len(repoRes.paths)),
+		mdClient:             mdClient,
+		logDir:               logDir,
+		prefs:                prefsStore,
+		authStore:            authStore,
+		sessionSecret:        sessionSecret,
+		githubOAuth:          githubOAuth,
+		gitlabOAuth:          gitlabOAuth,
+		githubAllowedUsers:   githubAllowedUsers,
+		gitlabAllowedUsers:   gitlabAllowedUsers,
+		allowedHost:          allowedHost,
+		usage:                newUsageFetcher(ctx),
+		geminiAPIKey:         cfg.GeminiAPIKey,
+		githubToken:          cfg.GitHubToken,
+		gitlabToken:          cfg.GitLabToken,
+		githubOAuthThrottles: make(map[string]http.RoundTripper),
+		githubPATThrottle:    newThrottle(),
+		githubAppThrottle:    newThrottle(),
+		gitlabOAuthThrottles: make(map[string]http.RoundTripper),
+		gitlabPATThrottle:    newThrottle(),
+		ciCache:              cache,
+		backend:              backend,
+		tasks:                make(map[string]*taskEntry),
+		repoCIStatus:         make(map[string]repoCIState),
+		changed:              make(chan struct{}),
+		githubInstallations:  make(map[string]int64),
 	}
 	s.githubWebhookSecret = cfg.GitHubWebhookSecret
 	s.gitlabWebhookSecret = cfg.GitLabWebhookSecret
 	if cfg.GitHubAppID != 0 && len(cfg.GitHubAppPrivateKeyPEM) > 0 {
-		app, err := github.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM)
+		app, err := github.NewAppClient(cfg.GitHubAppID, cfg.GitHubAppPrivateKeyPEM, s.githubAppThrottle)
 		if err != nil {
 			return nil, fmt.Errorf("github app: %w", err)
 		}
@@ -862,7 +877,7 @@ func (s *Server) listRepos(_ context.Context, _ *dto.EmptyReq) (*[]v1.Repo, erro
 func (s *Server) reposLocked() *[]v1.Repo {
 	out := make([]v1.Repo, len(s.repos))
 	for i, r := range s.repos {
-		repo := v1.Repo{Path: r.RelPath, BaseBranch: r.BaseBranch, RemoteURL: gitutil.RemoteToHTTPS(r.Remote)}
+		repo := v1.Repo{Path: r.RelPath, BaseBranch: r.BaseBranch, RemoteURL: gitutil.RemoteToHTTPS(r.Remote), Forge: v1.Forge(r.ForgeKind)}
 		if ci, ok := s.repoCIStatus[r.RelPath]; ok {
 			repo.DefaultBranchCIStatus = v1.CIStatus(ci.Status)
 			repo.DefaultBranchChecks = ci.Checks
@@ -961,12 +976,17 @@ func (s *Server) cloneRepo(ctx context.Context, req *v1.CloneRepoReq) (*v1.Repo,
 		return nil, dto.InternalError("failed to init runner: " + err.Error())
 	}
 
-	info := repoInfo{RelPath: targetPath, AbsPath: absTarget, BaseBranch: branch, Remote: remote}
+	var cloneForgeKind forge.Kind
+	var cloneForgeOwner, cloneForgeRepo string
+	if rawURL, err := forge.RemoteURL(ctx, absTarget); err == nil {
+		cloneForgeKind, cloneForgeOwner, cloneForgeRepo, _ = forge.ParseRemoteURL(rawURL)
+	}
+	info := repoInfo{RelPath: targetPath, AbsPath: absTarget, BaseBranch: branch, Remote: remote, ForgeKind: cloneForgeKind, ForgeOwner: cloneForgeOwner, ForgeRepo: cloneForgeRepo}
 	s.repos = append(s.repos, info)
 	s.runners[targetPath] = runner
 	slog.Info("cloned repo", "url", req.URL, "path", targetPath)
 
-	return &v1.Repo{Path: targetPath, BaseBranch: branch, RemoteURL: gitutil.RemoteToHTTPS(remote)}, nil
+	return &v1.Repo{Path: targetPath, BaseBranch: branch, RemoteURL: gitutil.RemoteToHTTPS(remote), Forge: v1.Forge(cloneForgeKind)}, nil
 }
 
 func (s *Server) listTasks(ctx context.Context, _ *dto.EmptyReq) (*[]v1.Task, error) {
@@ -1265,7 +1285,7 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 
 	// Seed CI status immediately on connect (once); subsequent updates come from
 	// webhooks (App) or the ciTicker (polling).
-	go s.pollCIForActiveRepos(s.ctx) //nolint:contextcheck // intentionally using server context; CI poll must outlive request
+	go s.pollCIForActiveRepos(context.WithoutCancel(r.Context()))
 
 	// prevByID tracks the last marshalled JSON for each task ID.
 	prevByID := map[string][]byte{}
@@ -1359,7 +1379,7 @@ func (s *Server) handleTaskListEvents(w http.ResponseWriter, r *http.Request) {
 		case <-ch:
 		case <-ticker.C:
 		case <-ciTickerC:
-			go s.pollCIForActiveRepos(s.ctx) //nolint:contextcheck // intentionally using server context; CI poll must outlive request
+			go s.pollCIForActiveRepos(context.WithoutCancel(r.Context()))
 		}
 	}
 }
@@ -1657,8 +1677,14 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 		status = "blocked"
 	}
 	if status == "synced" {
-		if info := s.repoInfoFor(syncPrimaryName); info != nil && s.forgeForInfo(ctx, info) != nil {
-			go s.startPRFlow(s.ctx, entry, syncPrimaryBranch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
+		if info := s.repoInfoFor(syncPrimaryName); info != nil {
+			if f := s.forgeForInfo(ctx, info); f != nil {
+				go s.startPRFlow(s.ctx, entry, f, info, syncPrimaryBranch, s.effectiveBaseBranch(t)) //nolint:contextcheck // intentionally using server context; PR flow must outlive request
+			} else {
+				slog.Warn("sync: no forge client available, skipping PR flow", "repo", syncPrimaryName, "forge", info.ForgeKind)
+			}
+		} else {
+			slog.Warn("sync: repo not found in server list, skipping PR flow", "repo", syncPrimaryName)
 		}
 	}
 	return &v1.SyncResp{Status: status, Branch: syncPrimaryBranch, DiffStat: toV1DiffStat(ds), SafetyIssues: toV1SafetyIssues(issues)}, nil
@@ -1666,20 +1692,9 @@ func (s *Server) syncTask(ctx context.Context, entry *taskEntry, req *v1.SyncReq
 
 // startPRFlow creates a PR/MR for the synced branch and then launches CI
 // monitoring. Runs in a goroutine; logs errors and returns on failure.
-func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, branch, baseBranch string) {
+// f and info are resolved at the call site so the caller's auth context is used.
+func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, f forge.Forge, info *repoInfo, branch, baseBranch string) {
 	t := entry.task
-	primaryName := ""
-	if p := t.Primary(); p != nil {
-		primaryName = p.Name
-	}
-	info := s.repoInfoFor(primaryName)
-	if info == nil || info.ForgeOwner == "" {
-		return
-	}
-	f := s.forgeForInfo(ctx, info)
-	if f == nil {
-		return
-	}
 	title := t.Title()
 	if title == "" {
 		title = t.InitialPrompt.Text
@@ -1781,8 +1796,80 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 	}
 }
 
-// applyMonitorCIResult updates the task CI status and injects the CI summary
-// into the agent.
+// waitForAgentResult subscribes to task messages and blocks until the agent
+// emits a ResultMessage (end of turn) or ctx is cancelled. Returns true when
+// a ResultMessage arrives, false on cancellation or closed channel.
+func (s *Server) waitForAgentResult(ctx context.Context, t *task.Task) bool {
+	_, live, unsub := t.Subscribe(ctx)
+	defer unsub()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case msg, ok := <-live:
+			if !ok {
+				return false
+			}
+			if _, isResult := msg.(*agent.ResultMessage); isResult {
+				return true
+			}
+		}
+	}
+}
+
+// autoResync waits for the agent to finish its current turn, then pushes the
+// latest branch commits to origin and starts a new CI monitoring goroutine.
+// Called after a CI failure so the loop closes: CI fails → agent fixes →
+// auto-push → CI re-runs → (repeat or merge on success).
+func (s *Server) autoResync(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo string) {
+	t := entry.task
+	if !s.waitForAgentResult(ctx, t) {
+		return
+	}
+
+	// Only proceed if the task is still waiting for input (agent finished cleanly).
+	st := t.GetState()
+	if st != task.StateWaiting && st != task.StateAsking {
+		return
+	}
+
+	p := t.Primary()
+	if p == nil {
+		slog.Warn("autoResync: no primary repo", "task", t.ID)
+		return
+	}
+	runner, ok := s.runners[p.Name]
+	if !ok {
+		slog.Warn("autoResync: no runner", "task", t.ID)
+		return
+	}
+
+	slog.Info("autoResync: syncing branch", "task", t.ID, "br", p.Branch)
+	if _, _, err := runner.SyncToOrigin(ctx, p.Branch, t.Container, false, t.ExtraMDRepos()); err != nil {
+		slog.Warn("autoResync: sync failed", "task", t.ID, "err", err)
+		return
+	}
+
+	// Fetch the new branch HEAD SHA from the forge after the push.
+	newSHA, err := f.GetDefaultBranchSHA(ctx, owner, repo, p.Branch)
+	if err != nil {
+		slog.Warn("autoResync: get SHA", "task", t.ID, "err", err)
+		return
+	}
+
+	slog.Info("autoResync: restarting CI monitor", "task", t.ID, "sha", newSHA[:min(7, len(newSHA))])
+	s.mu.Lock()
+	entry.ciSHA = newSHA
+	s.mu.Unlock()
+	s.notifyTaskChange()
+	go s.monitorCI(ctx, entry, f, owner, repo, newSHA)
+}
+
+// applyMonitorCIResult updates the task CI status, injects the CI summary
+// into the agent, and drives the seamless PR lifecycle:
+//   - CI failure: notify agent, then launch autoResync to push fixes and
+//     re-monitor so the loop repeats automatically.
+//   - CI success: squash-merge the PR via the forge API, then notify the agent.
 func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string, result cicache.Result) {
 	t := entry.task
 	ciStatus := task.CIStatusSuccess
@@ -1810,9 +1897,29 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f f
 				}
 			}
 		}
+		sb.WriteString("\nPlease fix the failures above.")
 		summary = strings.TrimRight(sb.String(), "\n")
 	} else {
-		summary = fmt.Sprintf("%s CI: all checks passed for %s/%s@%s.", f.Name(), owner, repo, sha[:min(7, len(sha))])
+		// CI passed — attempt a squash merge.
+		snap := t.Snapshot()
+		if snap.ForgePR > 0 {
+			commitTitle := t.Title()
+			if commitTitle == "" {
+				if p := t.Primary(); p != nil {
+					commitTitle = p.Branch
+				}
+			}
+			commitMsg := lastResultText(t)
+			if mergeErr := f.MergePR(ctx, owner, repo, snap.ForgePR, commitTitle, commitMsg); mergeErr != nil {
+				slog.Warn("applyMonitorCIResult: merge PR", "task", t.ID, "pr", snap.ForgePR, "err", mergeErr)
+				summary = fmt.Sprintf("%s CI: all checks passed. Auto-merge of %s failed: %v", f.Name(), f.PRLabel(snap.ForgePR), mergeErr)
+			} else {
+				slog.Info("PR merged", "task", t.ID, "forge", f.Name(), "pr", snap.ForgePR)
+				summary = fmt.Sprintf("%s CI: all checks passed. %s merged successfully via squash commit.", f.Name(), f.PRLabel(snap.ForgePR))
+			}
+		} else {
+			summary = fmt.Sprintf("%s CI: all checks passed for %s/%s@%s.", f.Name(), owner, repo, sha[:min(7, len(sha))])
+		}
 	}
 	taskChecks := make([]task.CICheck, len(result.Checks))
 	for i, c := range result.Checks {
@@ -1837,6 +1944,23 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f f
 			}
 		}
 	}
+	// On CI failure: wait for the agent to finish its fix turn, then
+	// auto-sync the branch and restart CI monitoring.
+	if ciStatus == task.CIStatusFailure {
+		go s.autoResync(ctx, entry, f, owner, repo)
+	}
+}
+
+// lastResultText returns the Result field of the most recent ResultMessage in
+// the task's message history. Used as the squash-merge commit body.
+func lastResultText(t *task.Task) string {
+	msgs := t.Messages()
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if rm, ok := msgs[i].(*agent.ResultMessage); ok {
+			return rm.Result
+		}
+	}
+	return ""
 }
 
 // maybeAutoFix creates a new task to fix CI failures when auto-fix is enabled
@@ -1942,8 +2066,10 @@ func (s *Server) pollRepoCIOnce(ctx context.Context, info repoInfo, f forge.Forg
 }
 
 // pollCIForActiveRepos checks the default branch CI status for all repos that
-// have active (non-terminal) tasks. Uses the authenticated user's forge token
-// from ctx. Called from SSE handlers so no background goroutine is needed.
+// have active (non-terminal) tasks. ctx must carry the user's auth token (via
+// context.WithoutCancel so it is not cancelled when the SSE request ends).
+// The outer timeout scales with repo count: 2 API calls per repo at 1 req/s
+// (via the throttled HTTP client) plus a 30-second buffer.
 func (s *Server) pollCIForActiveRepos(ctx context.Context) {
 	s.mu.Lock()
 	var activeIdx []int
@@ -1954,12 +2080,18 @@ func (s *Server) pollCIForActiveRepos(ctx context.Context) {
 	}
 	s.mu.Unlock()
 
+	total := time.Duration(2*len(activeIdx)+30) * time.Second
+	ctx, cancel := context.WithTimeout(ctx, total)
+	defer cancel()
+
 	for _, i := range activeIdx {
 		f := s.forgeForInfo(ctx, &s.repos[i])
 		if f == nil {
 			continue
 		}
-		s.pollRepoCIOnce(ctx, s.repos[i], f)
+		rctx, rcancel := context.WithTimeout(ctx, 30*time.Second)
+		s.pollRepoCIOnce(rctx, s.repos[i], f)
+		rcancel()
 	}
 }
 
@@ -2055,6 +2187,36 @@ func (s *Server) installationID(owner string) int64 {
 	return id
 }
 
+// newThrottle returns a Throttle transport at 1 QPS backed by http.DefaultTransport.
+func newThrottle() http.RoundTripper {
+	return &roundtrippers.Throttle{QPS: 1, Transport: http.DefaultTransport}
+}
+
+// githubOAuthThrottle returns the per-user throttle for GitHub OAuth.
+// Each OAuth user has a separate GitHub rate-limit bucket; throttles must not be shared.
+func (s *Server) githubOAuthThrottle(userID string) http.RoundTripper {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.githubOAuthThrottles[userID]; ok {
+		return t
+	}
+	t := newThrottle()
+	s.githubOAuthThrottles[userID] = t
+	return t
+}
+
+// gitlabOAuthThrottle returns the per-user throttle for GitLab OAuth.
+func (s *Server) gitlabOAuthThrottle(userID string) http.RoundTripper {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if t, ok := s.gitlabOAuthThrottles[userID]; ok {
+		return t
+	}
+	t := newThrottle()
+	s.gitlabOAuthThrottles[userID] = t
+	return t
+}
+
 // forgeFor returns a Forge client for the given kind.
 // In OAuth mode the authenticated user's access token is used.
 // In PAT mode (no OAuth) the global token is used.
@@ -2064,19 +2226,19 @@ func (s *Server) forgeFor(ctx context.Context, kind forge.Kind) forge.Forge {
 	if u, ok := auth.UserFromContext(ctx); ok && u.Provider == kind && u.AccessToken != "" {
 		switch kind {
 		case forge.KindGitHub:
-			return &github.Client{Token: u.AccessToken}
+			return github.NewClient(u.AccessToken, s.githubOAuthThrottle(u.ID))
 		case forge.KindGitLab:
-			return &gitlab.Client{Token: u.AccessToken}
+			return gitlab.NewClient(u.AccessToken, s.gitlabOAuthThrottle(u.ID))
 		}
 	}
 	switch kind {
 	case forge.KindGitHub:
 		if s.githubToken != "" {
-			return &github.Client{Token: s.githubToken}
+			return github.NewClient(s.githubToken, s.githubPATThrottle)
 		}
 	case forge.KindGitLab:
 		if s.gitlabToken != "" {
-			return &gitlab.Client{Token: s.gitlabToken}
+			return gitlab.NewClient(s.gitlabToken, s.gitlabPATThrottle)
 		}
 	}
 	return nil
@@ -2918,6 +3080,15 @@ func (s *Server) repoURL(rel string) string {
 	return ""
 }
 
+func (s *Server) repoForge(rel string) v1.Forge {
+	for _, r := range s.repos {
+		if r.RelPath == rel {
+			return v1.Forge(r.ForgeKind)
+		}
+	}
+	return ""
+}
+
 func (s *Server) repoAbsPath(rel string) (string, bool) {
 	for _, r := range s.repos {
 		if r.RelPath == rel {
@@ -2963,7 +3134,7 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	// Build Repos slice for API response.
 	taskRepos := make([]v1.TaskRepo, len(e.task.Repos))
 	for i, r := range e.task.Repos {
-		taskRepos[i] = v1.TaskRepo{Name: r.Name, BaseBranch: r.BaseBranch, Branch: r.Branch, RemoteURL: s.repoURL(r.Name)}
+		taskRepos[i] = v1.TaskRepo{Name: r.Name, BaseBranch: r.BaseBranch, Branch: r.Branch, RemoteURL: s.repoURL(r.Name), Forge: s.repoForge(r.Name)}
 	}
 	if len(taskRepos) == 0 {
 		taskRepos = nil

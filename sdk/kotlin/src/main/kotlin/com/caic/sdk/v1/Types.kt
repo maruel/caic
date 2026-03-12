@@ -111,6 +111,7 @@ data class Repo(
     val path: String,
     val baseBranch: String,
     @SerialName("remoteURL") val remoteURL: String? = null,
+    val forge: String? = null,
     @SerialName("defaultBranchCIStatus") val defaultBranchCIStatus: String? = null,
     val defaultBranchChecks: List<ForgeCheck>? = null,
 )
@@ -131,6 +132,7 @@ data class TaskRepo(
     val baseBranch: String? = null,
     val branch: String,
     @SerialName("remoteURL") val remoteURL: String? = null,
+    val forge: String? = null,
 )
 
 @Serializable

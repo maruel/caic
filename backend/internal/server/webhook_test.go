@@ -59,6 +59,9 @@ func (f *stubForge) Name() string                            { return "stub" }
 func (f *stubForge) GetJobLog(_ context.Context, _, _ string, _ int64, _ int) (string, error) {
 	return "", nil
 }
+func (f *stubForge) MergePR(_ context.Context, _, _ string, _ int, _, _ string) error {
+	return nil
+}
 
 // signGitHub computes X-Hub-Signature-256 for the given body and secret.
 func signGitHub(body, secret []byte) string {

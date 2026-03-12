@@ -90,6 +90,10 @@ type Forge interface {
 	// GetJobLog fetches the log for a CI job and returns the last maxBytes bytes.
 	// maxBytes <= 0 means no limit.
 	GetJobLog(ctx context.Context, owner, repo string, jobID int64, maxBytes int) (string, error)
+	// MergePR squash-merges a pull/merge request with the given commit title
+	// and message. Returns an error if the merge cannot be completed (e.g.
+	// merge conflict, branch-protection rule, or already merged).
+	MergePR(ctx context.Context, owner, repo string, prNumber int, commitTitle, commitMessage string) error
 }
 
 // Remote URL regex patterns for supported forges.

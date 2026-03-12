@@ -12,16 +12,36 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/maruel/roundtrippers"
+
 	"github.com/caic-xyz/caic/backend/internal/forge"
 )
 
 // Client is a minimal GitHub API client authenticated with a personal access token.
 // It implements forge.Forge.
 type Client struct {
-	Token string
+	HTTPClient *http.Client
 }
 
 var _ forge.Forge = (*Client)(nil)
+
+// NewClient returns a Client that authenticates with token and throttles/retries
+// via throttle. The transport chain is: Header → Retry → throttle.
+func NewClient(token string, throttle http.RoundTripper) *Client {
+	return &Client{
+		HTTPClient: &http.Client{
+			Transport: &roundtrippers.Header{
+				Transport: &roundtrippers.Retry{Transport: throttle},
+				Header: http.Header{
+					"Authorization":        {"Bearer " + token},
+					"Accept":               {"application/vnd.github+json"},
+					"X-GitHub-Api-Version": {"2026-03-10"},
+					"Content-Type":         {"application/json"},
+				},
+			},
+		},
+	}
+}
 
 // createPRRequest is the JSON body for POST /repos/{owner}/{repo}/pulls.
 type createPRRequest struct {
@@ -71,8 +91,7 @@ func (c *Client) CreatePR(ctx context.Context, owner, repo, head, base, title, b
 	if err != nil {
 		return forge.PR{}, err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return forge.PR{}, err
 	}
@@ -99,8 +118,7 @@ func (c *Client) GetDefaultBranchSHA(ctx context.Context, owner, repo, branch st
 	if err != nil {
 		return "", err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -129,8 +147,7 @@ func (c *Client) GetCheckRuns(ctx context.Context, owner, repo, sha string) ([]f
 	if err != nil {
 		return nil, err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +191,7 @@ func (c *Client) GetJobLog(ctx context.Context, owner, repo string, jobID int64,
 	if err != nil {
 		return "", err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -226,6 +242,40 @@ func (c *Client) BranchCompareURL(remoteURL, branch string) string {
 	return remoteURL + "/compare/" + branch + "?expand=1"
 }
 
+// mergePRRequest is the JSON body for PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge.
+type mergePRRequest struct {
+	CommitTitle   string `json:"commit_title"`
+	CommitMessage string `json:"commit_message"`
+	MergeMethod   string `json:"merge_method"`
+}
+
+// MergePR squash-merges a pull request on GitHub.
+func (c *Client) MergePR(ctx context.Context, owner, repo string, prNumber int, commitTitle, commitMessage string) error {
+	payload, err := json.Marshal(mergePRRequest{
+		CommitTitle:   commitTitle,
+		CommitMessage: commitMessage,
+		MergeMethod:   "squash",
+	})
+	if err != nil {
+		return err
+	}
+	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d/merge", owner, repo, prNumber)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("github merge PR: status %d: %s", resp.StatusCode, data)
+	}
+	return nil
+}
+
 // PostComment posts a comment on the given issue or pull request.
 func (c *Client) PostComment(ctx context.Context, owner, repo string, issueNumber int, body string) error {
 	payload, err := json.Marshal(struct {
@@ -239,8 +289,7 @@ func (c *Client) PostComment(ctx context.Context, owner, repo string, issueNumbe
 	if err != nil {
 		return err
 	}
-	c.setHeaders(req)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := c.HTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -254,10 +303,3 @@ func (c *Client) PostComment(ctx context.Context, owner, repo string, issueNumbe
 
 // Name returns "GitHub".
 func (c *Client) Name() string { return "GitHub" }
-
-func (c *Client) setHeaders(req *http.Request) {
-	req.Header.Set("Authorization", "Bearer "+c.Token)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	req.Header.Set("Content-Type", "application/json")
-}
