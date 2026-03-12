@@ -18,10 +18,66 @@ JOKES = [
     " A full one, in case he gets thirsty, and an empty one, in case he does not.",
 ]
 
+PLAN_CONTENT = "1. Analyze the problem\n2. Implement the solution\n"
+
+ASK_QUESTION = {
+    "question": "Which approach should I use?",
+    "options": [
+        {"label": "Option A", "description": "Fast but less robust"},
+        {"label": "Option B", "description": "Slower but more robust"},
+    ],
+}
+
 
 def emit(obj: dict) -> None:
     sys.stdout.write(json.dumps(obj, separators=(",", ":")) + "\n")
     sys.stdout.flush()
+
+
+def emit_tool_use(tool_id: str, name: str, input_obj: dict) -> None:
+    emit(
+        {
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": tool_id, "name": name, "input": input_obj}],
+            },
+        }
+    )
+
+
+def emit_result(turns: int, result: str) -> None:
+    emit(
+        {
+            "type": "result",
+            "subtype": "success",
+            "result": result,
+            "num_turns": turns,
+            "total_cost_usd": 0.01,
+            "duration_ms": 500,
+        }
+    )
+
+
+def emit_plan_turn(turns: int) -> None:
+    """Emit Write(.claude/plans/plan.md) + ExitPlanMode + result."""
+    emit_tool_use(
+        "toolu_write_plan",
+        "Write",
+        {"file_path": ".claude/plans/plan.md", "content": PLAN_CONTENT},
+    )
+    emit_tool_use("toolu_exit_plan", "ExitPlanMode", {})
+    emit_result(turns, "Plan created")
+
+
+def emit_ask_turn(turns: int) -> None:
+    """Emit AskUserQuestion + result."""
+    emit_tool_use(
+        "toolu_ask",
+        "AskUserQuestion",
+        {"questions": [ASK_QUESTION]},
+    )
+    emit_result(turns, "Asking user")
 
 
 def main() -> None:
@@ -42,8 +98,17 @@ def main() -> None:
         line = line.rstrip("\n")
         if not line:
             continue
-        joke = JOKES[turns % len(JOKES)]
         turns += 1
+
+        if "FAKE_PLAN" in line:
+            emit_plan_turn(turns)
+            continue
+
+        if "FAKE_ASK" in line:
+            emit_ask_turn(turns)
+            continue
+
+        joke = JOKES[(turns - 1) % len(JOKES)]
 
         # Split roughly in half for two streaming deltas.
         mid = len(joke) // 2
