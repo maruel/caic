@@ -3013,10 +3013,18 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		}
 	}
 
-	// LoadMessages may have found caic_pr that the header-only tail scan
-	// missed (record beyond the 64 KiB window). Apply it if still unset.
-	if lt != nil && lt.ForgePR > 0 && t.GetPR() == 0 {
-		t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
+	// The header-only tail scan may miss caic_pr when the record is beyond
+	// the 64 KiB window. If the PR is still unset, do a full parse of the
+	// log to recover it. This covers both the relay-alive path (where
+	// LoadMessages was skipped) and the log-restore path.
+	if lt != nil && t.GetPR() == 0 {
+		if lt.ForgePR == 0 {
+			// Full parse not yet done; trigger it for PR metadata only.
+			_ = lt.LoadMessages()
+		}
+		if lt.ForgePR > 0 {
+			t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
+		}
 	}
 
 	// If the task is still running after message restoration (agent is

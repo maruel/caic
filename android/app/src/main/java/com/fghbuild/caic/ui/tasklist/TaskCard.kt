@@ -173,6 +173,9 @@ fun TaskCard(task: Task, modifier: Modifier = Modifier, onClick: () -> Unit = {}
                             )
                         }
                     }
+                    if (task.forgePR != null) {
+                        PrBadge()
+                    }
                     if (task.forgePR != null && task.ciStatus != null) {
                         CiDot(task.ciStatus)
                     }
@@ -328,6 +331,19 @@ private fun TickingThinkTime(duration: Double, state: String, stateUpdatedAt: Do
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+@Composable
+private fun PrBadge() {
+    Surface(shape = RoundedCornerShape(4.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Text(
+            "PR",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+        )
+    }
 }
 
 @Composable

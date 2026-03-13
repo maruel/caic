@@ -189,6 +189,9 @@ export default function TaskCard(props: TaskCardProps) {
               </Show>
             </span>
           </Show>
+          <Show when={props.forgePR}>
+            <span class={styles.prBadge} title={`PR #${props.forgePR}`}>PR</span>
+          </Show>
           <Show when={props.forgePR && props.ciStatus}>
             <span class={`${styles.ciDot} ${CI_DOT_CLASS[props.ciStatus as string] ?? ""}`} title={`CI: ${props.ciStatus}`} />
           </Show>
