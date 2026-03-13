@@ -14,6 +14,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/forge"
 	"github.com/caic-xyz/caic/backend/internal/forge/forgecache"
 	"github.com/caic-xyz/caic/backend/internal/forge/github"
+	"github.com/caic-xyz/caic/backend/internal/forge/gitlab"
 )
 
 const maxWebhookBodyBytes = 10 << 20 // 10 MB
@@ -75,7 +76,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 		}
 		s.handleCheckSuiteEvent(r.Context(), &ev)
 	case "check_run":
-		var ev githubCheckRunEvent
+		var ev github.CheckRunEvent
 		if err := json.Unmarshal(body, &ev); err != nil {
 			http.Error(w, "bad payload", http.StatusBadRequest)
 			return
@@ -87,7 +88,7 @@ func (s *Server) handleGitHubWebhook(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	case "workflow_run":
-		var ev githubWorkflowRunEvent
+		var ev github.WorkflowRunEvent
 		if err := json.Unmarshal(body, &ev); err != nil {
 			http.Error(w, "bad payload", http.StatusBadRequest)
 			return
@@ -133,7 +134,7 @@ func (s *Server) handleGitLabWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var ev gitlabPipelineEvent
+	var ev gitlab.PipelineEvent
 	if err := json.Unmarshal(body, &ev); err != nil {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
@@ -204,14 +205,13 @@ func (s *Server) webhookOnCI(ctx context.Context, kind forge.Kind, owner, repo, 
 
 	// Pre-compute interim status once for all affected tasks/repos.
 	var interimStatus forge.CIStatus
-	var interimChecks []forge.Check
 	if !done {
-		interimStatus, interimChecks = bot.InterimCIStatus(runs, result.Checks)
+		interimStatus = bot.InterimCIStatus(runs)
 	}
 
 	for _, e := range affected {
 		if !done {
-			e.task.SetCIStatus(interimStatus, interimChecks)
+			e.task.SetCIStatus(interimStatus, result.Checks)
 			s.notifyTaskChange()
 			continue
 		}

@@ -33,18 +33,16 @@ func EvaluateCheckRuns(owner, repo string, runs []forge.CheckRun) (forgecache.Re
 	return forgecache.Result{Status: status, Checks: checks}, true
 }
 
-// InterimCIStatus returns the CI status and checks to display while checks are
-// still running. Returns CIStatusFailure as soon as any completed check has a
+// InterimCIStatus returns the CI status to display while checks are still
+// running. Returns CIStatusFailure as soon as any completed check has a
 // failing conclusion, otherwise CIStatusPending.
-func InterimCIStatus(runs []forge.CheckRun, checks []forge.Check) (forge.CIStatus, []forge.Check) {
-	status := forge.CIStatusPending
+func InterimCIStatus(runs []forge.CheckRun) forge.CIStatus {
 	for i := range runs {
 		if runs[i].Status == forge.CheckRunStatusCompleted && runs[i].Conclusion.IsFailed() {
-			status = forge.CIStatusFailure
-			break
+			return forge.CIStatusFailure
 		}
 	}
-	return status, checks
+	return forge.CIStatusPending
 }
 
 // FailureSummary builds the agent-facing text summary for a CI failure result,

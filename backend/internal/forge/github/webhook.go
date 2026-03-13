@@ -122,6 +122,33 @@ type InstallationEvent struct {
 	} `json:"installation"`
 }
 
+// CheckRunEvent is the payload for X-GitHub-Event: check_run.
+type CheckRunEvent struct {
+	Action   string `json:"action"`
+	CheckRun struct {
+		HeadSHA    string `json:"head_sha"`
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		HTMLURL    string `json:"html_url"`
+		ID         int64  `json:"id"`
+	} `json:"check_run"`
+	Repository WebhookRepo `json:"repository"`
+}
+
+// WorkflowRunEvent is the payload for X-GitHub-Event: workflow_run.
+type WorkflowRunEvent struct {
+	Action      string `json:"action"`
+	WorkflowRun struct {
+		HeadSHA    string `json:"head_sha"`
+		Name       string `json:"name"`
+		Status     string `json:"status"`
+		Conclusion string `json:"conclusion"`
+		ID         int64  `json:"id"`
+	} `json:"workflow_run"`
+	Repository WebhookRepo `json:"repository"`
+}
+
 // CheckSuiteEvent is the payload for X-GitHub-Event: check_suite.
 type CheckSuiteEvent struct {
 	Action     string `json:"action"`

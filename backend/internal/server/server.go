@@ -1843,8 +1843,8 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 				s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, result)
 				return
 			}
-			status, checks := bot.InterimCIStatus(runs, result.Checks)
-			t.SetCIStatus(status, checks)
+			status := bot.InterimCIStatus(runs)
+			t.SetCIStatus(status, result.Checks)
 			s.notifyTaskChange()
 		}
 		return // check_suite webhook delivers the terminal result
@@ -1877,8 +1877,8 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 		}
 		result, done := bot.EvaluateCheckRuns(owner, repo, runs)
 		if !done {
-			status, checks := bot.InterimCIStatus(runs, result.Checks)
-			t.SetCIStatus(status, checks)
+			status := bot.InterimCIStatus(runs)
+			t.SetCIStatus(status, result.Checks)
 			s.notifyTaskChange()
 			continue
 		}
@@ -2235,7 +2235,7 @@ func (s *Server) pollRepoCIOnce(ctx context.Context, info repoInfo, f forge.Forg
 	result, done := bot.EvaluateCheckRuns(info.ForgeOwner, info.ForgeRepo, runs)
 	if !done {
 		// Still in progress — show failure early if any check already failed.
-		interimStatus, _ := bot.InterimCIStatus(runs, result.Checks)
+		interimStatus := bot.InterimCIStatus(runs)
 		repoStatus := forge.CIStatusPending
 		if interimStatus == forge.CIStatusFailure {
 			repoStatus = forge.CIStatusFailure

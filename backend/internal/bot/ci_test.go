@@ -59,13 +59,9 @@ func TestInterimCIStatus(t *testing.T) {
 			{Name: "build", Status: forge.CheckRunStatusQueued},
 			{Name: "test", Status: forge.CheckRunStatusInProgress},
 		}
-		result, _ := EvaluateCheckRuns("o", "r", runs)
-		status, checks := InterimCIStatus(runs, result.Checks)
+		status := InterimCIStatus(runs)
 		if status != forge.CIStatusPending {
 			t.Errorf("got %q, want %q", status, forge.CIStatusPending)
-		}
-		if len(checks) != 2 {
-			t.Fatalf("got %d checks, want 2", len(checks))
 		}
 	})
 
@@ -74,13 +70,9 @@ func TestInterimCIStatus(t *testing.T) {
 			{Name: "build", Status: forge.CheckRunStatusCompleted, Conclusion: forge.CheckRunConclusionFailure},
 			{Name: "test", Status: forge.CheckRunStatusInProgress},
 		}
-		result, _ := EvaluateCheckRuns("o", "r", runs)
-		status, checks := InterimCIStatus(runs, result.Checks)
+		status := InterimCIStatus(runs)
 		if status != forge.CIStatusFailure {
 			t.Errorf("got %q, want %q", status, forge.CIStatusFailure)
-		}
-		if len(checks) != 2 {
-			t.Fatalf("got %d checks, want 2", len(checks))
 		}
 	})
 
@@ -89,8 +81,7 @@ func TestInterimCIStatus(t *testing.T) {
 			{Name: "build", Status: forge.CheckRunStatusCompleted, Conclusion: forge.CheckRunConclusionSuccess},
 			{Name: "test", Status: forge.CheckRunStatusQueued},
 		}
-		result, _ := EvaluateCheckRuns("o", "r", runs)
-		status, _ := InterimCIStatus(runs, result.Checks)
+		status := InterimCIStatus(runs)
 		if status != forge.CIStatusPending {
 			t.Errorf("got %q, want %q", status, forge.CIStatusPending)
 		}
@@ -101,8 +92,7 @@ func TestInterimCIStatus(t *testing.T) {
 			{Name: "build", Status: forge.CheckRunStatusCompleted, Conclusion: forge.CheckRunConclusionCancelled},
 			{Name: "test", Status: forge.CheckRunStatusQueued},
 		}
-		result, _ := EvaluateCheckRuns("o", "r", runs)
-		status, _ := InterimCIStatus(runs, result.Checks)
+		status := InterimCIStatus(runs)
 		if status != forge.CIStatusFailure {
 			t.Errorf("got %q, want %q", status, forge.CIStatusFailure)
 		}

@@ -16,6 +16,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/forge"
 	"github.com/caic-xyz/caic/backend/internal/forge/forgecache"
 	"github.com/caic-xyz/caic/backend/internal/forge/github"
+	"github.com/caic-xyz/caic/backend/internal/forge/gitlab"
 )
 
 // stubAppClient implements githubAppClient for tests.
@@ -192,7 +193,7 @@ func TestHandleGitHubWebhook(t *testing.T) {
 		s := newTestServer(t)
 		s.githubWebhookSecret = secret
 
-		ev := githubCheckRunEvent{}
+		ev := github.CheckRunEvent{}
 		ev.CheckRun.Status = "completed"
 		ev.CheckRun.Conclusion = "success"
 		ev.CheckRun.HeadSHA = "abc123def456"
@@ -219,7 +220,7 @@ func TestHandleGitLabWebhook(t *testing.T) {
 		s := newTestServer(t)
 		s.gitlabWebhookSecret = secret
 
-		ev := gitlabPipelineEvent{}
+		ev := gitlab.PipelineEvent{}
 		ev.ObjectAttributes.SHA = "deadbeef1234"
 		ev.ObjectAttributes.Status = "success"
 		ev.Project.PathWithNamespace = "group/repo"
@@ -258,7 +259,7 @@ func TestHandleGitLabWebhook(t *testing.T) {
 		s := newTestServer(t)
 		s.gitlabWebhookSecret = secret
 
-		ev := gitlabPipelineEvent{}
+		ev := gitlab.PipelineEvent{}
 		ev.ObjectAttributes.SHA = "deadbeef1234"
 		ev.ObjectAttributes.Status = "running"
 		ev.Project.PathWithNamespace = "group/repo"
@@ -304,7 +305,7 @@ func TestBuildHandlerWebhookRoutes(t *testing.T) {
 			t.Fatalf("buildHandler() error = %v", err)
 		}
 
-		ev := gitlabPipelineEvent{}
+		ev := gitlab.PipelineEvent{}
 		ev.ObjectAttributes.SHA = "abc123"
 		ev.ObjectAttributes.Status = "success"
 		ev.Project.PathWithNamespace = "group/repo"
