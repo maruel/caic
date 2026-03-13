@@ -9,6 +9,8 @@ run the tests?
 Enters **ciac**: manages local docker containers to run your agents locally. Access them from your
 phone with Tailscale. All private.
 
+[![codecov](https://codecov.io/gh/caic-xyz/caic/graph/badge.svg?token=VB9D2PKPCC)](https://codecov.io/gh/caic-xyz/caic)
+
 ## Installation
 
 ```bash
