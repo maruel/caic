@@ -652,11 +652,10 @@ private fun MessageList(
     var expandedSessionKeys by remember { mutableStateOf(setOf<String>()) }
     var expandedTurnKeys by remember { mutableStateOf(setOf<String>()) }
     var expandedToolGroups by remember { mutableStateOf(setOf<String>()) }
-    // Mirror frontend: when no live turn, the last completed turn is the "current" one and
-    // must always be shown expanded so users can see the agent's latest output.
-    val elidableCompletedTurns = if (liveTurn == null) currentSessionCompletedTurns.dropLast(1)
-                                  else currentSessionCompletedTurns
-    val lastExpandedTurn = if (liveTurn == null) currentSessionCompletedTurns.lastOrNull() else null
+    // The last completed turn is always expanded to provide context for the current state,
+    // whether the agent is idle (no live turn) or actively streaming.
+    val elidableCompletedTurns = currentSessionCompletedTurns.dropLast(1)
+    val lastExpandedTurn = currentSessionCompletedTurns.lastOrNull()
     // Completed items are stable during streaming: references are unchanged until a turn boundary,
     // so this remember block only recomputes then or on expansion.
     val completedItems = remember(

@@ -226,9 +226,8 @@ export default function TaskDetail(props: Props) {
   });
 
   // Flat item model: past sessions (elided) + current session boundary + current session
-  // completed turns (elided) + live turn groups (always visible).
-  // The last turn of the current session is always expanded: either it's in currentGroups()
-  // (actively streaming) or, when idle/done, it's the last completed turn shown without elision.
+  // completed turns (elided) + last completed turn (always expanded) + live turn groups.
+  // The last completed turn is always expanded to provide context for the current state.
   const items = createMemo((): MsgItem[] => {
     const pastSessionItems = buildPastSessionItems(pastSessions(), expandedSessionKeys(), expandedTurnKeys());
     const boundaryEv = currentSessionBoundaryEvent();
@@ -237,9 +236,10 @@ export default function TaskDetail(props: Props) {
       : [];
     const liveGroups = currentGroups();
     const completedTurns = currentSessionCompletedTurns();
-    // If there are no live groups, the last completed turn is the current turn — always expand it.
-    const elidableTurns = liveGroups.length === 0 ? completedTurns.slice(0, -1) : completedTurns;
-    const lastCompletedTurn = liveGroups.length === 0 ? completedTurns[completedTurns.length - 1] : undefined;
+    // The last completed turn is always expanded — it provides context whether
+    // the agent is idle (no live groups) or actively streaming (live groups present).
+    const elidableTurns = completedTurns.slice(0, -1);
+    const lastCompletedTurn = completedTurns[completedTurns.length - 1] as typeof completedTurns[number] | undefined;
     const completedTurnItems = buildTurnItems(elidableTurns, expandedTurnKeys(), currentSessionKey());
     const lastTurnItems: MsgItem[] = lastCompletedTurn
       ? lastCompletedTurn.groups.map((g, j) => ({ kind: "group" as const, group: g, isLive: false, key: `last-g${j}` }))
