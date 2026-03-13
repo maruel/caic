@@ -13,9 +13,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/forge"
-	"github.com/caic-xyz/caic/backend/internal/github"
+	"github.com/caic-xyz/caic/backend/internal/forge/forgecache"
+	"github.com/caic-xyz/caic/backend/internal/forge/github"
 )
 
 // stubAppClient implements githubAppClient for tests.
@@ -102,8 +102,8 @@ func TestHandleCheckSuiteEvent(t *testing.T) {
 		s.mu.Lock()
 		got := s.repoCIStatus["org/repo"].Status
 		s.mu.Unlock()
-		if got != cicache.StatusSuccess {
-			t.Errorf("repoCIStatus = %q, want %q", got, cicache.StatusSuccess)
+		if got != forge.CIStatusSuccess {
+			t.Errorf("repoCIStatus = %q, want %q", got, forge.CIStatusSuccess)
 		}
 	})
 
@@ -350,7 +350,7 @@ func TestBuildHandlerWebhookRoutes(t *testing.T) {
 // minimalServer returns a Server with just enough state for webhook handler tests.
 func minimalServer(t *testing.T) *Server {
 	t.Helper()
-	cache, err := cicache.Open(t.TempDir() + "/cicache.json")
+	cache, err := forgecache.Open(t.TempDir() + "/forgecache.json")
 	if err != nil {
 		t.Fatal(err)
 	}

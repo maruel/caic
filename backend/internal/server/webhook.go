@@ -11,10 +11,9 @@ import (
 	"strings"
 
 	"github.com/caic-xyz/caic/backend/internal/bot"
-	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/forge"
-	"github.com/caic-xyz/caic/backend/internal/github"
-	"github.com/caic-xyz/caic/backend/internal/task"
+	"github.com/caic-xyz/caic/backend/internal/forge/forgecache"
+	"github.com/caic-xyz/caic/backend/internal/forge/github"
 )
 
 const maxWebhookBodyBytes = 10 << 20 // 10 MB
@@ -204,8 +203,8 @@ func (s *Server) webhookOnCI(ctx context.Context, kind forge.Kind, owner, repo, 
 	result, done := bot.EvaluateCheckRuns(owner, repo, runs)
 
 	// Pre-compute interim status once for all affected tasks/repos.
-	var interimStatus task.CIStatus
-	var interimChecks []task.CICheck
+	var interimStatus forge.CIStatus
+	var interimChecks []forge.Check
 	if !done {
 		interimStatus, interimChecks = bot.InterimCIStatus(runs, result.Checks)
 	}
@@ -224,11 +223,11 @@ func (s *Server) webhookOnCI(ctx context.Context, kind forge.Kind, owner, repo, 
 
 	for _, relPath := range affectedRepoPaths {
 		if !done {
-			repoStatus := cicache.StatusPending
-			if interimStatus == task.CIStatusFailure {
-				repoStatus = cicache.StatusFailure
+			repoStatus := forge.CIStatusPending
+			if interimStatus == forge.CIStatusFailure {
+				repoStatus = forge.CIStatusFailure
 			}
-			s.setRepoCIStatus(relPath, sha, cicache.Result{Status: repoStatus, Checks: result.Checks})
+			s.setRepoCIStatus(relPath, sha, forgecache.Result{Status: repoStatus, Checks: result.Checks})
 			continue
 		}
 		if err := s.ciCache.Put(owner, repo, sha, result); err != nil {

@@ -1,5 +1,5 @@
-// Package github implements forge.Forge for github.com using the GitHub REST API.
-// This file provides GitHub App authentication via RS256 JWT and installation access tokens.
+// GitHub App authentication via RS256 JWT and installation access tokens.
+
 package github
 
 import (

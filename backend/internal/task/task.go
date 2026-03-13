@@ -78,31 +78,6 @@ func (s State) String() string {
 	}
 }
 
-// CIStatus represents the CI check state for a task.
-type CIStatus string
-
-// CI status values.
-const (
-	CIStatusNone    CIStatus = ""
-	CIStatusPending CIStatus = "pending"
-	CIStatusSuccess CIStatus = "success"
-	CIStatusFailure CIStatus = "failure"
-)
-
-// CICheck holds the identifying information for a CI check run.
-type CICheck struct {
-	Name        string
-	Owner       string
-	Repo        string
-	RunID       int64
-	JobID       int64
-	Status      forge.CheckRunStatus
-	Conclusion  forge.CheckRunConclusion
-	QueuedAt    time.Time
-	StartedAt   time.Time
-	CompletedAt time.Time
-}
-
 // SessionHandle bundles the three resources associated with an active agent
 // session: the SSH session, the message dispatch channel, and the log writer.
 type SessionHandle struct {
@@ -172,8 +147,8 @@ type Task struct {
 	forgeOwner            string
 	forgeRepo             string
 	forgePR               int
-	ciStatus              CIStatus
-	ciChecks              []CICheck
+	ciStatus              forge.CIStatus
+	ciChecks              []forge.Check
 }
 
 // Primary returns a pointer to the primary RepoMount (Repos[0]), or nil for no-repo tasks.
@@ -350,7 +325,7 @@ func (t *Task) WriteToLog(m agent.Message) {
 }
 
 // SetCIStatus updates the ciStatus and ciChecks fields under the mutex.
-func (t *Task) SetCIStatus(status CIStatus, checks []CICheck) {
+func (t *Task) SetCIStatus(status forge.CIStatus, checks []forge.Check) {
 	t.mu.Lock()
 	t.ciStatus = status
 	t.ciChecks = checks
@@ -390,8 +365,8 @@ type Snapshot struct {
 	ForgeRepo          string
 	ForgePR            int
 	ForgeIssue         int
-	CIStatus           CIStatus
-	CIChecks           []CICheck
+	CIStatus           forge.CIStatus
+	CIChecks           []forge.Check
 }
 
 // Snapshot returns a consistent read of all volatile fields under the mutex.
@@ -426,7 +401,7 @@ func (t *Task) Snapshot() Snapshot {
 		ForgePR:            t.forgePR,
 		ForgeIssue:         t.ForgeIssue,
 		CIStatus:           t.ciStatus,
-		CIChecks:           append([]CICheck(nil), t.ciChecks...),
+		CIChecks:           append([]forge.Check(nil), t.ciChecks...),
 	}
 }
 

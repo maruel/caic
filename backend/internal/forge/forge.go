@@ -78,6 +78,49 @@ type CheckRun struct {
 	CompletedAt time.Time // When execution finished. Zero if still running.
 }
 
+// Check is a fully-qualified check run that includes the repository owner and
+// name, suitable for storage and cross-repo lookups. Use CheckFromRun to
+// construct from a forge API response.
+type Check struct {
+	Name        string             `json:"name"`
+	Owner       string             `json:"owner"`
+	Repo        string             `json:"repo"`
+	RunID       int64              `json:"runID"`
+	JobID       int64              `json:"jobID"`
+	Status      CheckRunStatus     `json:"status"`
+	Conclusion  CheckRunConclusion `json:"conclusion"`
+	QueuedAt    time.Time          `json:"queuedAt,omitzero"`
+	StartedAt   time.Time          `json:"startedAt,omitzero"`
+	CompletedAt time.Time          `json:"completedAt,omitzero"`
+}
+
+// CheckFromRun creates a Check from a CheckRun and the repository coordinates.
+func CheckFromRun(owner, repo string, r *CheckRun) Check {
+	return Check{
+		Name:        r.Name,
+		Owner:       owner,
+		Repo:        repo,
+		RunID:       r.RunID,
+		JobID:       r.JobID,
+		Status:      r.Status,
+		Conclusion:  r.Conclusion,
+		QueuedAt:    r.QueuedAt,
+		StartedAt:   r.StartedAt,
+		CompletedAt: r.CompletedAt,
+	}
+}
+
+// CIStatus is the aggregate CI outcome for a commit SHA.
+type CIStatus string
+
+// Aggregate CI status values.
+const (
+	CIStatusNone    CIStatus = ""
+	CIStatusPending CIStatus = "pending"
+	CIStatusSuccess CIStatus = "success"
+	CIStatusFailure CIStatus = "failure"
+)
+
 // Forge is the interface for interacting with a code hosting forge.
 type Forge interface {
 	// CreatePR creates a pull/merge request and returns its metadata.

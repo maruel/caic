@@ -1,8 +1,8 @@
-// Package cicache provides a persistent cache for CI check-run results from
+// Package forgecache provides a persistent cache for CI check-run results from
 // code hosting forges (GitHub, GitLab, etc.). Only terminal results (all checks
 // completed) are stored. The cache is backed by a single JSON file and is safe
 // for concurrent use.
-package cicache
+package forgecache
 
 import (
 	"encoding/json"
@@ -12,53 +12,16 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/caic-xyz/caic/backend/internal/forge"
 )
-
-// Status is the outcome of a completed set of CI check-runs.
-type Status string
-
-// Terminal CI status values. Pending is not cached — only terminal statuses are stored.
-const (
-	StatusSuccess Status = "success"
-	StatusFailure Status = "failure"
-	StatusPending Status = "pending"
-)
-
-// CheckConclusion is the conclusion of a completed CI check run.
-type CheckConclusion string
-
-// CI check-run conclusion values.
-const (
-	CheckConclusionSuccess        CheckConclusion = "success"
-	CheckConclusionFailure        CheckConclusion = "failure"
-	CheckConclusionNeutral        CheckConclusion = "neutral"
-	CheckConclusionSkipped        CheckConclusion = "skipped"
-	CheckConclusionCancelled      CheckConclusion = "cancelled"
-	CheckConclusionTimedOut       CheckConclusion = "timed_out"
-	CheckConclusionActionRequired CheckConclusion = "action_required"
-	CheckConclusionStale          CheckConclusion = "stale"
-)
-
-// ForgeCheck is a CI check run with its status, conclusion, and timing.
-type ForgeCheck struct {
-	Name        string          `json:"name"`
-	Owner       string          `json:"owner"`
-	Repo        string          `json:"repo"`
-	RunID       int64           `json:"runID"`  // Pipeline/workflow run ID.
-	JobID       int64           `json:"jobID"`  // Check run / job ID.
-	Status      string          `json:"status"` // queued, in_progress, completed.
-	Conclusion  CheckConclusion `json:"conclusion"`
-	QueuedAt    time.Time       `json:"queuedAt,omitzero"`    // When the check was created/queued.
-	StartedAt   time.Time       `json:"startedAt,omitzero"`   // When execution began.
-	CompletedAt time.Time       `json:"completedAt,omitzero"` // When execution finished.
-}
 
 // Result is the cached outcome for a commit SHA.
 // Only written once all check-runs for that SHA have completed.
 type Result struct {
-	Status   Status       `json:"status"`
-	Checks   []ForgeCheck `json:"checks,omitempty"`
-	CachedAt time.Time    `json:"cachedAt"`
+	Status   forge.CIStatus `json:"status"`
+	Checks   []forge.Check  `json:"checks,omitempty"`
+	CachedAt time.Time      `json:"cachedAt"`
 }
 
 // Cache is a thread-safe persistent store of terminal CI results keyed by
@@ -87,7 +50,7 @@ func Open(path string) (*Cache, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return c, nil
 		}
-		return nil, fmt.Errorf("cicache open %s: %w", path, err)
+		return nil, fmt.Errorf("forgecache open %s: %w", path, err)
 	}
 	var f fileData
 	if err := json.Unmarshal(raw, &f); err != nil {
@@ -128,19 +91,19 @@ func cacheKey(owner, repo, sha string) string {
 func (c *Cache) save() error {
 	raw, err := json.MarshalIndent(fileData{Results: c.data}, "", "  ")
 	if err != nil {
-		return fmt.Errorf("cicache marshal: %w", err)
+		return fmt.Errorf("forgecache marshal: %w", err)
 	}
 	raw = append(raw, '\n')
 	if err := os.MkdirAll(filepath.Dir(c.path), 0o700); err != nil {
-		return fmt.Errorf("cicache mkdir: %w", err)
+		return fmt.Errorf("forgecache mkdir: %w", err)
 	}
 	tmp := c.path + ".tmp"
 	if err := os.WriteFile(tmp, raw, 0o600); err != nil {
-		return fmt.Errorf("cicache write: %w", err)
+		return fmt.Errorf("forgecache write: %w", err)
 	}
 	if err := os.Rename(tmp, c.path); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("cicache rename: %w", err)
+		return fmt.Errorf("forgecache rename: %w", err)
 	}
 	return nil
 }

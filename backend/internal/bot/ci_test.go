@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/caic-xyz/caic/backend/internal/forge"
-	"github.com/caic-xyz/caic/backend/internal/task"
 )
 
 func TestEvaluateCheckRuns(t *testing.T) {
@@ -62,8 +61,8 @@ func TestInterimCIStatus(t *testing.T) {
 		}
 		result, _ := EvaluateCheckRuns("o", "r", runs)
 		status, checks := InterimCIStatus(runs, result.Checks)
-		if status != task.CIStatusPending {
-			t.Errorf("got %q, want %q", status, task.CIStatusPending)
+		if status != forge.CIStatusPending {
+			t.Errorf("got %q, want %q", status, forge.CIStatusPending)
 		}
 		if len(checks) != 2 {
 			t.Fatalf("got %d checks, want 2", len(checks))
@@ -77,8 +76,8 @@ func TestInterimCIStatus(t *testing.T) {
 		}
 		result, _ := EvaluateCheckRuns("o", "r", runs)
 		status, checks := InterimCIStatus(runs, result.Checks)
-		if status != task.CIStatusFailure {
-			t.Errorf("got %q, want %q", status, task.CIStatusFailure)
+		if status != forge.CIStatusFailure {
+			t.Errorf("got %q, want %q", status, forge.CIStatusFailure)
 		}
 		if len(checks) != 2 {
 			t.Fatalf("got %d checks, want 2", len(checks))
@@ -92,8 +91,8 @@ func TestInterimCIStatus(t *testing.T) {
 		}
 		result, _ := EvaluateCheckRuns("o", "r", runs)
 		status, _ := InterimCIStatus(runs, result.Checks)
-		if status != task.CIStatusPending {
-			t.Errorf("got %q, want %q", status, task.CIStatusPending)
+		if status != forge.CIStatusPending {
+			t.Errorf("got %q, want %q", status, forge.CIStatusPending)
 		}
 	})
 
@@ -104,29 +103,32 @@ func TestInterimCIStatus(t *testing.T) {
 		}
 		result, _ := EvaluateCheckRuns("o", "r", runs)
 		status, _ := InterimCIStatus(runs, result.Checks)
-		if status != task.CIStatusFailure {
-			t.Errorf("got %q, want %q", status, task.CIStatusFailure)
+		if status != forge.CIStatusFailure {
+			t.Errorf("got %q, want %q", status, forge.CIStatusFailure)
 		}
 	})
 }
 
-func TestCacheCheckToTask(t *testing.T) {
+func TestCheckFromRun(t *testing.T) {
 	t.Run("preserves timing", func(t *testing.T) {
 		now := time.Now()
 		completed := now.Add(time.Minute)
-		runs := []forge.CheckRun{
-			{Name: "build", Status: forge.CheckRunStatusCompleted, Conclusion: forge.CheckRunConclusionSuccess, StartedAt: now, CompletedAt: completed},
+		run := forge.CheckRun{
+			Name: "build", Status: forge.CheckRunStatusCompleted,
+			Conclusion: forge.CheckRunConclusionSuccess, StartedAt: now, CompletedAt: completed,
 		}
-		result, _ := EvaluateCheckRuns("o", "r", runs)
-		tc := CacheCheckToTask(&result.Checks[0])
-		if tc.StartedAt.IsZero() {
+		c := forge.CheckFromRun("o", "r", &run)
+		if c.StartedAt.IsZero() {
 			t.Error("startedAt should be set")
 		}
-		if tc.CompletedAt.IsZero() {
+		if c.CompletedAt.IsZero() {
 			t.Error("completedAt should be set")
 		}
-		if string(tc.Status) != "completed" {
-			t.Errorf("status = %q, want completed", tc.Status)
+		if c.Status != forge.CheckRunStatusCompleted {
+			t.Errorf("status = %q, want completed", c.Status)
+		}
+		if c.Owner != "o" || c.Repo != "r" {
+			t.Errorf("owner/repo = %s/%s, want o/r", c.Owner, c.Repo)
 		}
 	})
 }

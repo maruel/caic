@@ -1,5 +1,5 @@
-// Package github implements forge.Forge for github.com using the GitHub REST API.
-// This file provides signature verification and payload types for GitHub webhook events.
+// Signature verification and payload types for GitHub webhook events.
+
 package github
 
 import (

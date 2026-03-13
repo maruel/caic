@@ -10,6 +10,7 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/task"
 )
 
+
 // maybeFakeCI polls until the task reaches a non-running state, then sets a
 // fake PR and transitions CI from pending to success with progressive check
 // completion.
@@ -31,12 +32,12 @@ func (s *Server) maybeFakeCI(t *task.Task) {
 ready:
 	t.SetPR("fake-owner", "fake-repo", 1)
 	now := time.Now()
-	checks := []task.CICheck{
+	checks := []forge.Check{
 		{Name: "build", Owner: "fake-owner", Repo: "fake-repo", RunID: 1, JobID: 1, Status: forge.CheckRunStatusInProgress, QueuedAt: now, StartedAt: now},
 		{Name: "test", Owner: "fake-owner", Repo: "fake-repo", RunID: 1, JobID: 2, Status: forge.CheckRunStatusQueued, QueuedAt: now},
 		{Name: "lint", Owner: "fake-owner", Repo: "fake-repo", RunID: 1, JobID: 3, Status: forge.CheckRunStatusQueued, QueuedAt: now},
 	}
-	t.SetCIStatus(task.CIStatusPending, checks)
+	t.SetCIStatus(forge.CIStatusPending, checks)
 	for i := range checks {
 		select {
 		case <-time.After(time.Second):
@@ -50,7 +51,7 @@ ready:
 			checks[i+1].Status = forge.CheckRunStatusInProgress
 			checks[i+1].StartedAt = time.Now()
 		}
-		t.SetCIStatus(task.CIStatusPending, checks)
+		t.SetCIStatus(forge.CIStatusPending, checks)
 	}
-	t.SetCIStatus(task.CIStatusSuccess, checks)
+	t.SetCIStatus(forge.CIStatusSuccess, checks)
 }

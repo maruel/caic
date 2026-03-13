@@ -30,11 +30,11 @@ import (
 	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
 	"github.com/caic-xyz/caic/backend/internal/auth"
 	"github.com/caic-xyz/caic/backend/internal/bot"
-	"github.com/caic-xyz/caic/backend/internal/cicache"
 	"github.com/caic-xyz/caic/backend/internal/container"
 	"github.com/caic-xyz/caic/backend/internal/forge"
-	"github.com/caic-xyz/caic/backend/internal/github"
-	"github.com/caic-xyz/caic/backend/internal/gitlab"
+	"github.com/caic-xyz/caic/backend/internal/forge/forgecache"
+	"github.com/caic-xyz/caic/backend/internal/forge/github"
+	"github.com/caic-xyz/caic/backend/internal/forge/gitlab"
 	"github.com/caic-xyz/caic/backend/internal/preferences"
 	"github.com/caic-xyz/caic/backend/internal/server/dto"
 	v1 "github.com/caic-xyz/caic/backend/internal/server/dto/v1"
@@ -69,7 +69,7 @@ type githubAppClient interface {
 
 // repoCIState holds the live default-branch CI status for one repo.
 type repoCIState struct {
-	Status  cicache.Status
+	Status  forge.CIStatus
 	Checks  []v1.ForgeCheck
 	HeadSHA string // default branch HEAD SHA when last updated; used for webhook dispatch
 }
@@ -201,7 +201,7 @@ type Server struct {
 	mdClient *md.Client
 	backend  *mdBackend // container backend for runner creation
 	logDir   string
-	ciCache  *cicache.Cache
+	ciCache  *forgecache.Cache
 	provider genai.Provider // nil if LLM not configured
 	bot      *bot.Bot       // handles forge event-driven task automation
 
@@ -526,10 +526,10 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 	backend := &mdBackend{client: mdClient}
 
 	cachePath := filepath.Join(cfg.CacheDir, "ci_results.json")
-	cache, err := cicache.Open(cachePath)
+	cache, err := forgecache.Open(cachePath)
 	if err != nil {
 		slog.Warn("cannot open CI cache; falling back to in-memory", "path", cachePath, "err", err)
-		cache, _ = cicache.Open("")
+		cache, _ = forgecache.Open("")
 	}
 
 	s := &Server{
@@ -1608,7 +1608,7 @@ func (s *Server) handleGetCILog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Find the check by jobID to get owner/repo/name.
-	var check *task.CICheck
+	var check *forge.Check
 	for i := range snap.CIChecks {
 		if snap.CIChecks[i].JobID == jobID {
 			check = &snap.CIChecks[i]
@@ -1961,12 +1961,12 @@ func (s *Server) autoResync(ctx context.Context, entry *taskEntry, f forge.Forge
 //   - CI failure: notify agent, then launch autoResync to push fixes and
 //     re-monitor so the loop repeats automatically.
 //   - CI success: squash-merge the PR via the forge API, then notify the agent.
-func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string, result cicache.Result) {
+func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string, result forgecache.Result) {
 	t := entry.task
-	ciStatus := task.CIStatusSuccess
+	ciStatus := forge.CIStatusSuccess
 	var summary string
-	if result.Status == cicache.StatusFailure {
-		ciStatus = task.CIStatusFailure
+	if result.Status == forge.CIStatusFailure {
+		ciStatus = forge.CIStatusFailure
 		summary = bot.FailureSummary(f, result)
 	} else {
 		// CI passed — attempt a squash merge.
@@ -1990,16 +1990,12 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f f
 			summary = fmt.Sprintf("%s CI: all checks passed for %s/%s@%s.", f.Name(), owner, repo, sha[:min(7, len(sha))])
 		}
 	}
-	taskChecks := make([]task.CICheck, len(result.Checks))
-	for i := range result.Checks {
-		taskChecks[i] = bot.CacheCheckToTask(&result.Checks[i])
-	}
-	t.SetCIStatus(ciStatus, taskChecks)
+	t.SetCIStatus(ciStatus, result.Checks)
 	s.notifyTaskChange()
 	if err := t.SendInput(ctx, agent.Prompt{Text: summary}); err != nil {
 		slog.Warn("monitorCI: send input", "task", t.ID, "err", err)
 		// No active session — attempt auto-fix for CI failures if enabled.
-		if result.Status == cicache.StatusFailure {
+		if result.Status == forge.CIStatusFailure {
 			snap := t.Snapshot()
 			if snap.ForgePR > 0 {
 				s.maybeAutoFix(t, f, summary)
@@ -2008,7 +2004,7 @@ func (s *Server) applyMonitorCIResult(ctx context.Context, entry *taskEntry, f f
 	}
 	// On CI failure: wait for the agent to finish its fix turn, then
 	// auto-sync the branch and restart CI monitoring.
-	if ciStatus == task.CIStatusFailure {
+	if ciStatus == forge.CIStatusFailure {
 		go s.autoResync(ctx, entry, f, owner, repo)
 	}
 }
@@ -2240,11 +2236,11 @@ func (s *Server) pollRepoCIOnce(ctx context.Context, info repoInfo, f forge.Forg
 	if !done {
 		// Still in progress — show failure early if any check already failed.
 		interimStatus, _ := bot.InterimCIStatus(runs, result.Checks)
-		repoStatus := cicache.StatusPending
-		if interimStatus == task.CIStatusFailure {
-			repoStatus = cicache.StatusFailure
+		repoStatus := forge.CIStatusPending
+		if interimStatus == forge.CIStatusFailure {
+			repoStatus = forge.CIStatusFailure
 		}
-		s.setRepoCIStatus(info.RelPath, sha, cicache.Result{Status: repoStatus, Checks: result.Checks})
+		s.setRepoCIStatus(info.RelPath, sha, forgecache.Result{Status: repoStatus, Checks: result.Checks})
 		return
 	}
 	if err := s.ciCache.Put(info.ForgeOwner, info.ForgeRepo, sha, result); err != nil {
@@ -2283,24 +2279,8 @@ func (s *Server) pollCIForActiveRepos(ctx context.Context) {
 	}
 }
 
-// taskCheckToDTO converts a single task.CICheck to a v1.ForgeCheck.
-func taskCheckToDTO(c *task.CICheck) v1.ForgeCheck {
-	return v1.ForgeCheck{
-		Name:        c.Name,
-		Owner:       c.Owner,
-		Repo:        c.Repo,
-		RunID:       c.RunID,
-		JobID:       c.JobID,
-		Status:      v1.CheckStatus(c.Status),
-		Conclusion:  v1.CheckConclusion(c.Conclusion),
-		QueuedAt:    c.QueuedAt,
-		StartedAt:   c.StartedAt,
-		CompletedAt: c.CompletedAt,
-	}
-}
-
-// cacheCheckToDTO converts a single cicache.ForgeCheck to a v1.ForgeCheck.
-func cacheCheckToDTO(c *cicache.ForgeCheck) v1.ForgeCheck {
+// checkToDTO converts a forge.Check to a v1.ForgeCheck for API responses.
+func checkToDTO(c *forge.Check) v1.ForgeCheck {
 	return v1.ForgeCheck{
 		Name:        c.Name,
 		Owner:       c.Owner,
@@ -2317,10 +2297,10 @@ func cacheCheckToDTO(c *cicache.ForgeCheck) v1.ForgeCheck {
 
 // setRepoCIStatus updates the in-memory CI state for a repo and notifies
 // SSE subscribers if the status changed.
-func (s *Server) setRepoCIStatus(relPath, sha string, result cicache.Result) {
+func (s *Server) setRepoCIStatus(relPath, sha string, result forgecache.Result) {
 	dtoChecks := make([]v1.ForgeCheck, len(result.Checks))
 	for i := range result.Checks {
-		dtoChecks[i] = cacheCheckToDTO(&result.Checks[i])
+		dtoChecks[i] = checkToDTO(&result.Checks[i])
 	}
 	next := repoCIState{Status: result.Status, Checks: dtoChecks, HeadSHA: sha}
 	s.mu.Lock()
@@ -3559,7 +3539,7 @@ func (s *Server) toJSON(e *taskEntry) v1.Task {
 	if len(snap.CIChecks) > 0 {
 		j.CIChecks = make([]v1.ForgeCheck, len(snap.CIChecks))
 		for i := range snap.CIChecks {
-			j.CIChecks[i] = taskCheckToDTO(&snap.CIChecks[i])
+			j.CIChecks[i] = checkToDTO(&snap.CIChecks[i])
 		}
 	}
 	if s.authStore != nil && e.task.OwnerID != "" {
