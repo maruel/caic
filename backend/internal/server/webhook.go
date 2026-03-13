@@ -168,10 +168,12 @@ func (s *Server) webhookOnCI(ctx context.Context, kind forge.Kind, owner, repo, 
 	s.mu.Lock()
 	var affected []*taskEntry
 	for _, e := range s.tasks {
-		if e.ciSHA == sha {
+		if e.monitorBranch != "" {
 			snap := e.task.Snapshot()
 			if snap.ForgeOwner == owner && snap.ForgeRepo == repo {
-				affected = append(affected, e)
+				if p := e.task.Primary(); p != nil && p.Branch == e.monitorBranch {
+					affected = append(affected, e)
+				}
 			}
 		}
 	}
@@ -246,22 +248,90 @@ func (s *Server) handleIssuesEvent(ctx context.Context, ev *github.IssuesEvent) 
 	}, s.commenterFor(ev.Installation.ID))
 }
 
-// handlePullRequestEvent creates a task when a PR is opened or reopened.
+// handlePullRequestEvent creates a task when a PR is opened or reopened,
+// or updates an existing task if a PR is opened for a branch that already
+// has a container/task but no PR yet.
 // Trigger: action=="opened" OR action=="reopened".
 func (s *Server) handlePullRequestEvent(ctx context.Context, ev *github.PullRequestEvent) {
-	if ev.Action != "opened" && ev.Action != "reopened" {
+	// First, try to create a new task (existing behavior).
+	if ev.Action == "opened" || ev.Action == "reopened" {
+		s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
+		s.bot.OnPROpened(ctx, &bot.PREvent{
+			ForgeFullName: ev.Repository.FullName,
+			Number:        ev.PullRequest.Number,
+			Title:         ev.PullRequest.Title,
+			Body:          ev.PullRequest.Body,
+			HTMLURL:       ev.PullRequest.HTMLURL,
+			HeadRef:       ev.PullRequest.Head.Ref,
+			BaseRef:       ev.PullRequest.Base.Ref,
+		})
+	}
+
+	// Also check if this PR is for an existing task that doesn't have a PR yet.
+	// This handles the case where a user creates a PR outside of caic.
+	s.handlePRForExistingTask(ctx, ev)
+}
+
+// handlePRForExistingTask updates an existing task with PR info if the PR head
+// branch matches a task's branch but the task doesn't have a PR yet.
+func (s *Server) handlePRForExistingTask(ctx context.Context, ev *github.PullRequestEvent) {
+	// Only handle PR open, reopen, or synchronize actions.
+	if ev.Action != "opened" && ev.Action != "reopened" && ev.Action != "synchronize" {
 		return
 	}
-	s.storeInstallationIDFromFullName(ev.Repository.FullName, ev.Installation.ID)
-	s.bot.OnPROpened(ctx, &bot.PREvent{
-		ForgeFullName: ev.Repository.FullName,
-		Number:        ev.PullRequest.Number,
-		Title:         ev.PullRequest.Title,
-		Body:          ev.PullRequest.Body,
-		HTMLURL:       ev.PullRequest.HTMLURL,
-		HeadRef:       ev.PullRequest.Head.Ref,
-		BaseRef:       ev.PullRequest.Base.Ref,
-	})
+	owner, repo, _ := strings.Cut(ev.Repository.FullName, "/")
+	if owner == "" || repo == "" {
+		return
+	}
+	branch := ev.PullRequest.Head.Ref
+	if branch == "" {
+		return
+	}
+	prNumber := ev.PullRequest.Number
+	sha := ev.PullRequest.Head.SHA
+
+	// Find tasks matching this repo and branch.
+	s.mu.Lock()
+	var matchingEntries []*taskEntry
+	for _, e := range s.tasks {
+		snap := e.task.Snapshot()
+		if snap.ForgeOwner == owner && snap.ForgeRepo == repo {
+			// Check if the primary repo branch matches.
+			if p := e.task.Primary(); p != nil && p.Branch == branch {
+				matchingEntries = append(matchingEntries, e)
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	for _, entry := range matchingEntries {
+		snap := entry.task.Snapshot()
+		if snap.ForgePR == 0 {
+			// Task has no PR yet — set the PR info.
+			slog.Info("webhook: associating external PR with existing task",
+				"task", entry.task.ID, "repo", owner+"/"+repo, "br", branch, "pr", prNumber)
+			entry.task.SetPR(owner, repo, prNumber)
+			// Start CI monitoring.
+			ri := s.repoByForge(owner + "/" + repo)
+			if ri != nil {
+				f := s.forgeFor(ctx, ri.ForgeKind)
+				if f != nil {
+					s.mu.Lock()
+					entry.monitorBranch = branch
+					s.mu.Unlock()
+					go s.monitorCI(ctx, entry, f, owner, repo, sha)
+				}
+			}
+		} else if snap.ForgePR == prNumber && ev.Action == "synchronize" {
+			// PR already exists, but new commits were pushed — restart CI monitoring.
+			slog.Info("webhook: restarting CI monitor for PR",
+				"task", entry.task.ID, "repo", owner+"/"+repo, "br", branch, "pr", prNumber, "sha", sha[:min(7, len(sha))])
+			ri := s.repoByForge(owner + "/" + repo)
+			if ri != nil {
+				go s.monitorCI(ctx, entry, s.forgeFor(ctx, ri.ForgeKind), owner, repo, sha)
+			}
+		}
+	}
 }
 
 // handleIssueCommentEvent creates a task when @caic is mentioned in a comment.
@@ -352,11 +422,17 @@ func (s *Server) handleCheckSuiteEvent(ctx context.Context, ev *github.CheckSuit
 	}
 
 	// Deliver the result to any task monitoring this SHA.
+	// Match by branch since multiple commits can have the same SHA across different branches.
 	s.mu.Lock()
 	var waiting []*taskEntry
 	for _, entry := range s.tasks {
-		if entry.ciSHA == sha {
-			waiting = append(waiting, entry)
+		if entry.monitorBranch != "" {
+			snap := entry.task.Snapshot()
+			if snap.ForgeOwner == repo.ForgeOwner && snap.ForgeRepo == repo.ForgeRepo {
+				if p := entry.task.Primary(); p != nil && p.Branch == entry.monitorBranch {
+					waiting = append(waiting, entry)
+				}
+			}
 		}
 	}
 	s.mu.Unlock()

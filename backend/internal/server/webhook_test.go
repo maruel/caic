@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -49,6 +50,9 @@ func (f *stubForge) GetCheckRuns(_ context.Context, _, _, _ string) ([]forge.Che
 }
 func (f *stubForge) CreatePR(_ context.Context, _, _, _, _, _, _ string) (forge.PR, error) {
 	return forge.PR{}, nil
+}
+func (f *stubForge) FindPRByBranch(_ context.Context, _, _, _ string) (forge.PR, error) {
+	return forge.PR{}, fmt.Errorf("not implemented: %w", forge.ErrNotFound)
 }
 func (f *stubForge) PRURL(_, _ string, _ int) string         { return "" }
 func (f *stubForge) PRLabel(_ int) string                    { return "" }

@@ -399,9 +399,9 @@ type taskEntry struct {
 	result      *task.Result
 	done        chan struct{}
 	cleanupOnce sync.Once // ensures exactly one cleanup runs per task
-	// CI monitoring: set when a PR is created; used by check_suite webhook handler to
+	// CI monitoring: set when a PR is created; used by webhook handlers to
 	// find the task waiting for CI results.
-	ciSHA string // PR head SHA being monitored; empty when no CI monitoring active
+	monitorBranch string // branch being monitored (e.g. "caic-123"); empty when no CI monitoring active
 }
 
 // New creates a new Server. It discovers repos under rootDir, creates a Runner
@@ -1802,7 +1802,7 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, f forge.Forg
 		ForgePR:     pr.Number,
 	})
 	s.mu.Lock()
-	entry.ciSHA = pr.HeadSHA
+	entry.monitorBranch = branch
 	s.mu.Unlock()
 	s.notifyTaskChange()
 	go s.monitorCI(s.ctx, entry, f, info.ForgeOwner, info.ForgeRepo, pr.HeadSHA) //nolint:contextcheck // CI monitoring must outlive the request
@@ -1950,9 +1950,6 @@ func (s *Server) autoResync(ctx context.Context, entry *taskEntry, f forge.Forge
 	}
 
 	slog.Info("autoResync: restarting CI monitor", "task", t.ID, "sha", newSHA[:min(7, len(newSHA))])
-	s.mu.Lock()
-	entry.ciSHA = newSHA
-	s.mu.Unlock()
 	s.notifyTaskChange()
 	go s.monitorCI(ctx, entry, f, owner, repo, newSHA)
 }
@@ -2944,14 +2941,26 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	} else {
 		t.SetTitle(prompt)
 	}
-	if lt != nil && lt.ForgePR > 0 {
+	switch {
+	case lt != nil && lt.ForgePR > 0:
 		// Restore PR created during a previous session (persisted in log).
 		t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
-	} else if forgeIssue > 0 && ri.ForgeOwner != "" {
+	case forgeIssue > 0 && ri.ForgeOwner != "":
 		// Ensure forge owner/repo are set so the bot can resolve a commenter.
 		t.SetPR(ri.ForgeOwner, ri.ForgeRepo, 0)
+	case ri.ForgeOwner != "" && branch != "" && ri.ForgeKind != "":
+		// Query the forge for an existing PR created outside of caic.
+		f := s.forgeFor(ctx, ri.ForgeKind)
+		if f != nil {
+			pr, err := f.FindPRByBranch(ctx, ri.ForgeOwner, ri.ForgeRepo, branch)
+			if err == nil && pr.Number > 0 {
+				slog.Info("adopt: found external PR", "repo", ri.RelPath, "br", branch, "pr", pr.Number)
+				t.SetPR(ri.ForgeOwner, ri.ForgeRepo, pr.Number)
+			}
+		}
 	}
 
+	// Restore messages from relay or logs.
 	if relayAlive && len(relayMsgs) > 0 {
 		// Relay output is authoritative — zero loss. It contains both
 		// Claude Code stdout and user inputs (logged by the relay).
@@ -2994,16 +3003,46 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		}
 	}
 
+	// Track whether we've already registered the task entry (happens for external PRs).
+	entryRegistered := false
 	entry := &taskEntry{task: t, done: make(chan struct{})}
 
-	s.mu.Lock()
-	if oldID, ok := branchID[ri.RelPath+"\x00"+branch]; ok && (ri.RelPath != "" || branch != "") {
-		// Replace the stale purged entry with the live container.
-		delete(s.tasks, oldID)
+	// Register entry and start CI monitoring if a PR was found (either from logs or external).
+	if t.GetPR() > 0 && ri.ForgeOwner != "" && ri.ForgeKind != "" {
+		f := s.forgeFor(ctx, ri.ForgeKind)
+		if f != nil {
+			s.mu.Lock()
+			if oldID, ok := branchID[ri.RelPath+"\x00"+branch]; ok && (ri.RelPath != "" || branch != "") {
+				delete(s.tasks, oldID)
+			}
+			s.tasks[t.ID.String()] = entry
+			s.taskChanged()
+			s.mu.Unlock()
+			entryRegistered = true
+			// Get the PR head SHA for CI monitoring.
+			pr := t.Snapshot().ForgePR
+			if pr > 0 {
+				sha, err := f.GetDefaultBranchSHA(ctx, ri.ForgeOwner, ri.ForgeRepo, branch)
+				if err == nil {
+					s.mu.Lock()
+					entry.monitorBranch = branch
+					s.mu.Unlock()
+					go s.monitorCI(s.ctx, entry, f, ri.ForgeOwner, ri.ForgeRepo, sha) //nolint:contextcheck // CI monitoring must outlive the request
+				}
+			}
+		}
 	}
-	s.tasks[t.ID.String()] = entry
-	s.taskChanged()
-	s.mu.Unlock()
+
+	if !entryRegistered {
+		s.mu.Lock()
+		if oldID, ok := branchID[ri.RelPath+"\x00"+branch]; ok && (ri.RelPath != "" || branch != "") {
+			// Replace the stale purged entry with the live container.
+			delete(s.tasks, oldID)
+		}
+		s.tasks[t.ID.String()] = entry
+		s.taskChanged()
+		s.mu.Unlock()
+	}
 
 	slog.Info("container", "msg", "adopted",
 		"repo", ri.RelPath, "ctr", c.Name, "br", branch,

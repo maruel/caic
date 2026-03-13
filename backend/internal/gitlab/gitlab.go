@@ -112,6 +112,42 @@ func (c *Client) CreatePR(ctx context.Context, owner, repo, head, base, title, b
 	return forge.PR{Number: r.IID, HeadSHA: r.SHA}, nil
 }
 
+// FindPRByBranch returns the MR for the given source branch, or ErrNotFound
+// if no MR exists for that branch.
+func (c *Client) FindPRByBranch(ctx context.Context, owner, repo, sourceBranch string) (forge.PR, error) {
+	apiURL := fmt.Sprintf("%s/projects/%s/merge_requests?source_branch=%s&state=opened", apiBase, projectID(owner, repo), url.QueryEscape(sourceBranch))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiURL, http.NoBody)
+	if err != nil {
+		return forge.PR{}, err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return forge.PR{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return forge.PR{}, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return forge.PR{}, fmt.Errorf("gitlab search MRs: status %d: %s", resp.StatusCode, data)
+	}
+	var mrs []struct {
+		IID   int    `json:"iid"`
+		SHA   string `json:"sha"`
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(data, &mrs); err != nil {
+		return forge.PR{}, err
+	}
+	if len(mrs) == 0 {
+		return forge.PR{}, fmt.Errorf("no MR found for branch %q: %w", sourceBranch, forge.ErrNotFound)
+	}
+	// Return the first matching MR.
+	mr := mrs[0]
+	return forge.PR{Number: mr.IID, HeadSHA: mr.SHA}, nil
+}
+
 // GetDefaultBranchSHA returns the HEAD commit SHA of branch in the given repo.
 func (c *Client) GetDefaultBranchSHA(ctx context.Context, owner, repo, branch string) (string, error) {
 	apiURL := fmt.Sprintf("%s/projects/%s/repository/branches/%s", apiBase, projectID(owner, repo), url.PathEscape(branch))

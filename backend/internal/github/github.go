@@ -77,6 +77,17 @@ type checkRunsResponse struct {
 	} `json:"check_runs"`
 }
 
+// searchPRsResponse is the relevant subset of the GitHub search PRs response.
+type searchPRsResponse struct {
+	TotalCount int `json:"total_count"`
+	Items      []struct {
+		Number int `json:"number"`
+		Head   struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	} `json:"items"`
+}
+
 // actionsRunRe extracts the workflow run ID from a GitHub Actions job URL.
 var actionsRunRe = regexp.MustCompile(`/actions/runs/(\d+)/job/\d+`)
 
@@ -108,6 +119,38 @@ func (c *Client) CreatePR(ctx context.Context, owner, repo, head, base, title, b
 		return forge.PR{}, err
 	}
 	return forge.PR{Number: r.Number, HeadSHA: r.Head.SHA}, nil
+}
+
+// FindPRByBranch returns the PR for the given head branch, or ErrNotFound
+// if no PR exists for that branch.
+func (c *Client) FindPRByBranch(ctx context.Context, owner, repo, headBranch string) (forge.PR, error) {
+	url := fmt.Sprintf("https://api.github.com/search/issues?q=repo:%s/%s+head:%s+is:pr", owner, repo, headBranch)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	if err != nil {
+		return forge.PR{}, err
+	}
+	resp, err := c.HTTPClient.Do(req)
+	if err != nil {
+		return forge.PR{}, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return forge.PR{}, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return forge.PR{}, fmt.Errorf("github search PRs: status %d: %s", resp.StatusCode, data)
+	}
+	var r searchPRsResponse
+	if err := json.Unmarshal(data, &r); err != nil {
+		return forge.PR{}, err
+	}
+	if len(r.Items) == 0 {
+		return forge.PR{}, fmt.Errorf("no PR found for branch %q: %w", headBranch, forge.ErrNotFound)
+	}
+	// Return the first matching PR (most recent).
+	pr := r.Items[0]
+	return forge.PR{Number: pr.Number, HeadSHA: pr.Head.SHA}, nil
 }
 
 // GetDefaultBranchSHA returns the HEAD commit SHA of branch in the given repo.

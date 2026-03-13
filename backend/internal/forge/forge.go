@@ -70,6 +70,9 @@ type CheckRun struct {
 type Forge interface {
 	// CreatePR creates a pull/merge request and returns its metadata.
 	CreatePR(ctx context.Context, owner, repo, head, base, title, body string) (PR, error)
+	// FindPRByBranch returns the PR for the given head branch, or ErrNotFound
+	// if no PR exists for that branch.
+	FindPRByBranch(ctx context.Context, owner, repo, headBranch string) (PR, error)
 	// GetCheckRuns returns all CI check runs for a commit SHA.
 	GetCheckRuns(ctx context.Context, owner, repo, sha string) ([]CheckRun, error)
 	// GetDefaultBranchSHA returns the HEAD commit SHA of the given branch.
