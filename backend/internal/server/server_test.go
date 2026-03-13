@@ -944,6 +944,64 @@ func TestLoadPurgedTasks(t *testing.T) {
 			t.Errorf("len(tasks) = %d, want 0", len(s.tasks))
 		}
 	})
+
+	t.Run("PROutsideTailWindow", func(t *testing.T) {
+		// caic_pr early in the file with >64 KiB of messages after it.
+		// The header-only tail scan cannot see caic_pr; loadPurgedTasks
+		// must still restore it on the Task via LoadMessages.
+		logDir := t.TempDir()
+		meta := mustJSON(t, agent.MetaMessage{
+			MessageType: "caic_meta", Version: 1, Prompt: "big pr task",
+			Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-0"}}, Harness: agent.Claude,
+			StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+		})
+		prMsg := mustJSON(t, agent.MetaPRMessage{
+			MessageType: "caic_pr", ForgeOwner: "acme", ForgeRepo: "widget", ForgePR: 77,
+		})
+
+		// Build filler lines (assistant messages) totalling >64 KiB.
+		bigText := strings.Repeat("x", 1024)
+		filler := mustJSON(t, map[string]any{
+			"type":    "assistant",
+			"message": map[string]any{"content": []any{map[string]any{"type": "text", "text": bigText}}},
+		})
+		lines := make([]string, 0, 83) // meta + prMsg + 80 filler + trailer
+		lines = append(lines, meta, prMsg)
+		for range 80 { // 80 KiB of filler
+			lines = append(lines, filler)
+		}
+		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
+		lines = append(lines, trailer)
+		writeLogFile(t, logDir, "task.jsonl", lines...)
+
+		s := &Server{
+			runners: map[string]*task.Runner{},
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+			logDir:  logDir,
+		}
+		if err := s.loadPurgedTasks(); err != nil {
+			t.Fatal(err)
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if len(s.tasks) != 1 {
+			t.Fatalf("len(tasks) = %d, want 1", len(s.tasks))
+		}
+		for _, e := range s.tasks {
+			snap := e.task.Snapshot()
+			if snap.ForgePR != 77 {
+				t.Errorf("ForgePR = %d, want 77", snap.ForgePR)
+			}
+			if snap.ForgeOwner != "acme" {
+				t.Errorf("ForgeOwner = %q, want %q", snap.ForgeOwner, "acme")
+			}
+			if snap.ForgeRepo != "widget" {
+				t.Errorf("ForgeRepo = %q, want %q", snap.ForgeRepo, "widget")
+			}
+		}
+	})
 }
 
 // parseSSEEvents extracts message-type SSE events from a response body.

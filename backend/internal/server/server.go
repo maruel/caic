@@ -2731,9 +2731,6 @@ func (s *Server) loadPurgedTasksFrom(all []*task.LoadedTask) error {
 		} else {
 			t.SetTitle(lt.Prompt)
 		}
-		if lt.ForgePR > 0 {
-			t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
-		}
 		// TODO: Figure out when it was purged.
 		if err := lt.LoadMessages(); err != nil {
 			ltPrimary := lt.Primary()
@@ -2746,6 +2743,12 @@ func (s *Server) loadPurgedTasksFrom(all []*task.LoadedTask) error {
 		}
 		if lt.Msgs != nil {
 			t.RestoreMessages(lt.Msgs)
+		}
+		// SetPR after LoadMessages: the header-only tail scan may miss
+		// caic_pr when the record is beyond the 64 KiB window; the full
+		// parse in LoadMessages always finds it.
+		if lt.ForgePR > 0 {
+			t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
 		}
 		// Backfill result stats from restored messages when the trailer
 		// has zero cost (e.g. session exited without a final ResultMessage).
@@ -3007,6 +3010,12 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 			t.RestoreMessages(lt.Msgs)
 			slog.Warn("relay", "msg", "restored from log", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "msgs", len(lt.Msgs))
 		}
+	}
+
+	// LoadMessages may have found caic_pr that the header-only tail scan
+	// missed (record beyond the 64 KiB window). Apply it if still unset.
+	if lt != nil && lt.ForgePR > 0 && t.GetPR() == 0 {
+		t.SetPR(lt.ForgeOwner, lt.ForgeRepo, lt.ForgePR)
 	}
 
 	// If the task is still running after message restoration (agent is

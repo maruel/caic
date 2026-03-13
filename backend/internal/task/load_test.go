@@ -242,6 +242,50 @@ func TestLoadLogs_PRPersistence(t *testing.T) {
 			t.Errorf("ForgePR = %d, want 99 (full parse)", lt.ForgePR)
 		}
 	})
+	t.Run("OutsideTailWindow", func(t *testing.T) {
+		// caic_pr early in the file, followed by >64 KiB of messages,
+		// so the header-only tail scan cannot see it.
+		dir := t.TempDir()
+		meta := mustJSON(t, agent.MetaMessage{MessageType: "caic_meta", Version: 1, Prompt: "big task", Repos: []agent.MetaRepo{{Name: "r", Branch: "caic-3"}}, Harness: "claude"})
+		prMsg := mustJSON(t, agent.MetaPRMessage{MessageType: "caic_pr", ForgeOwner: "acme", ForgeRepo: "widget", ForgePR: 77})
+
+		// Build lines: header, caic_pr, then enough assistant messages
+		// to push caic_pr beyond the 64 KiB tail window.
+		lines := []string{meta, prMsg}
+		bigText := string(make([]byte, 1024)) // 1 KiB of null bytes per message
+		for i := 0; i < 80; i++ {             // 80 KiB of filler
+			lines = append(lines, claudeAssistant(t, map[string]any{"type": "text", "text": bigText}))
+		}
+		trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
+		lines = append(lines, trailer)
+		writeLogFile(t, dir, "3-r-caic-3.jsonl", lines...)
+
+		tasks, err := LoadLogs(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(tasks) != 1 {
+			t.Fatalf("len = %d, want 1", len(tasks))
+		}
+		lt := tasks[0]
+		// Header-only parse misses caic_pr (outside 64 KiB tail).
+		if lt.ForgePR != 0 {
+			t.Fatalf("expected header-only parse to miss caic_pr outside tail window, got ForgePR=%d", lt.ForgePR)
+		}
+		// Full parse via LoadMessages must recover the PR.
+		if err := lt.LoadMessages(); err != nil {
+			t.Fatal(err)
+		}
+		if lt.ForgePR != 77 {
+			t.Errorf("ForgePR = %d after LoadMessages, want 77", lt.ForgePR)
+		}
+		if lt.ForgeOwner != "acme" {
+			t.Errorf("ForgeOwner = %q, want %q", lt.ForgeOwner, "acme")
+		}
+		if lt.ForgeRepo != "widget" {
+			t.Errorf("ForgeRepo = %q, want %q", lt.ForgeRepo, "widget")
+		}
+	})
 }
 
 func TestParseState(t *testing.T) {
