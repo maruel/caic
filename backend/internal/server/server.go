@@ -2911,11 +2911,12 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 	var relayAlive bool
 	var relayMsgs []agent.Message
 	var relaySize int64
+	var relayDiag string
 	if !isExited {
 		var relayErr error
-		relayAlive, relayErr = agent.IsRelayRunning(ctx, c.Name)
+		relayAlive, relayDiag, relayErr = agent.RelayStatus(ctx, c.Name)
 		if relayErr != nil {
-			slog.Warn("relay", "msg", "check failed during adopt", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "err", relayErr)
+			slog.Warn("relay", "msg", "check failed during adopt", "repo", ri.RelPath, "br", branch, "ctr", c.Name, "err", relayErr, "diag", relayDiag)
 		}
 		if relayAlive {
 			// Relay is alive — read authoritative output from container.
@@ -3034,7 +3035,7 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		// we can auto-reconnect via --resume.
 		relayLog := agent.ReadRelayLog(ctx, c.Name, 4096)
 		if relayLog != "" {
-			slog.Warn("relay", "msg", "log from dead relay", "ctr", c.Name, "br", branch, "log", relayLog)
+			slog.Warn("relay", "msg", "log from dead relay", "ctr", c.Name, "br", branch, "diag", relayDiag, "log", relayLog)
 		}
 		if t.GetState() == task.StateRunning {
 			t.SetState(task.StateWaiting)

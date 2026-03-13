@@ -268,24 +268,33 @@ func HasRelayDir(ctx context.Context, container string) (bool, error) {
 	return true, nil
 }
 
-// IsRelayRunning checks whether the relay socket exists in the container.
-func IsRelayRunning(ctx context.Context, container string) (bool, error) {
-	// Check both socket existence and process liveness. A stale socket
-	// (left after docker stop/start) would pass "test -S" but the relay
-	// process is dead. Reading the PID file and sending kill -0 confirms
-	// the daemon is actually running.
+// RelayStatus checks relay socket + PID liveness and returns diagnostic detail.
+func RelayStatus(ctx context.Context, container string) (alive bool, detail string, err error) {
+	pidPath := RelayDir + "/pid"
 	check := fmt.Sprintf(
-		`test -S %s && kill -0 "$(cat %s 2>/dev/null)" 2>/dev/null`,
-		RelaySockPath, RelayDir+"/pid")
+		`sock=0; [ -S %[1]s ] && sock=1; `+
+			`pid=""; [ -f %[2]s ] && pid=$(cat %[2]s 2>/dev/null); `+
+			`killok=0; if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then killok=1; fi; `+
+			`echo "sock=$sock pid=$pid kill=$killok"; `+
+			`[ "$sock" -eq 1 ] && [ "$killok" -eq 1 ]`,
+		RelaySockPath, pidPath)
 	cmd := exec.CommandContext(ctx, "ssh", container, "sh", "-c", check) //nolint:gosec // container is not user-controlled
-	if err := cmd.Run(); err != nil {
+	out, err := cmd.CombinedOutput()
+	detail = strings.TrimSpace(string(out))
+	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() != 0 {
-			return false, nil
+			return false, detail, nil
 		}
-		return false, fmt.Errorf("test relay: %w", err)
+		return false, detail, fmt.Errorf("test relay: %w", err)
 	}
-	return true, nil
+	return true, detail, nil
+}
+
+// IsRelayRunning checks whether the relay socket exists in the container.
+func IsRelayRunning(ctx context.Context, container string) (bool, error) {
+	alive, _, err := RelayStatus(ctx, container)
+	return alive, err
 }
 
 // ReadRelayLog reads the last maxBytes of the relay daemon's log file from the
