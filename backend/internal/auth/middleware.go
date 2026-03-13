@@ -46,6 +46,11 @@ func RequireUser(next http.Handler) http.Handler {
 	})
 }
 
+// NewContext returns a context with the given user attached.
+func NewContext(ctx context.Context, u *User) context.Context {
+	return context.WithValue(ctx, contextKey{}, u)
+}
+
 // UserFromContext returns the authenticated user, or (nil, false) in no-auth mode.
 func UserFromContext(ctx context.Context) (*User, bool) {
 	u, ok := ctx.Value(contextKey{}).(*User)

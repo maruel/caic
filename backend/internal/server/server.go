@@ -1817,9 +1817,11 @@ func (s *Server) startPRFlow(ctx context.Context, entry *taskEntry, f forge.Forg
 // Without an App, it polls every 15 s.
 func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge, owner, repo, sha string) {
 	t := entry.task
+	slog.Info("monitorCI: start", "task", t.ID, "owner", owner, "repo", repo, "sha", sha, "hasApp", s.githubApp != nil)
 
 	// Fast path: result already cached (e.g. after a server restart).
 	if cached, ok := s.ciCache.Get(owner, repo, sha); ok {
+		slog.Info("monitorCI: cache hit", "task", t.ID, "status", cached.Status)
 		s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, cached)
 		return
 	}
@@ -1831,26 +1833,67 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 		if err != nil {
 			if !errors.Is(err, forge.ErrNotFound) {
 				slog.Warn("monitorCI: initial check-runs", "task", t.ID, "err", err)
+			} else {
+				slog.Info("monitorCI: check-runs not found (404)", "task", t.ID)
 			}
 			return // webhook will handle completion
 		}
+		slog.Info("monitorCI: initial check-runs", "task", t.ID, "runs", len(runs))
 		if len(runs) > 0 {
 			result, done := bot.EvaluateCheckRuns(owner, repo, runs)
 			if done {
 				if err := s.ciCache.Put(owner, repo, sha, result); err != nil {
 					slog.Warn("monitorCI: cache put", "err", err)
 				}
+				slog.Info("monitorCI: done (app path)", "task", t.ID, "status", result.Status)
 				s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, result)
 				return
 			}
 			status := bot.InterimCIStatus(runs)
+			slog.Info("monitorCI: interim status (app path)", "task", t.ID, "status", status, "checks", len(result.Checks))
 			t.SetCIStatus(status, result.Checks)
 			s.notifyTaskChange()
 		}
 		return // check_suite webhook delivers the terminal result
 	}
 
-	// Without App: poll every 15 s.
+	// Without App: immediate check then poll every 15 s.
+	//
+	// checkOnce fetches and applies CI status. It returns true when
+	// monitoring should stop (terminal result or permanent error).
+	checkOnce := func() (stop bool) {
+		runs, err := f.GetCheckRuns(ctx, owner, repo, sha)
+		if err != nil {
+			if errors.Is(err, forge.ErrNotFound) {
+				return true
+			}
+			slog.Warn("monitorCI: get check-runs", "task", t.ID, "err", err)
+			return false
+		}
+		if len(runs) == 0 {
+			return false
+		}
+		result, done := bot.EvaluateCheckRuns(owner, repo, runs)
+		if !done {
+			status := bot.InterimCIStatus(runs)
+			t.SetCIStatus(status, result.Checks)
+			s.notifyTaskChange()
+			return false
+		}
+		if err := s.ciCache.Put(owner, repo, sha, result); err != nil {
+			slog.Warn("monitorCI: cache put", "err", err)
+		}
+		s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, result)
+		return true
+	}
+
+	// Always run one immediate check (e.g. after server restart) so CI
+	// status shows up in the task card even for stopped/running tasks.
+	if checkOnce() {
+		return
+	}
+
+	// Continue polling only while the task is waiting for CI.
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -1859,34 +1902,13 @@ func (s *Server) monitorCI(ctx context.Context, entry *taskEntry, f forge.Forge,
 			return
 		case <-ticker.C:
 		}
-		// Stop if the task is no longer waiting (user sent input / purged).
 		st := t.GetState()
 		if st != task.StateWaiting && st != task.StateAsking && st != task.StateHasPlan {
 			return
 		}
-		runs, err := f.GetCheckRuns(ctx, owner, repo, sha)
-		if err != nil {
-			if errors.Is(err, forge.ErrNotFound) {
-				return
-			}
-			slog.Warn("monitorCI: get check-runs", "task", t.ID, "err", err)
-			continue
+		if checkOnce() {
+			return
 		}
-		if len(runs) == 0 {
-			continue
-		}
-		result, done := bot.EvaluateCheckRuns(owner, repo, runs)
-		if !done {
-			status := bot.InterimCIStatus(runs)
-			t.SetCIStatus(status, result.Checks)
-			s.notifyTaskChange()
-			continue
-		}
-		if err := s.ciCache.Put(owner, repo, sha, result); err != nil {
-			slog.Warn("monitorCI: cache put", "err", err)
-		}
-		s.applyMonitorCIResult(ctx, entry, f, owner, repo, sha, result)
-		return
 	}
 }
 
@@ -2966,7 +2988,12 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 		t.SetPR(ri.ForgeOwner, ri.ForgeRepo, 0)
 	case ri.ForgeOwner != "" && branch != "" && ri.ForgeKind != "":
 		// Query the forge for an existing PR created outside of caic.
-		f := s.forgeFor(ctx, ri.ForgeKind)
+		f := s.forgeForInfo(ctx, &ri)
+		if f == nil && s.authStore != nil {
+			if u, ok := s.authStore.FindByProvider(ri.ForgeKind); ok {
+				f = s.forgeFor(auth.NewContext(ctx, &u), ri.ForgeKind)
+			}
+		}
 		if f != nil {
 			pr, err := f.FindPRByBranch(ctx, ri.ForgeOwner, ri.ForgeRepo, branch)
 			if err == nil && pr.Number > 0 {
@@ -3039,7 +3066,17 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 
 	// Register entry and start CI monitoring if a PR was found (either from logs or external).
 	if t.GetPR() > 0 && ri.ForgeOwner != "" && ri.ForgeKind != "" {
-		f := s.forgeFor(ctx, ri.ForgeKind)
+		// The adoption context has no authenticated user. Try the general
+		// lookup first (PAT / GitHub App), then fall back to a stored
+		// OAuth token from the auth store (most recently seen user for
+		// this forge provider).
+		f := s.forgeForInfo(ctx, &ri)
+		if f == nil && s.authStore != nil {
+			if u, ok := s.authStore.FindByProvider(ri.ForgeKind); ok {
+				f = s.forgeFor(auth.NewContext(ctx, &u), ri.ForgeKind)
+			}
+		}
+		slog.Info("adopt: CI monitoring", "task", t.ID, "pr", t.GetPR(), "forgeKind", ri.ForgeKind, "forgeOwner", ri.ForgeOwner, "hasForge", f != nil)
 		if f != nil {
 			s.mu.Lock()
 			if oldID, ok := branchID[ri.RelPath+"\x00"+branch]; ok && (ri.RelPath != "" || branch != "") {
@@ -3053,7 +3090,10 @@ func (s *Server) adoptOne(ctx context.Context, ri repoInfo, runner *task.Runner,
 			pr := t.Snapshot().ForgePR
 			if pr > 0 {
 				sha, err := f.GetDefaultBranchSHA(ctx, ri.ForgeOwner, ri.ForgeRepo, branch)
-				if err == nil {
+				if err != nil {
+					slog.Warn("adopt: GetDefaultBranchSHA failed", "task", t.ID, "branch", branch, "err", err)
+				} else {
+					slog.Info("adopt: starting monitorCI", "task", t.ID, "branch", branch, "sha", sha)
 					s.mu.Lock()
 					entry.monitorBranch = branch
 					s.mu.Unlock()

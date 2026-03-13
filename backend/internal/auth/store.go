@@ -116,6 +116,24 @@ func (s *Store) FindByProviderID(provider forge.Kind, providerID string) (User, 
 	return User{}, false
 }
 
+// FindByProvider returns the most recently seen user for the given provider, or false.
+func (s *Store) FindByProvider(provider forge.Kind) (User, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	best := -1
+	for i := range s.file.Users {
+		if s.file.Users[i].Provider == provider && s.file.Users[i].AccessToken != "" {
+			if best < 0 || s.file.Users[i].LastSeenAt.After(s.file.Users[best].LastSeenAt) {
+				best = i
+			}
+		}
+	}
+	if best < 0 {
+		return User{}, false
+	}
+	return recordToUser(&s.file.Users[best]), true
+}
+
 // FindByID returns the user with the given internal ID, or false.
 func (s *Store) FindByID(id string) (User, bool) {
 	s.mu.Lock()

@@ -1,8 +1,9 @@
 // Sidebar task list with collapsible panel, grouped by repo for active tasks.
 import { For, Index, Show, createSignal } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { Repo, Task } from "@sdk/types.gen";
+import type { CIStatus, Repo, Task } from "@sdk/types.gen";
 import TaskCard from "./TaskCard";
+import CIDot from "./CIDot";
 import styles from "./TaskList.module.css";
 import LeftPanelClose from "@material-symbols/svg-400/outlined/left_panel_close.svg?solid";
 import LeftPanelOpen from "@material-symbols/svg-400/outlined/left_panel_open.svg?solid";
@@ -71,11 +72,6 @@ function ciDotURL(repo: Repo): string | undefined {
   return isGitLab ? repo.remoteURL + "/-/pipelines" : repo.remoteURL + "/actions";
 }
 
-const CI_DOT_COLOR: Record<string, string> = {
-  pending: "var(--color-warning-border)",
-  success: "var(--color-success)",
-  failure: "var(--color-danger)",
-};
 
 export default function TaskList(props: TaskListProps) {
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
@@ -172,6 +168,7 @@ export default function TaskList(props: TaskListProps) {
       display={t().display}
       forgePR={t().forgePR}
       ciStatus={t().ciStatus}
+      ciChecks={t().ciChecks}
       selected={props.selectedId === t().id}
       now={props.now}
       onClick={() => props.onSelect(t().id)}
@@ -207,18 +204,12 @@ export default function TaskList(props: TaskListProps) {
                 <Show when={repoMeta()} keyed>
                   {(meta) => (
                     <Show when={meta.defaultBranchCIStatus} keyed>
-                      {(status) => {
-                        const url = ciDotURL(meta);
-                        const label = `Default branch CI: ${status}`;
-                        return <>
-                          {url
-                            ? <a class={styles.ciDot} style={{ background: CI_DOT_COLOR[status] }} href={url} target="_blank" rel="noopener" title={label} onClick={(e) => e.stopPropagation()} />
-                            : <span class={styles.ciDot} style={{ background: CI_DOT_COLOR[status] }} title={label} />}
-                          <Show when={status === "failure" && !props.autoFixCI() && props.onFixCI}>
-                            <button class={styles.fixCIBtn} title="Fix CI" onClick={(e) => { e.stopPropagation(); props.onFixCI?.(group.repo); }}>Fix CI</button>
-                          </Show>
-                        </>;
-                      }}
+                      {(status) => <>
+                        <CIDot status={status as CIStatus} checks={meta.defaultBranchChecks} href={ciDotURL(meta)} />
+                        <Show when={status === "failure" && !props.autoFixCI() && props.onFixCI}>
+                          <button class={styles.fixCIBtn} title="Fix CI" onClick={(e) => { e.stopPropagation(); props.onFixCI?.(group.repo); }}>Fix CI</button>
+                        </Show>
+                      </>}
                     </Show>
                   )}
                 </Show>

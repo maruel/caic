@@ -97,6 +97,17 @@ function checkStatusLabel(c: ForgeCheck): string {
   return "queued";
 }
 
+function checkJobURL(c: ForgeCheck, forge?: string): string | undefined {
+  if (forge === "gitlab") return `https://gitlab.com/${c.owner}/${c.repo}/-/jobs/${c.jobID}`;
+  if (c.runID && c.jobID) return `https://github.com/${c.owner}/${c.repo}/actions/runs/${c.runID}/job/${c.jobID}`;
+  return undefined;
+}
+
+function ciActionsURL(remoteURL?: string, forge?: string): string | undefined {
+  if (!remoteURL) return undefined;
+  return forge === "gitlab" ? `${remoteURL}/-/pipelines` : `${remoteURL}/actions`;
+}
+
 export default function TaskDetail(props: Props) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -502,9 +513,14 @@ export default function TaskDetail(props: Props) {
             {(() => {
               const s = props.ciStatus as CIStatus;
               const hasChecks = () => (props.ciChecks?.length ?? 0) > 0;
+              const actionsURL = () => ciActionsURL(props.remoteURL, props.forge);
               return (
                 <>
-                  <Show when={hasChecks()} fallback={<span class={`${styles.ciStatus} ${CI_STATUS_CLASS[s]}`}>{ciLabel(s, props.ciChecks)}</span>}>
+                  <Show when={hasChecks()} fallback={
+                    <Show when={actionsURL()} keyed fallback={<span class={`${styles.ciStatus} ${CI_STATUS_CLASS[s]}`}>{ciLabel(s, props.ciChecks)}</span>}>
+                      {(url) => <a class={`${styles.ciStatus} ${CI_STATUS_CLASS[s]}`} href={url} target="_blank" rel="noopener">{ciLabel(s, props.ciChecks)}</a>}
+                    </Show>
+                  }>
                     <details class={styles.ciDetails}>
                       <summary class={`${styles.ciStatus} ${CI_STATUS_CLASS[s]}`}>{ciLabel(s, props.ciChecks)}</summary>
                       <div class={styles.ciDropdown}>
@@ -513,14 +529,27 @@ export default function TaskDetail(props: Props) {
                             const statusCls = c.status === "completed"
                               ? (c.conclusion === "success" || c.conclusion === "neutral" || c.conclusion === "skipped" ? styles.ciCheckPassed : styles.ciCheckFailed)
                               : c.status === "in_progress" ? styles.ciCheckRunning : styles.ciCheckQueued;
+                            const jobURL = () => checkJobURL(c, props.forge);
                             return (
-                              <div class={`${styles.ciCheckRow} ${statusCls}`}>
-                                <span class={styles.ciCheckName}>{c.name}</span>
-                                <span class={styles.ciCheckStatus}>{checkStatusLabel(c)}</span>
-                                <Show when={c.startedAt || c.queuedAt}>
-                                  <span class={styles.ciCheckDuration}>{checkDuration(c, Date.now())}</span>
-                                </Show>
-                              </div>
+                              <Show when={jobURL()} keyed fallback={
+                                <div class={`${styles.ciCheckRow} ${statusCls}`}>
+                                  <span class={styles.ciCheckName}>{c.name}</span>
+                                  <span class={styles.ciCheckStatus}>{checkStatusLabel(c)}</span>
+                                  <Show when={c.startedAt || c.queuedAt}>
+                                    <span class={styles.ciCheckDuration}>{checkDuration(c, Date.now())}</span>
+                                  </Show>
+                                </div>
+                              }>
+                                {(url) => (
+                                  <a class={`${styles.ciCheckRow} ${styles.ciCheckLink} ${statusCls}`} href={url} target="_blank" rel="noopener">
+                                    <span class={styles.ciCheckName}>{c.name}</span>
+                                    <span class={styles.ciCheckStatus}>{checkStatusLabel(c)}</span>
+                                    <Show when={c.startedAt || c.queuedAt}>
+                                      <span class={styles.ciCheckDuration}>{checkDuration(c, Date.now())}</span>
+                                    </Show>
+                                  </a>
+                                )}
+                              </Show>
                             );
                           }}
                         </For>

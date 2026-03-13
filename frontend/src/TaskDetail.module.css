@@ -375,6 +375,24 @@ a.headerPR:hover {
   white-space: nowrap;
 }
 
+a.ciCheckLink {
+  text-decoration: none;
+  color: inherit;
+}
+
+a.ciCheckLink:hover {
+  background: var(--color-bg-hover);
+}
+
+a.ciStatus {
+  text-decoration: none;
+  color: inherit;
+}
+
+a.ciStatus:hover {
+  opacity: 0.8;
+}
+
 .ciCheckName {
   flex: 1;
   overflow: hidden;

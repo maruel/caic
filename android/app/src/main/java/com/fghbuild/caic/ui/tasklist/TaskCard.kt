@@ -350,8 +350,8 @@ private fun PrBadge() {
 private fun CiDot(status: String?) {
     val appColors = MaterialTheme.appColors
     val color = when (status) {
-        "pending" -> appColors.warningText
-        "success" -> appColors.successText
+        "pending" -> appColors.warningBorder
+        "success" -> appColors.success
         "failure" -> MaterialTheme.colorScheme.error
         else -> return
     }

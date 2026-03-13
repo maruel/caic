@@ -1,0 +1,25 @@
+/* CI status dot with tooltip showing check details. */
+
+.dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dot_pending {
+  background: var(--color-warning-border);
+}
+
+.dot_success {
+  background: var(--color-success);
+}
+
+.dot_failure {
+  background: var(--color-danger);
+}
+
+a.dot:hover {
+  opacity: 0.75;
+}

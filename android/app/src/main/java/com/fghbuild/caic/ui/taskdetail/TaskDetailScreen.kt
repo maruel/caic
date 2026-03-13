@@ -351,28 +351,11 @@ fun TaskDetailScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                val primaryRepo = it.repos?.firstOrNull()
-                                val primaryBranch = primaryRepo?.branch ?: ""
-                                val branchURL = primaryRepo?.remoteURL?.let { url ->
-                                    when (primaryRepo.forge) {
-                                        "gitlab" -> "$url/-/compare/${primaryBranch}?expand=1"
-                                        "github" -> "$url/compare/${primaryBranch}?expand=1"
-                                        else -> null
-                                    }
-                                }
+                                val primaryBranch = it.repos?.firstOrNull()?.branch ?: ""
                                 Text(
                                     text = primaryBranch,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = if (branchURL != null) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                    modifier = if (branchURL != null) {
-                                        Modifier.clickable { uriHandler.openUri(branchURL) }
-                                    } else {
-                                        Modifier
-                                    },
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -412,14 +395,22 @@ fun TaskDetailScreen(
                                 val hasChecks = !checks.isNullOrEmpty()
                                 val ciLabel = ciLabel(it.ciStatus, checks)
                                 var ciExpanded by rememberSaveable { mutableStateOf(false) }
+                                val ciForge = it.repos?.firstOrNull()?.forge
+                                val ciRemoteURL = it.repos?.firstOrNull()?.remoteURL
+                                val ciActionsUrl = ciActionsUrl(ciRemoteURL, ciForge)
+                                fun badgeModifier(): Modifier = when {
+                                    hasChecks -> Modifier.clickable { ciExpanded = !ciExpanded }
+                                    ciActionsUrl != null -> Modifier.clickable {
+                                        uriHandler.openUri(ciActionsUrl)
+                                    }
+                                    else -> Modifier
+                                }
                                 when (it.ciStatus) {
                                     "pending" -> Column {
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
                                             color = appColors.warningBg,
-                                            modifier = if (hasChecks) Modifier.clickable {
-                                                ciExpanded = !ciExpanded
-                                            } else Modifier,
+                                            modifier = badgeModifier(),
                                         ) {
                                             Text(
                                                 text = ciLabel,
@@ -429,16 +420,14 @@ fun TaskDetailScreen(
                                             )
                                         }
                                         if (ciExpanded && hasChecks) {
-                                            CICheckList(checks = checks!!)
+                                            CICheckList(checks = checks!!, forge = ciForge)
                                         }
                                     }
                                     "success" -> Column {
                                         Surface(
                                             shape = RoundedCornerShape(4.dp),
                                             color = appColors.successBg,
-                                            modifier = if (hasChecks) Modifier.clickable {
-                                                ciExpanded = !ciExpanded
-                                            } else Modifier,
+                                            modifier = badgeModifier(),
                                         ) {
                                             Text(
                                                 text = ciLabel,
@@ -448,7 +437,7 @@ fun TaskDetailScreen(
                                             )
                                         }
                                         if (ciExpanded && hasChecks) {
-                                            CICheckList(checks = checks!!)
+                                            CICheckList(checks = checks!!, forge = ciForge)
                                         }
                                     }
                                     "failure" -> Column {
@@ -459,9 +448,7 @@ fun TaskDetailScreen(
                                             Surface(
                                                 shape = RoundedCornerShape(4.dp),
                                                 color = MaterialTheme.colorScheme.errorContainer,
-                                                modifier = if (hasChecks) Modifier.clickable {
-                                                    ciExpanded = !ciExpanded
-                                                } else Modifier,
+                                                modifier = badgeModifier(),
                                             ) {
                                                 Text(
                                                     text = ciLabel,
@@ -500,7 +487,7 @@ fun TaskDetailScreen(
                                             }
                                         }
                                         if (ciExpanded && hasChecks) {
-                                            CICheckList(checks = checks!!)
+                                            CICheckList(checks = checks!!, forge = ciForge)
                                         }
                                     }
                                     else -> Unit
@@ -966,10 +953,24 @@ private fun checkDuration(c: ForgeCheck): String {
     return formatElapsed(seconds)
 }
 
+private fun checkJobUrl(c: ForgeCheck, forge: String?): String? {
+    if (forge == "gitlab") return "https://gitlab.com/${c.owner}/${c.repo}/-/jobs/${c.jobID}"
+    if (c.runID > 0 && c.jobID > 0) {
+        return "https://github.com/${c.owner}/${c.repo}/actions/runs/${c.runID}/job/${c.jobID}"
+    }
+    return null
+}
+
+private fun ciActionsUrl(remoteURL: String?, forge: String?): String? {
+    if (remoteURL == null) return null
+    return if (forge == "gitlab") "$remoteURL/-/pipelines" else "$remoteURL/actions"
+}
+
 /** Expandable list of per-check detail rows for the CI badge. */
 @Composable
-private fun CICheckList(checks: List<ForgeCheck>) {
+private fun CICheckList(checks: List<ForgeCheck>, forge: String? = null) {
     val appColors = MaterialTheme.appColors
+    val uriHandler = LocalUriHandler.current
     Column(
         modifier = Modifier.padding(start = 4.dp, top = 4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -983,9 +984,11 @@ private fun CICheckList(checks: List<ForgeCheck>) {
                 c.status == "in_progress" -> appColors.warningText
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             }
+            val jobUrl = checkJobUrl(c, forge)
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                modifier = if (jobUrl != null) Modifier.clickable { uriHandler.openUri(jobUrl) } else Modifier,
             ) {
                 Text(
                     text = c.name,

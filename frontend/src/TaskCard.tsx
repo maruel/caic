@@ -1,7 +1,8 @@
 // Compact card for a single task, used in the sidebar task list.
 import { Show, createSignal, onMount, onCleanup } from "solid-js";
 import type { Accessor } from "solid-js";
-import type { DiffStat } from "@sdk/types.gen";
+import type { DiffStat, CIStatus, ForgeCheck } from "@sdk/types.gen";
+import CIDot from "./CIDot";
 import Tooltip from "./Tooltip";
 import TailscaleIcon from "./tailscale.svg?solid";
 import USBIcon from "@material-symbols/svg-400/outlined/usb.svg?solid";
@@ -42,7 +43,8 @@ export interface TaskCardProps {
   usb?: boolean;
   display?: boolean;
   forgePR?: number;
-  ciStatus?: string;
+  ciStatus?: CIStatus;
+  ciChecks?: ForgeCheck[];
   selected: boolean;
   now: Accessor<number>;
   onClick: () => void;
@@ -55,11 +57,6 @@ export interface TaskCardProps {
 
 const terminalStates = new Set(["stopping", "stopped", "purging", "purged", "failed"]);
 
-const CI_DOT_CLASS: Record<string, string> = {
-  pending: styles.ciDot_pending,
-  success: styles.ciDot_success,
-  failure: styles.ciDot_failure,
-};
 
 export default function TaskCard(props: TaskCardProps) {
   const isTerminal = () => terminalStates.has(props.state);
@@ -192,8 +189,8 @@ export default function TaskCard(props: TaskCardProps) {
           <Show when={props.forgePR}>
             <span class={styles.prBadge} title={`PR #${props.forgePR}`}>PR</span>
           </Show>
-          <Show when={props.forgePR && props.ciStatus}>
-            <span class={`${styles.ciDot} ${CI_DOT_CLASS[props.ciStatus as string] ?? ""}`} title={`CI: ${props.ciStatus}`} />
+          <Show when={props.forgePR && props.ciStatus} keyed>
+            {(status) => <CIDot status={status as CIStatus} checks={props.ciChecks} />}
           </Show>
           <span class={styles.badge} style={{ background: stateColor(props.state) }}>
             {props.state}
