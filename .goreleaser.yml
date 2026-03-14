@@ -22,6 +22,9 @@ builds:
     env:
       - CGO_ENABLED=0
 
+universal_binaries:
+  - replace: true
+
 archives:
   - formats:
       - tar.gz

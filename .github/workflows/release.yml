@@ -46,6 +46,13 @@ jobs:
             echo "Auto-incremented version: $NEW_VERSION"
             echo "VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
           fi
+      - name: Validate Version
+        run: |
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "error: version '$VERSION' does not match v{major}.{minor}.{patch} format" >&2
+            exit 1
+          fi
 
   finalize-release:
     needs: [setup]
