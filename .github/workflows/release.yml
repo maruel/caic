@@ -1,0 +1,96 @@
+# Copyright 2026 Marc-Antoine Ruel. All Rights Reserved. Use of this
+# source code is governed by the Apache v2 license that can be found in the
+# LICENSE file.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v1.0.0). Leave empty to auto-increment patch version.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0 # Required to fetch tags for version calculation
+      - name: Determine Version
+        id: get_version
+        run: |
+          INPUT_VERSION="${{ inputs.version }}"
+          if [ -n "$INPUT_VERSION" ]; then
+            echo "Using provided version: $INPUT_VERSION"
+            echo "VERSION=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "No version provided. Calculating next patch version..."
+            git fetch --tags --force
+            LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0")
+            echo "Latest tag found: $LATEST_TAG"
+            VERSION_NO_V="${LATEST_TAG#v}"
+            IFS='.' read -r -a parts <<< "$VERSION_NO_V"
+            MAJOR="${parts[0]:-0}"
+            MINOR="${parts[1]:-0}"
+            PATCH="${parts[2]:-0}"
+            NEW_PATCH=$((PATCH + 1))
+            NEW_VERSION="v$MAJOR.$MINOR.$NEW_PATCH"
+            echo "Auto-incremented version: $NEW_VERSION"
+            echo "VERSION=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+          fi
+
+  finalize-release:
+    needs: [setup]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Tag and Push
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          git tag $VERSION
+          git push origin $VERSION
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ needs.setup.outputs.version }}"
+          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/generate-notes -f tag_name=$VERSION | jq -r '.body')
+          gh release create "$VERSION" --title "$VERSION" --notes "$RELEASE_NOTES"
+
+  build-binaries:
+    needs: [setup, finalize-release]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Build frontend
+        run: make build
+      - name: Fetch tag
+        run: git fetch --tags --force
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          version: latest
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ needs.setup.outputs.version }}
