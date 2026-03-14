@@ -1257,7 +1257,7 @@ function AskQuestionCard(props: { ask: EventAsk; interactive: boolean; answerTex
         <button class={styles.askSubmit} onClick={() => handleSubmit()}>Submit</button>
       </Show>
       <Show when={answered()}>
-        <div class={styles.askSubmitted}>
+        <div class={styles.askSubmitted} data-testid="ask-submitted-answer">
           {props.answerText ?? formatAnswer()}
         </div>
       </Show>

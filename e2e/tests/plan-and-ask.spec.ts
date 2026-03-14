@@ -77,8 +77,8 @@ test("FAKE_ASK: AskUserQuestion card renders, accepts answer, submits", async ({
   await page.getByRole("button", { name: "Option A" }).click();
   await page.getByRole("button", { name: "Submit" }).click();
 
-  // Submitted answer should be displayed (exact match on the submitted text div).
-  await expect(page.locator("div").filter({ hasText: /^Option A$/ })).toBeVisible();
+  // Submitted answer should be displayed in the ask-submitted-answer div.
+  await expect(page.getByTestId("ask-submitted-answer")).toHaveText("Option A", { timeout: 10_000 });
 
   // The answer is forwarded to the fake agent as a new prompt; it replies
   // with a joke and the task transitions back to waiting.
