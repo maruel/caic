@@ -256,7 +256,7 @@ export default function App() {
           setSelectedRepos([{ path: first, branch: "" }]);
         }
         {
-          setHarnesses(h);
+          setHarnesses(h.filter((x) => x.name !== "kilo"));
           prefModels = prefs?.models ?? {};
           const prefHarness = prefs?.harness ?? "";
           const harness = prefHarness && h.find((x) => x.name === prefHarness)

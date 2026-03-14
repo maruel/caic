@@ -27,7 +27,6 @@ import (
 
 	"github.com/caic-xyz/caic/backend/frontend"
 	"github.com/caic-xyz/caic/backend/internal/agent"
-	"github.com/caic-xyz/caic/backend/internal/agent/kilo"
 	"github.com/caic-xyz/caic/backend/internal/auth"
 	"github.com/caic-xyz/caic/backend/internal/bot"
 	"github.com/caic-xyz/caic/backend/internal/container"
@@ -670,7 +669,6 @@ func New(ctx context.Context, rootDir string, cfg *Config) (*Server, error) {
 	}
 
 	s.watchContainerEvents(ctx)
-	go s.discoverKiloModels()
 	go s.warmupImages()
 	return s, nil
 }
@@ -2403,47 +2401,6 @@ func (s *Server) warmupImages() {
 			return
 		}
 	}
-}
-
-// discoverKiloModels fetches available models from the OpenRouter API and
-// updates all runners' Kilo backends. Falls back to defaults on any error.
-func (s *Server) discoverKiloModels() {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Get("https://openrouter.ai/api/v1/models")
-	if err != nil {
-		slog.Warn("kilo", "msg", "fetch OpenRouter models failed", "err", err)
-		return
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		slog.Warn("kilo", "msg", "fetch OpenRouter non-200", "st", resp.StatusCode)
-		return
-	}
-	var body struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		slog.Warn("kilo", "msg", "JSON decode OpenRouter response failed", "err", err)
-		return
-	}
-	models := make([]string, 0, len(body.Data))
-	for _, m := range body.Data {
-		if m.ID != "" {
-			models = append(models, m.ID)
-		}
-	}
-	if len(models) == 0 {
-		slog.Warn("kilo", "msg", "fetch OpenRouter returned no models")
-		return
-	}
-	for _, r := range s.runners {
-		if b, ok := r.Backends[agent.Kilo].(*kilo.Backend); ok {
-			b.SetModels(kilo.SortModels(models))
-		}
-	}
-	slog.Debug("kilo", "num_models", len(models))
 }
 
 // handleContainerDeath looks up a task by container name and archives it.
