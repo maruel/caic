@@ -1135,12 +1135,24 @@ function Markdown(props: { text: string }) {
   return <div class={styles.markdown} innerHTML={html()} />;
 }
 
+// Answers submitted locally but not yet confirmed via SSE userInput event.
+// Keyed by toolUseID so the state survives component remounts caused by
+// keyed Match re-creation when group object identities change.
+const pendingAskAnswers = new Map<string, string>();
+
 function AskQuestionCard(props: { ask: EventAsk; interactive: boolean; answerText?: string; onSubmit: (text: string) => void }) {
   const questions = () => props.ask.questions;
   const [selections, setSelections] = createSignal<Map<number, Set<string>>>(new Map());
   const [otherTexts, setOtherTexts] = createSignal<Map<number, string>>(new Map());
-  const [submitted, setSubmitted] = createSignal(false);
+  // eslint-disable-next-line solid/reactivity -- toolUseID is immutable per ask instance
+  const toolUseID = props.ask.toolUseID;
+  const [submitted, setSubmitted] = createSignal(pendingAskAnswers.has(toolUseID));
   const answered = () => props.answerText !== undefined || submitted();
+
+  // Clean up pending entry once the server confirms the answer via SSE.
+  createEffect(() => {
+    if (props.answerText !== undefined) pendingAskAnswers.delete(toolUseID);
+  });
 
   function toggleOption(qIdx: number, label: string, multiSelect: boolean) {
     setSelections((prev) => {
@@ -1199,6 +1211,7 @@ function AskQuestionCard(props: { ask: EventAsk; interactive: boolean; answerTex
   function handleSubmit() {
     const answer = formatAnswer();
     if (!answer.trim()) return;
+    pendingAskAnswers.set(toolUseID, answer);
     setSubmitted(true);
     props.onSubmit(answer);
   }
@@ -1259,7 +1272,7 @@ function AskQuestionCard(props: { ask: EventAsk; interactive: boolean; answerTex
       </Show>
       <Show when={answered()}>
         <div class={styles.askSubmitted} data-testid="ask-submitted-answer">
-          {props.answerText ?? formatAnswer()}
+          {props.answerText ?? pendingAskAnswers.get(toolUseID) ?? formatAnswer()}
         </div>
       </Show>
     </div>
