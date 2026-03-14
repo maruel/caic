@@ -14,8 +14,8 @@ require (
 	github.com/mattn/go-colorable v0.1.14
 	github.com/mattn/go-isatty v0.0.20
 	github.com/oschwald/maxminddb-golang/v2 v2.1.1
-	golang.org/x/net v0.51.0
-	golang.org/x/sync v0.19.0
+	golang.org/x/net v0.52.0
+	golang.org/x/sync v0.20.0
 )
 
 require (
@@ -25,15 +25,15 @@ require (
 	github.com/gzuidhof/tygo v0.2.21 // indirect
 	github.com/inconshreveable/mousetrap v1.0.0 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
-	github.com/mailru/easyjson v0.9.1 // indirect
+	github.com/mailru/easyjson v0.9.2 // indirect
 	github.com/maruel/httpjson v0.5.0 // indirect
 	github.com/spf13/cobra v1.3.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
-	golang.org/x/crypto v0.48.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/mod v0.5.1 // indirect
-	golang.org/x/sys v0.41.0 // indirect
-	golang.org/x/term v0.40.0 // indirect
+	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/term v0.41.0 // indirect
 	golang.org/x/tools v0.1.9 // indirect
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
