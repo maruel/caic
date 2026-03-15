@@ -2363,6 +2363,13 @@ func (s *Server) watchSession(entry *taskEntry, runner *task.Runner, h *task.Ses
 			t := entry.task
 			t.DetachSession()
 			result, sessionErr := h.Session.Wait()
+			// Close the dispatch goroutine. CloseMsgCh is idempotent so this
+			// is safe even if StopTask races and closes MsgCh concurrently.
+			h.CloseMsgCh()
+			<-h.DispatchDone
+			if h.LogW != nil {
+				_ = h.LogW.Close()
+			}
 			watchPrimaryName := ""
 			watchPrimaryBranch := ""
 			if p := t.Primary(); p != nil {

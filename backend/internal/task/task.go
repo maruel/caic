@@ -86,6 +86,14 @@ type SessionHandle struct {
 	MsgCh        chan agent.Message
 	DispatchDone <-chan struct{}
 	LogW         io.WriteCloser
+	closeMsgCh   sync.Once
+}
+
+// CloseMsgCh closes MsgCh exactly once. Safe to call concurrently; subsequent
+// calls are no-ops. Use this instead of close(h.MsgCh) to prevent double-close
+// panics when StopTask and EnsureSession race on the same handle.
+func (h *SessionHandle) CloseMsgCh() {
+	h.closeMsgCh.Do(func() { close(h.MsgCh) })
 }
 
 // RepoMount describes one repository in a task.

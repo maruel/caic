@@ -400,7 +400,7 @@ func (r *Runner) Cleanup(ctx context.Context, t *Task, reason State) Result {
 		result, _ = h.Session.Wait()
 	}
 	if h != nil {
-		close(h.MsgCh)
+		h.CloseMsgCh()
 		<-h.DispatchDone
 	}
 
@@ -480,7 +480,7 @@ func (r *Runner) StopTask(ctx context.Context, t *Task) {
 	// is complete before the state transitions to StateStopped.
 	if h != nil {
 		_, _ = h.Session.Wait()
-		close(h.MsgCh)
+		h.CloseMsgCh()
 		<-h.DispatchDone
 	}
 
@@ -551,7 +551,7 @@ func (r *Runner) EnsureSession(ctx context.Context, t *Task, h *SessionHandle, t
 		// Session exited immediately. Detach and start fresh.
 		t.DetachSession()
 		result, _ := h.Session.Wait()
-		close(h.MsgCh)
+		h.CloseMsgCh()
 		<-h.DispatchDone
 		_ = h.LogW.Close()
 		sub := ""
@@ -853,7 +853,7 @@ func (r *Runner) RestartSession(ctx context.Context, t *Task, prompt agent.Promp
 	// server restart. The marker must be written before closing the log.
 	oldH := t.CloseAndDetachSession()
 	if oldH != nil {
-		close(oldH.MsgCh)
+		oldH.CloseMsgCh()
 		<-oldH.DispatchDone
 		if oldH.LogW != nil {
 			writeContextCleared(oldH.LogW)
