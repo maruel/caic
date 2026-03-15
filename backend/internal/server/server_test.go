@@ -708,15 +708,15 @@ func TestLoadPurgedTasks(t *testing.T) {
 		trailer0 := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
 		writeLogFile(t, logDir, "recent.jsonl", meta0, trailer0)
 
-		// task 1: old (purged, > 3 days)
+		// task 1: old (purged, > 7 days)
 		meta1 := mustJSON(t, agent.MetaMessage{
 			MessageType: "caic_meta", Version: 1, Prompt: "old task", Harness: agent.Claude, StartedAt: time.Now().Add(-10 * 24 * time.Hour),
 		})
 		trailer1 := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
 		oldPath := filepath.Join(logDir, "old.jsonl")
 		writeLogFile(t, logDir, "old.jsonl", meta1, trailer1)
-		// Set mtime to 4 days ago.
-		oldTime := time.Now().Add(-4 * 24 * time.Hour)
+		// Set mtime to 8 days ago.
+		oldTime := time.Now().Add(-8 * 24 * time.Hour)
 		if err := os.Chtimes(oldPath, oldTime, oldTime); err != nil {
 			t.Fatal(err)
 		}
@@ -740,6 +740,60 @@ func TestLoadPurgedTasks(t *testing.T) {
 			if e.task.InitialPrompt.Text != "recent task" {
 				t.Errorf("prompt = %q, want \"recent task\"", e.task.InitialPrompt.Text)
 			}
+		}
+	})
+
+	t.Run("PerRepoLimit", func(t *testing.T) {
+		logDir := t.TempDir()
+
+		// Write 7 tasks for repo "a" and 3 for repo "b".
+		for i := range 7 {
+			meta := mustJSON(t, agent.MetaMessage{
+				MessageType: "caic_meta", Version: 1, Prompt: fmt.Sprintf("a-%d", i),
+				Repos: []agent.MetaRepo{{Name: "a", Branch: fmt.Sprintf("caic-%d", i)}}, Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, i, 0, 0, 0, time.UTC),
+			})
+			trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
+			writeLogFile(t, logDir, fmt.Sprintf("a-%d.jsonl", i), meta, trailer)
+		}
+		for i := range 3 {
+			meta := mustJSON(t, agent.MetaMessage{
+				MessageType: "caic_meta", Version: 1, Prompt: fmt.Sprintf("b-%d", i),
+				Repos: []agent.MetaRepo{{Name: "b", Branch: fmt.Sprintf("caic-%d", i)}}, Harness: agent.Claude, StartedAt: time.Date(2026, 1, 1, i+10, 0, 0, 0, time.UTC),
+			})
+			trailer := mustJSON(t, agent.MetaResultMessage{MessageType: "caic_result", State: "purged"})
+			writeLogFile(t, logDir, fmt.Sprintf("b-%d.jsonl", i), meta, trailer)
+		}
+
+		s := &Server{
+			runners: map[string]*task.Runner{},
+			tasks:   make(map[string]*taskEntry),
+			changed: make(chan struct{}),
+			logDir:  logDir,
+		}
+		if err := s.loadPurgedTasks(); err != nil {
+			t.Fatal(err)
+		}
+
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		// Count tasks per repo.
+		counts := map[string]int{}
+		for _, e := range s.tasks {
+			repo := ""
+			if p := e.task.Primary(); p != nil {
+				repo = p.Name
+			}
+			counts[repo]++
+		}
+		if counts["a"] != 5 {
+			t.Errorf("repo a: got %d tasks, want 5", counts["a"])
+		}
+		if counts["b"] != 3 {
+			t.Errorf("repo b: got %d tasks, want 3", counts["b"])
+		}
+		if len(s.tasks) != 8 {
+			t.Errorf("total tasks = %d, want 8 (5 from a + 3 from b)", len(s.tasks))
 		}
 	})
 

@@ -1842,7 +1842,7 @@ func (s *Server) SetRunnerOps(c task.ContainerBackend, backends map[agent.Harnes
 	}
 }
 
-// loadPurgedTasks loads the last 20 purged tasks from JSONL logs on disk.
+// loadPurgedTasks loads recent purged tasks from JSONL logs on disk.
 // Exported for testing; New() uses the parallelized variant.
 func (s *Server) loadPurgedTasks() error {
 	all, err := task.LoadLogs(s.logDir)
@@ -1854,23 +1854,39 @@ func (s *Server) loadPurgedTasks() error {
 
 // loadPurgedTasksFrom populates s.tasks from pre-loaded log data. It filters
 // to tasks with an explicit caic_result trailer, keeps only those updated
-// within the last 3 days, and limits the result to the 20 most recent.
+// within the last 7 days, and limits the result to the 5 most recent per repo.
 func (s *Server) loadPurgedTasksFrom(all []*task.LoadedTask) error {
-	// Filter to tasks with an explicit caic_result trailer and updated within 3 days.
-	// Log files without a trailer may belong to still-running tasks.
+	// Filter to tasks updated within the last 7 days. Tasks without a
+	// caic_result trailer (e.g. interrupted by server shutdown) get a
+	// synthetic failed result so they still appear in the UI.
 	var purged []*task.LoadedTask
 	now := time.Now().UTC()
 	for _, lt := range all {
-		if lt.Result != nil && now.Sub(lt.LastStateUpdateAt) <= 3*24*time.Hour {
-			purged = append(purged, lt)
+		if now.Sub(lt.LastStateUpdateAt) > 7*24*time.Hour {
+			continue
+		}
+		if lt.Result == nil {
+			lt.Result = &task.Result{State: lt.State}
+		}
+		purged = append(purged, lt)
+	}
+	// LoadLogs returns ascending; reverse for most-recent-first, keep last 5 per repo.
+	slices.Reverse(purged)
+	repoCount := map[string]int{}
+	filtered := purged[:0]
+	for _, lt := range purged {
+		repo := ""
+		if p := lt.Primary(); p != nil {
+			repo = p.Name
+		}
+		if repoCount[repo] < 5 {
+			filtered = append(filtered, lt)
+			repoCount[repo]++
 		}
 	}
-	// LoadLogs returns ascending; reverse for most-recent-first, keep last 20.
-	slices.Reverse(purged)
-	if len(purged) > 20 {
-		purged = purged[:20]
-	}
+	purged = filtered
 	if len(purged) == 0 {
+		slog.Info("no purged tasks to load", "candidates", len(all))
 		return nil
 	}
 	s.mu.Lock()

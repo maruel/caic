@@ -28,6 +28,9 @@ var errNotLogFile = errors.New("not a caic log file")
 // metaKnown is the set of JSON field names recognised by agent.MetaMessage.
 var metaKnown = jsonutil.KnownFields(agent.MetaMessage{})
 
+// resultKnown is the set of JSON field names recognised by agent.MetaResultMessage.
+var resultKnown = jsonutil.KnownFields(agent.MetaResultMessage{})
+
 // LoadedTask holds the data reconstructed from a single JSONL log file.
 type LoadedTask struct {
 	TaskID            string // Task ID parsed from log filename; empty if unparseable.
@@ -223,9 +226,11 @@ func loadLogHeader(path string) (_ *LoadedTask, retErr error) {
 			}
 			if bytes.Contains(line, []byte(`"caic_result"`)) {
 				var mr agent.MetaResultMessage
-				rd := json.NewDecoder(bytes.NewReader(line))
-				rd.DisallowUnknownFields()
-				if err := rd.Decode(&mr); err == nil {
+				if err := json.Unmarshal(line, &mr); err == nil {
+					var raw map[string]json.RawMessage
+					if json.Unmarshal(line, &raw) == nil {
+						jsonutil.WarnUnknown("caic_result", jsonutil.CollectUnknown(raw, resultKnown))
+					}
 					lt.State = parseState(mr.State)
 					if mr.Title != "" {
 						lt.Title = mr.Title
@@ -334,10 +339,12 @@ func loadLogFile(path string) (_ *LoadedTask, retErr error) {
 
 		if envelope.Type == "caic_result" {
 			var mr agent.MetaResultMessage
-			rd := json.NewDecoder(bytes.NewReader(line))
-			rd.DisallowUnknownFields()
-			if err := rd.Decode(&mr); err != nil {
+			if err := json.Unmarshal(line, &mr); err != nil {
 				return nil, fmt.Errorf("invalid caic_result: %w", err)
+			}
+			var raw map[string]json.RawMessage
+			if json.Unmarshal(line, &raw) == nil {
+				jsonutil.WarnUnknown("caic_result", jsonutil.CollectUnknown(raw, resultKnown))
 			}
 			lt.State = parseState(mr.State)
 			if mr.Title != "" {
