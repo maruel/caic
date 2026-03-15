@@ -667,16 +667,14 @@ func TestBuildArgs(t *testing.T) {
 		}
 	})
 	t.Run("WidgetMCPConfig", func(t *testing.T) {
+		// Widget MCP is disabled for codex; buildArgs should return only
+		// the base command without any -c flags.
 		args := buildArgs(&agent.Options{})
-		// Should contain -c flags for widget MCP server config.
-		found := 0
 		for _, a := range args {
 			if a == "-c" {
-				found++
+				t.Errorf("unexpected -c flag in args %v; widget MCP is disabled for codex", args)
+				break
 			}
-		}
-		if found < 2 {
-			t.Errorf("expected at least 2 -c flags for widget MCP config, got %d in %v", found, args)
 		}
 	})
 }
