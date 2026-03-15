@@ -82,6 +82,8 @@ data class AppColors(
     val diffHeader: Color,      // #888888  --color-text-muted
     val diffCodeBg: Color,      // #1E1E1E  --color-diff-code-bg
     val diffCodeFg: Color,      // #D4D4D4  --color-diff-code-fg
+    val widgetBorder: Color,    // #CCCCCC  --color-widget-border (= --color-border-medium)
+    val widgetBg: Color,        // #FAFAFA  --color-widget-bg (= --color-bg-surface)
 )
 
 private val LightAppColors = AppColors(
@@ -113,6 +115,8 @@ private val LightAppColors = AppColors(
     diffHeader = Color(0xFF888888),
     diffCodeBg = Color(0xFF1E1E1E),
     diffCodeFg = Color(0xFFD4D4D4),
+    widgetBorder = Color(0xFFCCCCCC),
+    widgetBg = Color(0xFFFAFAFA),
 )
 
 val LocalAppColors = staticCompositionLocalOf { LightAppColors }

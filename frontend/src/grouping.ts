@@ -3,7 +3,7 @@ import type { EventMessage, EventToolUse, EventToolResult, EventAsk } from "@sdk
 import { formatElapsed } from "./formatting";
 
 export interface MessageGroup {
-  kind: "text" | "action" | "ask" | "userInput" | "other";
+  kind: "text" | "action" | "ask" | "userInput" | "widget" | "other";
   events: EventMessage[];
   // For "action" groups: paired tool_use and tool_result events (empty for thinking-only).
   toolCalls: ToolCall[];
@@ -11,6 +11,11 @@ export interface MessageGroup {
   ask?: EventAsk;
   // For "ask" groups: the user's submitted answer (from the following userInput).
   answerText?: string;
+  // For "widget" groups: accumulated HTML and metadata.
+  widgetToolUseID?: string;
+  widgetTitle?: string;
+  widgetHTML?: string;
+  widgetDone?: boolean;
 }
 
 // A tool_use event paired with its optional tool_result.
@@ -47,7 +52,7 @@ export interface Session {
 // Tool names (case-insensitive) that are async and emit explicit toolResult
 // events. All other Claude Code tools complete synchronously and are done
 // as soon as their toolUse event is emitted.
-const ASYNC_TOOLS = new Set(["bash", "task"]);
+const ASYNC_TOOLS = new Set(["bash", "task", "show_widget"]);
 
 // Returns true if ev starts a new session.
 export function isSessionBoundary(ev: EventMessage): boolean {
@@ -129,19 +134,31 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
       case "toolResult": {
         if (ev.toolResult) {
           const tr = ev.toolResult;
-          // Search all tool groups for the matching toolUseID — results may
-          // arrive after intervening text/other groups, not just the last group.
+          // Check widget groups first for matching toolResult.
           let matched = false;
           for (let i = groups.length - 1; i >= 0; i--) {
             const g = groups[i];
-            if (g.kind !== "action") continue;
-            const tc = g.toolCalls.find((c) => c.use.toolUseID === tr.toolUseID && !c.result);
-            if (tc) {
-              tc.result = tr;
-              tc.done = true;
+            if (g.kind === "widget" && g.widgetToolUseID === tr.toolUseID) {
+              g.widgetDone = true;
               g.events.push(ev);
               matched = true;
               break;
+            }
+          }
+          if (!matched) {
+            // Search all tool groups for the matching toolUseID — results may
+            // arrive after intervening text/other groups, not just the last group.
+            for (let i = groups.length - 1; i >= 0; i--) {
+              const g = groups[i];
+              if (g.kind !== "action") continue;
+              const tc = g.toolCalls.find((c) => c.use.toolUseID === tr.toolUseID && !c.result);
+              if (tc) {
+                tc.result = tr;
+                tc.done = true;
+                g.events.push(ev);
+                matched = true;
+                break;
+              }
             }
           }
           if (!matched) {
@@ -235,6 +252,58 @@ export function groupMessages(msgs: EventMessage[]): MessageGroup[] {
         const sub = ev.system?.subtype;
         if (sub === "active" || sub === "idle" || sub === "notLoaded" || sub === "system_error") break;
         groups.push({ kind: "other", events: [ev], toolCalls: [] });
+        break;
+      }
+      case "widgetDelta": {
+        const id = ev.widgetDelta?.toolUseID;
+        if (id) {
+          // Find or create a widget group for this toolUseID.
+          let widgetGroup: MessageGroup | undefined;
+          for (let i = groups.length - 1; i >= 0; i--) {
+            if (groups[i].kind === "widget" && groups[i].widgetToolUseID === id) {
+              widgetGroup = groups[i];
+              break;
+            }
+          }
+          if (widgetGroup) {
+            widgetGroup.events.push(ev);
+            widgetGroup.widgetHTML = (widgetGroup.widgetHTML ?? "") + (ev.widgetDelta?.delta ?? "");
+          } else {
+            groups.push({
+              kind: "widget", events: [ev], toolCalls: [],
+              widgetToolUseID: id,
+              widgetHTML: ev.widgetDelta?.delta ?? "",
+              widgetDone: false,
+            });
+          }
+        }
+        break;
+      }
+      case "widget": {
+        if (ev.widget) {
+          const id = ev.widget.toolUseID;
+          // Find existing widget group or create a new one.
+          let widgetGroup: MessageGroup | undefined;
+          for (let i = groups.length - 1; i >= 0; i--) {
+            if (groups[i].kind === "widget" && groups[i].widgetToolUseID === id) {
+              widgetGroup = groups[i];
+              break;
+            }
+          }
+          if (widgetGroup) {
+            widgetGroup.events.push(ev);
+            widgetGroup.widgetTitle = ev.widget.title;
+            widgetGroup.widgetHTML = ev.widget.html;
+          } else {
+            groups.push({
+              kind: "widget", events: [ev], toolCalls: [],
+              widgetToolUseID: id,
+              widgetTitle: ev.widget.title,
+              widgetHTML: ev.widget.html,
+              widgetDone: false,
+            });
+          }
+        }
         break;
       }
       case "subagentStart":

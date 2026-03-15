@@ -34,6 +34,8 @@ const (
 	EventKindSubagentEnd     EventKind = "subagentEnd"
 	EventKindLog             EventKind = "log"
 	EventKindToolOutputDelta EventKind = "toolOutputDelta"
+	EventKindWidget          EventKind = "widget"
+	EventKindWidgetDelta     EventKind = "widgetDelta"
 )
 
 // EventMessage is a single SSE event in the backend-neutral stream
@@ -60,6 +62,8 @@ type EventMessage struct {
 	SubagentEnd     *EventSubagentEnd     `json:"subagentEnd,omitempty"`
 	Log             *EventLog             `json:"log,omitempty"`
 	ToolOutputDelta *EventToolOutputDelta `json:"toolOutputDelta,omitempty"`
+	Widget          *EventWidget          `json:"widget,omitempty"`
+	WidgetDelta     *EventWidgetDelta     `json:"widgetDelta,omitempty"`
 }
 
 // EventInit is emitted once at the start of a session. It includes a Harness
@@ -211,6 +215,19 @@ type EventLog struct {
 // Codex only: emitted for Bash stdout (item/commandExecution/outputDelta) and
 // MCP tool progress messages (item/mcpToolCall/progress).
 type EventToolOutputDelta struct {
+	ToolUseID string `json:"toolUseID"`
+	Delta     string `json:"delta"`
+}
+
+// EventWidget is emitted when the agent produces a complete HTML widget.
+type EventWidget struct {
+	ToolUseID string `json:"toolUseID"`
+	Title     string `json:"title"`
+	HTML      string `json:"html"`
+}
+
+// EventWidgetDelta is a streaming HTML fragment for progressive widget rendering.
+type EventWidgetDelta struct {
 	ToolUseID string `json:"toolUseID"`
 	Delta     string `json:"delta"`
 }

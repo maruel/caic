@@ -130,6 +130,13 @@ func (w *assistantMessageBody) UnmarshalJSON(data []byte) error {
 	return jsonutil.UnmarshalRecord(data, (*Alias)(w), &w.Overflow, assistantMessageBodyKnown, "assistantMessageBody")
 }
 
+// contentBlockStartWire is the content_block field in a content_block_start streaming event.
+type contentBlockStartWire struct {
+	Type string `json:"type"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
 // contentBlockWire is a single content block inside an assistant message.
 type contentBlockWire struct {
 	Type      string          `json:"type"`
@@ -151,7 +158,7 @@ type userWire struct {
 	Message         json.RawMessage `json:"message"`
 	ParentToolUseID *string         `json:"parent_tool_use_id"`
 	ToolUseResult   json.RawMessage `json:"tool_use_result,omitempty"`
-	IsSynthetic     json.RawMessage `json:"isSynthetic,omitempty"`
+	IsSynthetic     bool            `json:"isSynthetic,omitempty"`
 	jsonutil.Overflow
 }
 
@@ -253,9 +260,13 @@ type userBlockMessage struct {
 }
 
 type userContentBlock struct {
-	Type   string           `json:"type"`
-	Text   string           `json:"text,omitempty"`
-	Source *imageSourceWire `json:"source,omitempty"`
+	Type      string           `json:"type"`
+	Text      string           `json:"text,omitempty"`
+	Source    *imageSourceWire `json:"source,omitempty"`
+	ToolUseID string           `json:"tool_use_id,omitempty"`
+	// Nested content and error flag for inline tool_result blocks (MCP tools).
+	Content []toolResultContent `json:"content,omitempty"`
+	IsError bool                `json:"is_error,omitempty"`
 }
 
 type imageSourceWire struct {
@@ -263,6 +274,8 @@ type imageSourceWire struct {
 	Data      string `json:"data"`
 }
 
+// toolResultWire is the message body format for tool results delivered via
+// the top-level parent_tool_use_id path (standard Claude Code tools).
 type toolResultWire struct {
 	Content []toolResultContent `json:"content"`
 	IsError bool                `json:"is_error"`

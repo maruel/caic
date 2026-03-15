@@ -18,6 +18,7 @@ import SendIcon from "@material-symbols/svg-400/outlined/send.svg?solid";
 import SyncIcon from "@material-symbols/svg-400/outlined/sync.svg?solid";
 import GitHubIcon from "./github.svg?solid";
 import GitLabIcon from "./gitlab.svg?solid";
+import WidgetCard from "./WidgetCard";
 import styles from "./TaskDetail.module.css";
 
 // Module-level store for <details> open/closed state (tool calls, thinking blocks).
@@ -630,12 +631,12 @@ export default function TaskDetail(props: Props) {
                     </button>
                   )}
                 </Match>
-                {/* Message group: dispatch to group-specific renderer. */}
-                <Match when={grpItem()} keyed>
+                {/* Message group: non-keyed to preserve iframe state in WidgetCard. */}
+                <Match when={grpItem()}>
                   {(gi) => (
-                    <div class={gi.indent === "turn" ? styles.indentTurn : undefined}>
+                    <div class={gi().indent === "turn" ? styles.indentTurn : undefined}>
                       <GroupContent
-                        group={() => gi.group}
+                        group={() => gi().group}
                         taskId={props.taskId}
                         isWaiting={isWaiting}
                         lastAskGroup={lastAskGroup}
@@ -765,6 +766,9 @@ function GroupContent(props: {
       </Match>
       <Match when={group().kind === "text"}>
         <TextMessageGroup events={group().events} />
+      </Match>
+      <Match when={group().kind === "widget"}>
+        <WidgetCard group={group()} />
       </Match>
       <Match when={group().kind === "other"}>
         <For each={group().events}>
@@ -987,6 +991,26 @@ function ThinkingCard(props: { events: EventMessage[] }) {
   );
 }
 
+// Returns true when text is a raw HTML fragment (e.g. a weaker model dumped
+// widget HTML as text instead of calling show_widget).
+function looksLikeHTML(text: string): boolean {
+  const trimmed = text.trimStart();
+  return trimmed.startsWith("<style") || trimmed.startsWith("<div") || trimmed.startsWith("<!--");
+}
+
+// Renders raw HTML inside a shadow DOM so its styles cannot leak out and
+// parent styles cannot bleed in.
+function ShadowHTML(props: { html: string }) {
+  const [el, setEl] = createSignal<HTMLDivElement>();
+  createEffect(() => {
+    const div = el();
+    if (!div) return;
+    const shadow = div.shadowRoot ?? div.attachShadow({ mode: "open" });
+    shadow.innerHTML = props.html;
+  });
+  return <div ref={setEl} />;
+}
+
 // Renders a text group, combining textDelta fragments into a single view.
 function TextMessageGroup(props: { events: EventMessage[] }) {
   const thinkingEvents = createMemo(() =>
@@ -1006,9 +1030,13 @@ function TextMessageGroup(props: { events: EventMessage[] }) {
         <ThinkingCard events={thinkingEvents()} />
       </Show>
       <Show when={text()}>
-        <div class={styles.assistantMsg}>
-          <Markdown text={text()} />
-        </div>
+        <Show when={looksLikeHTML(text())} fallback={
+          <div class={styles.assistantMsg}>
+            <Markdown text={text()} />
+          </div>
+        }>
+          <ShadowHTML html={text()} />
+        </Show>
       </Show>
     </>
   );

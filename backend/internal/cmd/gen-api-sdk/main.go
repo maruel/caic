@@ -243,6 +243,8 @@ var kotlinAliases = []kotlinTypeAlias{
 			{"SubagentEnd", string(v1.EventKindSubagentEnd)},
 			{"Log", string(v1.EventKindLog)},
 			{"ToolOutputDelta", string(v1.EventKindToolOutputDelta)},
+			{"Widget", string(v1.EventKindWidget)},
+			{"WidgetDelta", string(v1.EventKindWidgetDelta)},
 		},
 	},
 }

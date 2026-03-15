@@ -22,6 +22,7 @@
 package agent
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
 	"context"
@@ -29,6 +30,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -250,6 +252,49 @@ func DeployRelay(ctx context.Context, container string) error {
 	cmd.Stdin = bytes.NewReader(relay.Script)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("deploy relay: %w: %s", err, out)
+	}
+	return nil
+}
+
+// WidgetPluginDir is the container path where the widget plugin is deployed.
+const WidgetPluginDir = RelayDir + "/widget-plugin"
+
+// DeployEmbeddedDir writes all files from an embed.FS to a target directory
+// in the container via a single SSH + tar invocation. Idempotent.
+func DeployEmbeddedDir(ctx context.Context, container string, fsys fs.FS, targetDir string) error {
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+	if err := fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		data, readErr := fs.ReadFile(fsys, path)
+		if readErr != nil {
+			return readErr
+		}
+		if writeErr := tw.WriteHeader(&tar.Header{
+			Name: path,
+			Mode: 0o644,
+			Size: int64(len(data)),
+		}); writeErr != nil {
+			return writeErr
+		}
+		_, writeErr := tw.Write(data)
+		return writeErr
+	}); err != nil {
+		return fmt.Errorf("build tar: %w", err)
+	}
+	if err := tw.Close(); err != nil {
+		return fmt.Errorf("close tar: %w", err)
+	}
+	cmd := exec.CommandContext(ctx, "ssh", container, //nolint:gosec // container is not user-controlled
+		"mkdir -p "+targetDir+" && tar xf - -C "+targetDir)
+	cmd.Stdin = &buf
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("deploy %s: %w: %s", targetDir, err, out)
 	}
 	return nil
 }

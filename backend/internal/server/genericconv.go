@@ -239,6 +239,29 @@ func (tt *toolTimingTracker) convertMessage(msg agent.Message, now time.Time) []
 			}}
 		}
 		return nil
+	case *agent.WidgetMessage:
+		tt.pending[m.ToolUseID] = now
+		return []v1.EventMessage{{
+			Kind: v1.EventKindWidget,
+			Ts:   ts,
+			Widget: &v1.EventWidget{
+				ToolUseID: m.ToolUseID,
+				Title:     m.Title,
+				HTML:      m.HTML,
+			},
+		}}
+	case *agent.WidgetDeltaMessage:
+		if m.Delta != "" {
+			return []v1.EventMessage{{
+				Kind: v1.EventKindWidgetDelta,
+				Ts:   ts,
+				WidgetDelta: &v1.EventWidgetDelta{
+					ToolUseID: m.ToolUseID,
+					Delta:     m.Delta,
+				},
+			}}
+		}
+		return nil
 	default:
 		return nil
 	}
@@ -337,6 +360,14 @@ func filterHistoryForReplay(msgs []agent.Message) []agent.Message {
 		case *agent.ThinkingMessage:
 			for j := i - 1; j >= 0; j-- {
 				if _, ok := msgs[j].(*agent.ThinkingDeltaMessage); ok {
+					skip[j] = true
+				} else {
+					break
+				}
+			}
+		case *agent.WidgetMessage:
+			for j := i - 1; j >= 0; j-- {
+				if _, ok := msgs[j].(*agent.WidgetDeltaMessage); ok {
 					skip[j] = true
 				} else {
 					break

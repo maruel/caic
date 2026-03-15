@@ -334,6 +334,60 @@ func TestToolInputTruncation(t *testing.T) {
 	})
 }
 
+func TestGenericConvertWidget(t *testing.T) {
+	gt := newToolTimingTracker(agent.Claude)
+	msg := &agent.WidgetMessage{
+		ToolUseID: "wid_1",
+		Title:     "Chart",
+		HTML:      "<canvas>chart</canvas>",
+	}
+	events := gt.convertMessage(msg, time.Now())
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	ev := events[0]
+	if ev.Kind != v1.EventKindWidget {
+		t.Errorf("kind = %q, want %q", ev.Kind, v1.EventKindWidget)
+	}
+	if ev.Widget == nil {
+		t.Fatal("widget payload is nil")
+	}
+	if ev.Widget.ToolUseID != "wid_1" {
+		t.Errorf("toolUseID = %q, want %q", ev.Widget.ToolUseID, "wid_1")
+	}
+	if ev.Widget.Title != "Chart" {
+		t.Errorf("title = %q, want %q", ev.Widget.Title, "Chart")
+	}
+	if ev.Widget.HTML != "<canvas>chart</canvas>" {
+		t.Errorf("html = %q, want %q", ev.Widget.HTML, "<canvas>chart</canvas>")
+	}
+}
+
+func TestGenericConvertWidgetDelta(t *testing.T) {
+	gt := newToolTimingTracker(agent.Claude)
+	msg := &agent.WidgetDeltaMessage{
+		ToolUseID: "wid_2",
+		Delta:     "<h1>Hel",
+	}
+	events := gt.convertMessage(msg, time.Now())
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1", len(events))
+	}
+	ev := events[0]
+	if ev.Kind != v1.EventKindWidgetDelta {
+		t.Errorf("kind = %q, want %q", ev.Kind, v1.EventKindWidgetDelta)
+	}
+	if ev.WidgetDelta == nil {
+		t.Fatal("widgetDelta payload is nil")
+	}
+	if ev.WidgetDelta.ToolUseID != "wid_2" {
+		t.Errorf("toolUseID = %q, want %q", ev.WidgetDelta.ToolUseID, "wid_2")
+	}
+	if ev.WidgetDelta.Delta != "<h1>Hel" {
+		t.Errorf("delta = %q, want %q", ev.WidgetDelta.Delta, "<h1>Hel")
+	}
+}
+
 func TestFilterHistoryForReplay(t *testing.T) {
 	t.Run("RemovesTextDeltasBeforeText", func(t *testing.T) {
 		msgs := []agent.Message{
@@ -391,6 +445,20 @@ func TestFilterHistoryForReplay(t *testing.T) {
 		}
 		if _, ok := got[2].(*agent.ToolResultMessage); !ok {
 			t.Errorf("[2] expected ToolResultMessage, got %T", got[2])
+		}
+	})
+	t.Run("RemovesWidgetDeltasBeforeWidget", func(t *testing.T) {
+		msgs := []agent.Message{
+			&agent.WidgetDeltaMessage{ToolUseID: "w1", Delta: "<h1>"},
+			&agent.WidgetDeltaMessage{ToolUseID: "w1", Delta: "Hi</h1>"},
+			&agent.WidgetMessage{ToolUseID: "w1", Title: "Test", HTML: "<h1>Hi</h1>"},
+		}
+		got := filterHistoryForReplay(msgs)
+		if len(got) != 1 {
+			t.Fatalf("got %d messages, want 1", len(got))
+		}
+		if _, ok := got[0].(*agent.WidgetMessage); !ok {
+			t.Errorf("expected WidgetMessage, got %T", got[0])
 		}
 	})
 	t.Run("MultipleTextBlocks", func(t *testing.T) {

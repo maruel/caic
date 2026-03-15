@@ -15,6 +15,8 @@ import com.caic.sdk.v1.EventUserInput
 import com.caic.sdk.v1.EventKinds
 import com.caic.sdk.v1.EventThinking
 import com.caic.sdk.v1.EventThinkingDelta
+import com.caic.sdk.v1.EventWidget
+import com.caic.sdk.v1.EventWidgetDelta
 import kotlinx.serialization.json.JsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -411,6 +413,70 @@ class GroupingTest {
             assertEquals(GroupKind.TEXT, groups[0].kind)
             assertTrue(groups[0].events.any { it.kind == EventKinds.ThinkingDelta })
             assertTrue(groups[0].events.any { it.kind == EventKinds.TextDelta })
+        }
+    }
+
+    @Test
+    fun testWidgetGrouping() {
+        t.run("widgetDelta events create a widget group") {
+            val groups = groupMessages(listOf(
+                EventMessage(
+                    kind = EventKinds.WidgetDelta, ts = 0,
+                    widgetDelta = EventWidgetDelta(toolUseID = "w1", delta = "<h1>"),
+                ),
+                EventMessage(
+                    kind = EventKinds.WidgetDelta, ts = 0,
+                    widgetDelta = EventWidgetDelta(toolUseID = "w1", delta = "Hi</h1>"),
+                ),
+            ))
+            assertEquals(1, groups.size)
+            assertEquals(GroupKind.WIDGET, groups[0].kind)
+            assertEquals("w1", groups[0].widgetToolUseID)
+            assertEquals("<h1>Hi</h1>", groups[0].widgetHTML)
+            assertEquals(false, groups[0].widgetDone)
+        }
+
+        t.run("widget event finalises widget group from deltas") {
+            val groups = groupMessages(listOf(
+                EventMessage(
+                    kind = EventKinds.WidgetDelta, ts = 0,
+                    widgetDelta = EventWidgetDelta(toolUseID = "w1", delta = "<h1>"),
+                ),
+                EventMessage(
+                    kind = EventKinds.Widget, ts = 0,
+                    widget = EventWidget(toolUseID = "w1", title = "Chart", html = "<h1>Done</h1>"),
+                ),
+            ))
+            assertEquals(1, groups.size)
+            assertEquals(GroupKind.WIDGET, groups[0].kind)
+            assertEquals("<h1>Done</h1>", groups[0].widgetHTML)
+            assertEquals("Chart", groups[0].widgetTitle)
+        }
+
+        t.run("widget event alone creates a widget group (replay)") {
+            val groups = groupMessages(listOf(
+                EventMessage(
+                    kind = EventKinds.Widget, ts = 0,
+                    widget = EventWidget(toolUseID = "w1", title = "Test", html = "<p>hi</p>"),
+                ),
+            ))
+            assertEquals(1, groups.size)
+            assertEquals(GroupKind.WIDGET, groups[0].kind)
+            assertEquals("<p>hi</p>", groups[0].widgetHTML)
+            assertEquals("Test", groups[0].widgetTitle)
+        }
+
+        t.run("toolResult for widget marks widgetDone") {
+            val groups = groupMessages(listOf(
+                EventMessage(
+                    kind = EventKinds.WidgetDelta, ts = 0,
+                    widgetDelta = EventWidgetDelta(toolUseID = "w1", delta = "<p>x</p>"),
+                ),
+                toolResultEvent("w1"),
+            ))
+            assertEquals(1, groups.size)
+            assertEquals(GroupKind.WIDGET, groups[0].kind)
+            assertEquals(true, groups[0].widgetDone)
         }
     }
 

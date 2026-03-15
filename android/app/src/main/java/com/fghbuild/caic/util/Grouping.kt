@@ -10,7 +10,7 @@ import com.caic.sdk.v1.TodoItem
 import com.caic.sdk.v1.EventKinds
 import kotlin.math.max
 
-enum class GroupKind { TEXT, ACTION, ASK, USER_INPUT, OTHER }
+enum class GroupKind { TEXT, ACTION, ASK, USER_INPUT, WIDGET, OTHER }
 
 @Immutable
 data class ToolCall(
@@ -26,6 +26,10 @@ data class MessageGroup(
     val toolCalls: List<ToolCall> = emptyList(),
     val ask: EventAsk? = null,
     val answerText: String? = null,
+    val widgetToolUseID: String? = null,
+    val widgetTitle: String? = null,
+    val widgetHTML: String? = null,
+    val widgetDone: Boolean = false,
 )
 
 @Immutable
@@ -53,7 +57,7 @@ data class Session(
 // Tool names (lowercase) that are async and emit explicit toolResult events.
 // All other Claude Code tools complete synchronously and are done as soon as
 // their toolUse event is emitted.
-private val ASYNC_TOOLS = setOf("bash", "task")
+private val ASYNC_TOOLS = setOf("bash", "task", "show_widget")
 
 /** Returns true if this event starts a new session. */
 fun EventMessage.isSessionBoundary() =
@@ -76,6 +80,10 @@ private class MutableGroup(
     val toolCalls: MutableList<MutableToolCall> = mutableListOf(),
     var ask: EventAsk? = null,
     var answerText: String? = null,
+    var widgetToolUseID: String? = null,
+    var widgetTitle: String? = null,
+    var widgetHTML: String? = null,
+    var widgetDone: Boolean = false,
 ) {
     fun freeze() = MessageGroup(
         kind = kind,
@@ -83,6 +91,10 @@ private class MutableGroup(
         toolCalls = toolCalls.map { it.freeze() },
         ask = ask,
         answerText = answerText,
+        widgetToolUseID = widgetToolUseID,
+        widgetTitle = widgetTitle,
+        widgetHTML = widgetHTML,
+        widgetDone = widgetDone,
     )
 }
 
@@ -161,16 +173,28 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
             EventKinds.ToolResult -> {
                 val tr = ev.toolResult ?: continue
                 var matched = false
+                // Check widget groups first for matching toolResult.
                 for (i in groups.indices.reversed()) {
                     val g = groups[i]
-                    if (g.kind != GroupKind.ACTION) continue
-                    val tc = g.toolCalls.firstOrNull { it.use.toolUseID == tr.toolUseID && it.result == null }
-                    if (tc != null) {
-                        tc.result = tr
-                        tc.done = true
+                    if (g.kind == GroupKind.WIDGET && g.widgetToolUseID == tr.toolUseID) {
+                        g.widgetDone = true
                         g.events.add(ev)
                         matched = true
                         break
+                    }
+                }
+                if (!matched) {
+                    for (i in groups.indices.reversed()) {
+                        val g = groups[i]
+                        if (g.kind != GroupKind.ACTION) continue
+                        val tc = g.toolCalls.firstOrNull { it.use.toolUseID == tr.toolUseID && it.result == null }
+                        if (tc != null) {
+                            tc.result = tr
+                            tc.done = true
+                            g.events.add(ev)
+                            matched = true
+                            break
+                        }
                     }
                 }
                 if (!matched) {
@@ -250,6 +274,41 @@ fun groupMessages(msgs: List<EventMessage>): List<MessageGroup> {
                 val sub = ev.system?.subtype
                 if (sub != "active" && sub != "idle" && sub != "notLoaded" && sub != "system_error") {
                     groups.add(MutableGroup(kind = GroupKind.OTHER, events = mutableListOf(ev)))
+                }
+            }
+            EventKinds.WidgetDelta -> {
+                val id = ev.widgetDelta?.toolUseID
+                if (id != null) {
+                    val existing = groups.lastOrNull { it.kind == GroupKind.WIDGET && it.widgetToolUseID == id }
+                    if (existing != null) {
+                        existing.events.add(ev)
+                        existing.widgetHTML = (existing.widgetHTML ?: "") + (ev.widgetDelta?.delta ?: "")
+                    } else {
+                        groups.add(MutableGroup(
+                            kind = GroupKind.WIDGET,
+                            events = mutableListOf(ev),
+                            widgetToolUseID = id,
+                            widgetHTML = ev.widgetDelta?.delta ?: "",
+                        ))
+                    }
+                }
+            }
+            EventKinds.Widget -> {
+                val widget = ev.widget ?: continue
+                val id = widget.toolUseID
+                val existing = groups.lastOrNull { it.kind == GroupKind.WIDGET && it.widgetToolUseID == id }
+                if (existing != null) {
+                    existing.events.add(ev)
+                    existing.widgetTitle = widget.title
+                    existing.widgetHTML = widget.html
+                } else {
+                    groups.add(MutableGroup(
+                        kind = GroupKind.WIDGET,
+                        events = mutableListOf(ev),
+                        widgetToolUseID = id,
+                        widgetTitle = widget.title,
+                        widgetHTML = widget.html,
+                    ))
                 }
             }
             // Subagent lifecycle events are not rendered. Explicitly listed to

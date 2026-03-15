@@ -73,6 +73,10 @@
   /* User message tint */
   --color-user-msg-bg: #dbe9f9;
 
+  /* Widget */
+  --color-widget-border: var(--color-border-medium);
+  --color-widget-bg: var(--color-bg-surface);
+
   /* Border radii */
   --radius-sm: 3px;
   --radius-md: 4px;

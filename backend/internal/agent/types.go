@@ -245,6 +245,43 @@ type SubagentEndMessage struct {
 // Type implements Message.
 func (m *SubagentEndMessage) Type() string { return "subagent_end" }
 
+// MaxWidgetHTMLBytes is the maximum size of widget HTML the backend will
+// forward to clients. Widgets exceeding this limit are replaced with an
+// error message.
+const MaxWidgetHTMLBytes = 256 * 1024 // 256 KB
+
+// WidgetToolNames is the set of tool names that produce HTML widgets.
+// Each harness parser checks this set to decide whether a tool_use block
+// should emit WidgetMessage instead of ToolUseMessage.
+var WidgetToolNames = map[string]bool{
+	"show_widget":                                 true, // Direct tool name.
+	"mcp__widget__show_widget":                    true, // MCP-prefixed (server "widget", tool "show_widget").
+	"mcp__plugin_caic-widget_widget__show_widget": true, // Plugin MCP-prefixed.
+}
+
+// WidgetMessage is emitted when the agent produces an interactive HTML widget
+// via a tool call (e.g. Claude's show_widget). The HTML is the complete,
+// renderable widget code.
+type WidgetMessage struct {
+	ToolUseID string `json:"id"`
+	Title     string `json:"title"`
+	HTML      string `json:"html"`
+}
+
+// Type implements Message.
+func (m *WidgetMessage) Type() string { return "widget" }
+
+// WidgetDeltaMessage is a streaming fragment of widget HTML, emitted as the
+// agent generates the widget code. Clients accumulate deltas for progressive
+// rendering; the final WidgetMessage replaces them.
+type WidgetDeltaMessage struct {
+	ToolUseID string
+	Delta     string // Partial HTML fragment.
+}
+
+// Type implements Message.
+func (m *WidgetDeltaMessage) Type() string { return "widget_delta" }
+
 // RawMessage is a pass-through for message types we don't need to inspect
 // (tool_progress, etc.).
 type RawMessage struct {

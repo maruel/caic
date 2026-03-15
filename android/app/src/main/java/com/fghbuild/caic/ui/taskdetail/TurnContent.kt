@@ -71,6 +71,7 @@ fun MessageGroupContent(
                 AskQuestionCard(ask = ask, answerText = group.answerText, onAnswer = onAnswer)
             }
         }
+        GroupKind.WIDGET -> WidgetCard(group = group)
         GroupKind.USER_INPUT -> {
             val userInput = group.events.firstOrNull()?.userInput
             if (userInput != null) {

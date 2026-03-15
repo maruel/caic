@@ -162,6 +162,49 @@ describe("groupMessages", () => {
     expect(groups[0].events.some((e) => e.kind === "textDelta")).toBe(true);
   });
 
+  it("widgetDelta events create a widget group", () => {
+    const groups = groupMessages([
+      { kind: "widgetDelta", ts: 0, widgetDelta: { toolUseID: "w1", delta: "<h1>" } },
+      { kind: "widgetDelta", ts: 0, widgetDelta: { toolUseID: "w1", delta: "Hi</h1>" } },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("widget");
+    expect(groups[0].widgetToolUseID).toBe("w1");
+    expect(groups[0].widgetHTML).toBe("<h1>Hi</h1>");
+    expect(groups[0].widgetDone).toBe(false);
+  });
+
+  it("widget event finalises widget group from deltas", () => {
+    const groups = groupMessages([
+      { kind: "widgetDelta", ts: 0, widgetDelta: { toolUseID: "w1", delta: "<h1>" } },
+      { kind: "widget", ts: 0, widget: { toolUseID: "w1", title: "Chart", html: "<h1>Done</h1>" } },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("widget");
+    expect(groups[0].widgetHTML).toBe("<h1>Done</h1>");
+    expect(groups[0].widgetTitle).toBe("Chart");
+  });
+
+  it("widget event alone creates a widget group (replay)", () => {
+    const groups = groupMessages([
+      { kind: "widget", ts: 0, widget: { toolUseID: "w1", title: "Test", html: "<p>hi</p>" } },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("widget");
+    expect(groups[0].widgetHTML).toBe("<p>hi</p>");
+    expect(groups[0].widgetTitle).toBe("Test");
+  });
+
+  it("toolResult for widget marks widgetDone", () => {
+    const groups = groupMessages([
+      { kind: "widgetDelta", ts: 0, widgetDelta: { toolUseID: "w1", delta: "<p>x</p>" } },
+      { kind: "toolResult", ts: 0, toolResult: { toolUseID: "w1", duration: 0.1 } },
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].kind).toBe("widget");
+    expect(groups[0].widgetDone).toBe(true);
+  });
+
   it("userInput after ask+result is grouped with the ask", () => {
     const askEvent: EventMessage = {
       kind: "ask", ts: 1,

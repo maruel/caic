@@ -34,6 +34,8 @@ object EventKinds {
     const val SubagentEnd: EventKind = "subagentEnd"
     const val Log: EventKind = "log"
     const val ToolOutputDelta: EventKind = "toolOutputDelta"
+    const val Widget: EventKind = "widget"
+    const val WidgetDelta: EventKind = "widgetDelta"
 }
 
 object ErrorCodes {
@@ -360,6 +362,19 @@ data class EventToolOutputDelta(
     val delta: String,
 )
 
+@Serializable
+data class EventWidget(
+    @SerialName("toolUseID") val toolUseID: String,
+    val title: String,
+    val html: String,
+)
+
+@Serializable
+data class EventWidgetDelta(
+    @SerialName("toolUseID") val toolUseID: String,
+    val delta: String,
+)
+
 // Backend-neutral event types
 
 @Serializable
@@ -385,6 +400,8 @@ data class EventMessage(
     val subagentEnd: EventSubagentEnd? = null,
     val log: EventLog? = null,
     val toolOutputDelta: EventToolOutputDelta? = null,
+    val widget: EventWidget? = null,
+    val widgetDelta: EventWidgetDelta? = null,
 )
 
 @Serializable

@@ -1,0 +1,5 @@
+{
+  "name": "caic-widget",
+  "version": "1.0.0",
+  "description": "Provides the show_widget tool for rendering interactive HTML widgets inline."
+}

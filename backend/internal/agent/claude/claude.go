@@ -4,7 +4,9 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/fs"
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
 )
@@ -12,19 +14,27 @@ import (
 // Backend implements agent.Backend for Claude Code.
 type Backend struct {
 	agent.Base
+	widgetTracker *WidgetTracker
+}
+
+// parseMessage wraps ParseMessage with widget tracking for streaming deltas.
+func (b *Backend) parseMessage(line []byte) ([]agent.Message, error) {
+	return ParseMessageWithTracker(line, b.widgetTracker)
 }
 
 var _ agent.Backend = (*Backend)(nil)
 
 // New creates a Claude Code backend with wire format and parser configured.
 func New() *Backend {
-	b := &Backend{}
+	b := &Backend{
+		widgetTracker: NewWidgetTracker(),
+	}
 	b.Base = agent.Base{
 		HarnessID:     agent.Claude,
 		ModelList:     []string{"opus", "sonnet", "haiku"},
 		Images:        true,
 		ContextWindow: 180_000,
-		Parse:         ParseMessage,
+		Parse:         b.parseMessage,
 	}
 	b.Wire = b
 	return b
@@ -33,8 +43,17 @@ func New() *Backend {
 // Wire is the wire format for Claude Code (stream-json over stdin/stdout).
 var Wire agent.WireFormat = New()
 
-// Start launches a Claude Code process via the relay daemon.
+// Start launches a Claude Code process via the relay daemon. It deploys the
+// widget plugin to the container before starting the relay so Claude Code
+// picks up the show_widget MCP tool and the widget design skill.
 func (b *Backend) Start(ctx context.Context, opts *agent.Options, msgCh chan<- agent.Message, logW io.Writer) (*agent.Session, error) {
+	pluginFS, err := fs.Sub(WidgetPlugin, "widget-plugin")
+	if err != nil {
+		return nil, fmt.Errorf("widget plugin fs: %w", err)
+	}
+	if err := agent.DeployEmbeddedDir(ctx, opts.Container, pluginFS, agent.WidgetPluginDir); err != nil {
+		return nil, err
+	}
 	return agent.StartRelay(ctx, opts, buildArgs(opts), msgCh, logW, b)
 }
 
@@ -112,6 +131,7 @@ func buildArgs(opts *agent.Options) []string {
 		"--verbose",
 		"--dangerously-skip-permissions",
 		"--include-partial-messages",
+		"--plugin-dir", agent.WidgetPluginDir,
 	}
 	if opts.Model != "" {
 		args = append(args, "--model", opts.Model)

@@ -505,6 +505,21 @@ All errors return:
 | `toolUseID` | `string` | yes |
 | `delta` | `string` | yes |
 
+### EventWidget
+
+| Field | Type | Required |
+|-------|------|----------|
+| `toolUseID` | `string` | yes |
+| `title` | `string` | yes |
+| `html` | `string` | yes |
+
+### EventWidgetDelta
+
+| Field | Type | Required |
+|-------|------|----------|
+| `toolUseID` | `string` | yes |
+| `delta` | `string` | yes |
+
 ### EventMessage
 
 | Field | Type | Required |
@@ -530,6 +545,8 @@ All errors return:
 | `subagentEnd` | `EventSubagentEnd` |  |
 | `log` | `EventLog` |  |
 | `toolOutputDelta` | `EventToolOutputDelta` |  |
+| `widget` | `EventWidget` |  |
+| `widgetDelta` | `EventWidgetDelta` |  |
 
 ### InputReq
 

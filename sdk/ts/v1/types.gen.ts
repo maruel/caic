@@ -94,6 +94,14 @@ export const EventKindLog: EventKind = "log";
  */
 export const EventKindToolOutputDelta: EventKind = "toolOutputDelta";
 /**
+ * Event kind constants.
+ */
+export const EventKindWidget: EventKind = "widget";
+/**
+ * Event kind constants.
+ */
+export const EventKindWidgetDelta: EventKind = "widgetDelta";
+/**
  * EventMessage is a single SSE event in the backend-neutral stream
  * (/api/v1/tasks/{id}/events). All backends produce these events.
  */
@@ -119,6 +127,8 @@ export interface EventMessage {
   subagentEnd?: EventSubagentEnd;
   log?: EventLog;
   toolOutputDelta?: EventToolOutputDelta;
+  widget?: EventWidget;
+  widgetDelta?: EventWidgetDelta;
 }
 /**
  * EventInit is emitted once at the start of a session. It includes a Harness
@@ -292,6 +302,21 @@ export interface EventLog {
  * MCP tool progress messages (item/mcpToolCall/progress).
  */
 export interface EventToolOutputDelta {
+  toolUseID: string;
+  delta: string;
+}
+/**
+ * EventWidget is emitted when the agent produces a complete HTML widget.
+ */
+export interface EventWidget {
+  toolUseID: string;
+  title: string;
+  html: string;
+}
+/**
+ * EventWidgetDelta is a streaming HTML fragment for progressive widget rendering.
+ */
+export interface EventWidgetDelta {
   toolUseID: string;
   delta: string;
 }

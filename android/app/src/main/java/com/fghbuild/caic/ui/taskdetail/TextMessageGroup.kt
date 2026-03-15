@@ -1,4 +1,4 @@
-// Renders a text group: combines textDelta fragments, renders markdown.
+// Renders a text group: combines textDelta fragments, renders markdown or isolated HTML.
 package com.fghbuild.caic.ui.taskdetail
 
 import androidx.compose.foundation.layout.Arrangement
@@ -13,7 +13,17 @@ import androidx.compose.ui.unit.dp
 import com.caic.sdk.v1.EventMessage
 import com.caic.sdk.v1.EventKinds
 import com.fghbuild.caic.ui.theme.markdownTypography
+import com.fghbuild.caic.util.GroupKind
+import com.fghbuild.caic.util.MessageGroup
 import com.mikepenz.markdown.m3.Markdown
+
+/** Returns true when text is a raw HTML fragment (weaker model dumped HTML as text). */
+private fun looksLikeHTML(text: String): Boolean {
+    val trimmed = text.trimStart()
+    return trimmed.startsWith("<style") ||
+        trimmed.startsWith("<div") ||
+        trimmed.startsWith("<!--")
+}
 
 @Composable
 fun TextMessageGroup(events: List<EventMessage>) {
@@ -36,15 +46,27 @@ fun TextMessageGroup(events: List<EventMessage>) {
             ThinkingCard(events = thinkingEvents)
         }
         if (text.isNotBlank()) {
-            Markdown(
-                content = text,
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                typography = markdownTypography(),
-                colors = com.mikepenz.markdown.m3.markdownColor(
-                    text = MaterialTheme.colorScheme.onSurface,
-                    codeBackground = MaterialTheme.colorScheme.surfaceVariant,
-                ),
-            )
+            if (looksLikeHTML(text)) {
+                val widgetGroup = remember(text, events) {
+                    MessageGroup(
+                        kind = GroupKind.WIDGET,
+                        events = events,
+                        widgetHTML = text,
+                        widgetDone = events.any { it.kind == EventKinds.Text },
+                    )
+                }
+                WidgetCard(group = widgetGroup)
+            } else {
+                Markdown(
+                    content = text,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    typography = markdownTypography(),
+                    colors = com.mikepenz.markdown.m3.markdownColor(
+                        text = MaterialTheme.colorScheme.onSurface,
+                        codeBackground = MaterialTheme.colorScheme.surfaceVariant,
+                    ),
+                )
+            }
         }
     }
 }

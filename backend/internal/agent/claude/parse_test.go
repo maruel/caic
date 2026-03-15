@@ -191,6 +191,48 @@ func TestParseMessage(t *testing.T) {
 			t.Errorf("error = %q, want %q", tr.Error, "file not found")
 		}
 	})
+	t.Run("InlineToolResult", func(t *testing.T) {
+		// MCP tool results arrive as user messages without parent_tool_use_id,
+		// but with a tool_result content block carrying the tool_use_id inline.
+		line := `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_abc123","type":"tool_result","content":[{"type":"text","text":"Widget rendered."}]}]},"parent_tool_use_id":null}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("got %d messages, want 1", len(msgs))
+		}
+		tr, ok := msgs[0].(*agent.ToolResultMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.ToolResultMessage", msgs[0])
+		}
+		if tr.ToolUseID != "toolu_abc123" {
+			t.Errorf("tool_use_id = %q, want %q", tr.ToolUseID, "toolu_abc123")
+		}
+		if tr.Error != "" {
+			t.Errorf("error = %q, want empty", tr.Error)
+		}
+	})
+	t.Run("InlineToolResultError", func(t *testing.T) {
+		line := `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_err","type":"tool_result","is_error":true,"content":[{"type":"text","text":"tool failed"}]}]},"parent_tool_use_id":null}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("got %d messages, want 1", len(msgs))
+		}
+		tr, ok := msgs[0].(*agent.ToolResultMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.ToolResultMessage", msgs[0])
+		}
+		if tr.ToolUseID != "toolu_err" {
+			t.Errorf("tool_use_id = %q, want %q", tr.ToolUseID, "toolu_err")
+		}
+		if tr.Error != "tool failed" {
+			t.Errorf("error = %q, want %q", tr.Error, "tool failed")
+		}
+	})
 	t.Run("Result", func(t *testing.T) {
 		line := `{"type":"result","subtype":"success","is_error":false,"duration_ms":1234,"num_turns":3,"result":"done","total_cost_usd":0.05,"usage":{"input_tokens":100,"output_tokens":50}}`
 		msgs, err := ParseMessage([]byte(line))
@@ -435,6 +477,172 @@ func TestParseMessage(t *testing.T) {
 		}
 		if sm.Subtype != "api_error" {
 			t.Errorf("subtype = %q, want %q", sm.Subtype, "api_error")
+		}
+	})
+	t.Run("AssistantWidgetToolUse", func(t *testing.T) {
+		line := `{"type":"assistant","message":{"model":"m","content":[{"type":"tool_use","id":"wid_1","name":"show_widget","input":{"widget_code":"<h1>Hello</h1>","title":"My Widget"}}],"usage":{}}}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("got %d messages, want 1", len(msgs))
+		}
+		w, ok := msgs[0].(*agent.WidgetMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.WidgetMessage", msgs[0])
+		}
+		if w.ToolUseID != "wid_1" {
+			t.Errorf("id = %q, want %q", w.ToolUseID, "wid_1")
+		}
+		if w.Title != "My Widget" {
+			t.Errorf("title = %q, want %q", w.Title, "My Widget")
+		}
+		if w.HTML != "<h1>Hello</h1>" {
+			t.Errorf("html = %q, want %q", w.HTML, "<h1>Hello</h1>")
+		}
+	})
+	t.Run("WidgetStreamStart", func(t *testing.T) {
+		wt := NewWidgetTracker()
+		line := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"wid_2","name":"show_widget"}}}`
+		msgs, err := ParseMessageWithTracker([]byte(line), wt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 0 {
+			t.Errorf("got %d messages, want 0 (start is absorbed)", len(msgs))
+		}
+		if _, ok := wt.activeWidgets[0]; !ok {
+			t.Error("widget not tracked after content_block_start")
+		}
+	})
+	t.Run("WidgetInputDelta", func(t *testing.T) {
+		wt := NewWidgetTracker()
+		// Register a widget block.
+		start := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"wid_3","name":"show_widget"}}}`
+		if _, err := ParseMessageWithTracker([]byte(start), wt); err != nil {
+			t.Fatal(err)
+		}
+		// Send partial JSON with widget_code.
+		delta := `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"widget_code\":\"<h1>Hi"}}}`
+		msgs, err := ParseMessageWithTracker([]byte(delta), wt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("got %d messages, want 1", len(msgs))
+		}
+		wd, ok := msgs[0].(*agent.WidgetDeltaMessage)
+		if !ok {
+			t.Fatalf("got %T, want *agent.WidgetDeltaMessage", msgs[0])
+		}
+		if wd.ToolUseID != "wid_3" {
+			t.Errorf("id = %q, want %q", wd.ToolUseID, "wid_3")
+		}
+		if wd.Delta != "<h1>Hi" {
+			t.Errorf("delta = %q, want %q", wd.Delta, "<h1>Hi")
+		}
+	})
+	t.Run("NonWidgetInputDeltaIgnored", func(t *testing.T) {
+		// Without tracker, input_json_delta should be dropped (normal parse path).
+		line := `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{"}}}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 0 {
+			t.Errorf("got %d messages, want 0", len(msgs))
+		}
+	})
+	t.Run("WidgetBlockStop", func(t *testing.T) {
+		wt := NewWidgetTracker()
+		start := `{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"wid_4","name":"show_widget"}}}`
+		if _, err := ParseMessageWithTracker([]byte(start), wt); err != nil {
+			t.Fatal(err)
+		}
+		stop := `{"type":"stream_event","event":{"type":"content_block_stop","index":0}}`
+		msgs, err := ParseMessageWithTracker([]byte(stop), wt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 0 {
+			t.Errorf("got %d messages on stop, want 0", len(msgs))
+		}
+		if _, ok := wt.activeWidgets[0]; ok {
+			t.Error("widget should be cleaned up after stop")
+		}
+	})
+	t.Run("ExtractPartialWidgetCode", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			input string
+			want  string
+		}{
+			{"NoMarker", `{"title":"x"}`, ""},
+			{"EmptyCode", `{"widget_code":""}`, ""},
+			{"SimpleHTML", `{"widget_code":"<h1>Hi</h1>"}`, "<h1>Hi</h1>"},
+			{"Unterminated", `{"widget_code":"<h1>partial`, "<h1>partial"},
+			{"Escapes", `{"widget_code":"a\nb\\c\"d"}`, "a\nb\\c\"d"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				got := extractPartialWidgetCode(tc.input)
+				if got != tc.want {
+					t.Errorf("got %q, want %q", got, tc.want)
+				}
+			})
+		}
+	})
+	t.Run("SkillToolUseSuppressed", func(t *testing.T) {
+		line := `{"type":"assistant","message":{"model":"m","content":[{"type":"tool_use","id":"sk_1","name":"Skill","input":{"skill":"widget-plugin:widget"}}],"usage":{}}}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// Skill tool_use is suppressed; only a raw fallback for the empty assistant message.
+		for _, m := range msgs {
+			if _, ok := m.(*agent.ToolUseMessage); ok {
+				t.Error("Skill tool_use should be suppressed, got ToolUseMessage")
+			}
+		}
+	})
+	t.Run("SyntheticUserSuppressed", func(t *testing.T) {
+		// Claude Code sets isSynthetic:true on skill context injections.
+		line := `{"type":"user","isSynthetic":true,"message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: /tmp/widget-plugin/skills/widget\n\n# Widget Rendering"}]}}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 0 {
+			t.Errorf("isSynthetic user should be suppressed, got %d messages", len(msgs))
+		}
+	})
+	t.Run("SyntheticFalseNotSuppressed", func(t *testing.T) {
+		line := `{"type":"user","isSynthetic":false,"message":{"role":"user","content":"hello"}}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("got %d messages, want 1", len(msgs))
+		}
+		ui := msgs[0].(*agent.UserInputMessage)
+		if ui.Text != "hello" {
+			t.Errorf("text = %q, want %q", ui.Text, "hello")
+		}
+	})
+	t.Run("NormalUserInputNotSuppressed", func(t *testing.T) {
+		line := `{"type":"user","message":{"role":"user","content":"explain this code"}}`
+		msgs, err := ParseMessage([]byte(line))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("got %d messages, want 1", len(msgs))
+		}
+		ui := msgs[0].(*agent.UserInputMessage)
+		if ui.Text != "explain this code" {
+			t.Errorf("text = %q, want %q", ui.Text, "explain this code")
 		}
 	})
 	t.Run("UnknownFieldsForwardCompat", func(t *testing.T) {

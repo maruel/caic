@@ -5,12 +5,93 @@ package claude
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/caic-xyz/caic/backend/internal/agent"
 )
 
 // parseEnvelope is a local alias for typeProbe used by ParseMessage.
 type parseEnvelope = typeProbe
+
+// WidgetTracker tracks which content block indices are widget tools during
+// streaming, enabling input_json_delta events to be emitted as WidgetDeltaMessage.
+// It also accumulates partial JSON for each widget block so that the widget_code
+// field can be extracted incrementally.
+type WidgetTracker struct {
+	// activeWidgets maps content block index → toolUseID for blocks whose
+	// tool name is in agent.WidgetToolNames.
+	activeWidgets map[int]string
+	// accum maps content block index → accumulated partial JSON string.
+	accum map[int]string
+	// lastHTMLLen maps content block index → length of HTML already emitted,
+	// so only new bytes are sent as deltas.
+	lastHTMLLen map[int]int
+	// exceeded maps content block index → true when accumulated HTML exceeds
+	// agent.MaxWidgetHTMLBytes. No further deltas are emitted.
+	exceeded map[int]bool
+}
+
+// NewWidgetTracker creates a new WidgetTracker.
+func NewWidgetTracker() *WidgetTracker {
+	return &WidgetTracker{
+		activeWidgets: make(map[int]string),
+		accum:         make(map[int]string),
+		lastHTMLLen:   make(map[int]int),
+		exceeded:      make(map[int]bool),
+	}
+}
+
+// handleStreamEvent processes a stream event and returns widget messages if
+// the event belongs to a tracked widget block. Returns (nil, false) if the
+// event is not widget-related and should be handled by the normal path.
+func (wt *WidgetTracker) handleStreamEvent(w *streamEventWire) ([]agent.Message, bool) {
+	switch w.Event.Type {
+	case "content_block_start":
+		var cb contentBlockStartWire
+		if json.Unmarshal(w.Event.ContentBlock, &cb) == nil &&
+			cb.Type == "tool_use" && agent.WidgetToolNames[cb.Name] {
+			wt.activeWidgets[w.Event.Index] = cb.ID
+		}
+		return nil, false
+	case "content_block_delta":
+		if w.Event.Delta != nil && w.Event.Delta.Type == "input_json_delta" {
+			toolUseID, ok := wt.activeWidgets[w.Event.Index]
+			if !ok {
+				return nil, false
+			}
+			if wt.exceeded[w.Event.Index] {
+				return nil, true // absorbed but no emission
+			}
+			wt.accum[w.Event.Index] += w.Event.Delta.PartialJSON
+			html := extractPartialWidgetCode(wt.accum[w.Event.Index])
+			if len(html) > agent.MaxWidgetHTMLBytes {
+				wt.exceeded[w.Event.Index] = true
+				return nil, true
+			}
+			prevLen := wt.lastHTMLLen[w.Event.Index]
+			if len(html) > prevLen {
+				delta := html[prevLen:]
+				wt.lastHTMLLen[w.Event.Index] = len(html)
+				return []agent.Message{&agent.WidgetDeltaMessage{
+					ToolUseID: toolUseID,
+					Delta:     delta,
+				}}, true
+			}
+			return nil, true // absorbed, no new HTML yet
+		}
+		return nil, false
+	case "content_block_stop":
+		if _, ok := wt.activeWidgets[w.Event.Index]; ok {
+			delete(wt.activeWidgets, w.Event.Index)
+			delete(wt.accum, w.Event.Index)
+			delete(wt.lastHTMLLen, w.Event.Index)
+			delete(wt.exceeded, w.Event.Index)
+			return nil, true
+		}
+		return nil, false
+	}
+	return nil, false
+}
 
 // ParseMessage decodes a single Claude Code NDJSON line into one or more
 // typed agent.Messages. A single "assistant" line may contain multiple
@@ -34,7 +115,18 @@ type parseEnvelope = typeProbe
 //   - ResultMessage        — result record
 //   - DiffStatMessage      — caic_diff_stat injection
 //   - RawMessage           — unrecognised wire types (preserved verbatim)
+//
+// ParseMessage decodes a single Claude Code NDJSON line without widget
+// tracking. Use ParseMessageWithTracker for streaming sessions that need
+// progressive widget rendering.
 func ParseMessage(line []byte) ([]agent.Message, error) {
+	return ParseMessageWithTracker(line, nil)
+}
+
+// ParseMessageWithTracker decodes a single Claude Code NDJSON line with
+// optional widget tracking. When wt is non-nil, content_block_start and
+// input_json_delta events for widget tools produce WidgetDeltaMessage.
+func ParseMessageWithTracker(line []byte, wt *WidgetTracker) ([]agent.Message, error) {
 	var env parseEnvelope
 	if err := json.Unmarshal(line, &env); err != nil {
 		return nil, fmt.Errorf("unmarshal envelope: %w", err)
@@ -65,7 +157,7 @@ func ParseMessage(line []byte) ([]agent.Message, error) {
 			UUID:          w.UUID,
 		}}, nil
 	case "stream_event":
-		return parseStreamEvent(line)
+		return parseStreamEvent(line, wt)
 	case "caic_diff_stat":
 		var m agent.DiffStatMessage
 		if err := json.Unmarshal(line, &m); err != nil {
@@ -156,8 +248,12 @@ func parseAssistant(line []byte) ([]agent.Message, error) {
 }
 
 func parseToolUseBlock(b *contentBlockWire) []agent.Message {
-	switch b.Name {
-	case "AskUserQuestion":
+	switch {
+	case b.Name == "Skill":
+		// Skill is a Claude Code built-in that loads plugin skills into
+		// context. Suppress it — internal machinery that adds noise.
+		return nil
+	case b.Name == "AskUserQuestion":
 		var input askInput
 		if json.Unmarshal(b.Input, &input) == nil && len(input.Questions) > 0 {
 			return []agent.Message{&agent.AskMessage{
@@ -166,7 +262,7 @@ func parseToolUseBlock(b *contentBlockWire) []agent.Message {
 			}}
 		}
 		// Fall through to generic ToolUseMessage if parse fails.
-	case "TodoWrite":
+	case b.Name == "TodoWrite":
 		var input todoInput
 		if json.Unmarshal(b.Input, &input) == nil && len(input.Todos) > 0 {
 			return []agent.Message{&agent.TodoMessage{
@@ -174,6 +270,16 @@ func parseToolUseBlock(b *contentBlockWire) []agent.Message {
 				Todos:     input.Todos,
 			}}
 		}
+	case agent.WidgetToolNames[b.Name]:
+		html := extractWidgetHTML(b.Input)
+		if len(html) > agent.MaxWidgetHTMLBytes {
+			html = `<p style="color:red;font-family:system-ui">Widget too large (256 KB limit exceeded)</p>`
+		}
+		return []agent.Message{&agent.WidgetMessage{
+			ToolUseID: b.ID,
+			Title:     extractWidgetTitle(b.Input),
+			HTML:      html,
+		}}
 	}
 	return []agent.Message{&agent.ToolUseMessage{
 		ToolUseID: b.ID,
@@ -187,41 +293,79 @@ func parseUser(line []byte) ([]agent.Message, error) {
 	if err := json.Unmarshal(line, &w); err != nil {
 		return nil, err
 	}
-	if w.ParentToolUseID == nil {
-		return []agent.Message{extractUserInput(w.Message)}, nil
+	// Claude Code sets isSynthetic on user messages injected by the runtime
+	// (e.g. skill context injections). These are internal and should not be
+	// shown to the end user.
+	if w.IsSynthetic {
+		return nil, nil
 	}
-	return []agent.Message{extractToolResult(*w.ParentToolUseID, w.Message)}, nil
+
+	// Standard tool result: parent_tool_use_id set at the top level.
+	if w.ParentToolUseID != nil {
+		return []agent.Message{extractToolResult(*w.ParentToolUseID, w.Message)}, nil
+	}
+
+	// Parse the message body once to handle all remaining cases.
+	return parseUserMessage(w.Message), nil
 }
 
-func extractUserInput(raw json.RawMessage) *agent.UserInputMessage {
+// parseUserMessage dispatches on the message body shape. It handles plain text
+// user input, block-style user input (text + images), and inline tool_result
+// content blocks (MCP tools that arrive without parent_tool_use_id).
+func parseUserMessage(raw json.RawMessage) []agent.Message {
 	if len(raw) == 0 {
-		return &agent.UserInputMessage{}
+		return []agent.Message{&agent.UserInputMessage{}}
 	}
+	// Try plain text content first ("content": "hello").
 	var textMsg userTextMessage
 	if json.Unmarshal(raw, &textMsg) == nil && textMsg.Role == "user" && textMsg.Content != "" {
-		return &agent.UserInputMessage{Text: textMsg.Content}
+		return []agent.Message{&agent.UserInputMessage{Text: textMsg.Content}}
 	}
+	// Block-style content ("content": [...]).
 	var blockMsg userBlockMessage
-	if json.Unmarshal(raw, &blockMsg) == nil && blockMsg.Role == "user" {
-		ui := &agent.UserInputMessage{}
-		for _, b := range blockMsg.Content {
-			switch b.Type {
-			case "text":
-				ui.Text = b.Text
-			case "image":
-				if b.Source != nil {
-					ui.Images = append(ui.Images, agent.ImageData{
-						MediaType: b.Source.MediaType,
-						Data:      b.Source.Data,
-					})
-				}
+	if json.Unmarshal(raw, &blockMsg) != nil || blockMsg.Role != "user" {
+		return []agent.Message{&agent.UserInputMessage{}}
+	}
+	// Check for inline tool_result blocks (MCP tools).
+	for _, b := range blockMsg.Content {
+		if b.Type == "tool_result" && b.ToolUseID != "" {
+			return []agent.Message{toolResultFromBlock(&b)}
+		}
+	}
+	// Regular user input with text/image blocks.
+	ui := &agent.UserInputMessage{}
+	for _, b := range blockMsg.Content {
+		switch b.Type {
+		case "text":
+			ui.Text = b.Text
+		case "image":
+			if b.Source != nil {
+				ui.Images = append(ui.Images, agent.ImageData{
+					MediaType: b.Source.MediaType,
+					Data:      b.Source.Data,
+				})
 			}
 		}
-		return ui
 	}
-	return &agent.UserInputMessage{}
+	return []agent.Message{ui}
 }
 
+// toolResultFromBlock converts an inline tool_result content block to a ToolResultMessage.
+func toolResultFromBlock(b *userContentBlock) *agent.ToolResultMessage {
+	m := &agent.ToolResultMessage{ToolUseID: b.ToolUseID}
+	if b.IsError {
+		for _, c := range b.Content {
+			if c.Type == "text" && c.Text != "" {
+				m.Error = c.Text
+				return m
+			}
+		}
+	}
+	return m
+}
+
+// extractToolResult builds a ToolResultMessage from the top-level
+// parent_tool_use_id path (standard Claude Code tools).
 func extractToolResult(toolUseID string, raw json.RawMessage) *agent.ToolResultMessage {
 	m := &agent.ToolResultMessage{ToolUseID: toolUseID}
 	if len(raw) == 0 {
@@ -239,11 +383,19 @@ func extractToolResult(toolUseID string, raw json.RawMessage) *agent.ToolResultM
 	return m
 }
 
-func parseStreamEvent(line []byte) ([]agent.Message, error) {
+func parseStreamEvent(line []byte, wt *WidgetTracker) ([]agent.Message, error) {
 	var w streamEventWire
 	if err := json.Unmarshal(line, &w); err != nil {
 		return nil, err
 	}
+
+	// Let the widget tracker handle the event first (if present).
+	if wt != nil {
+		if msgs, handled := wt.handleStreamEvent(&w); handled {
+			return msgs, nil
+		}
+	}
+
 	switch w.Event.Type {
 	case "content_block_delta":
 		if w.Event.Delta == nil {
@@ -276,6 +428,71 @@ func parseStreamEvent(line []byte) ([]agent.Message, error) {
 	default:
 		return []agent.Message{&agent.RawMessage{MessageType: "stream_event", Raw: append([]byte(nil), line...)}}, nil
 	}
+}
+
+// extractPartialWidgetCode extracts the widget_code value from a partially
+// accumulated JSON string. It scans for the "widget_code":" prefix and then
+// reads a JSON string value, handling escape sequences. If the string is
+// unterminated, everything up to the end is returned.
+func extractPartialWidgetCode(partial string) string {
+	// Find the start of the widget_code value.
+	const marker = `"widget_code":"`
+	idx := strings.Index(partial, marker)
+	if idx < 0 {
+		return ""
+	}
+	start := idx + len(marker)
+	// Read a JSON string value (handle escapes).
+	var sb strings.Builder
+	for i := start; i < len(partial); i++ {
+		c := partial[i]
+		if c == '\\' && i+1 < len(partial) {
+			next := partial[i+1]
+			switch next {
+			case '"', '\\', '/':
+				sb.WriteByte(next)
+			case 'n':
+				sb.WriteByte('\n')
+			case 'r':
+				sb.WriteByte('\r')
+			case 't':
+				sb.WriteByte('\t')
+			default:
+				sb.WriteByte('\\')
+				sb.WriteByte(next)
+			}
+			i++
+			continue
+		}
+		if c == '"' {
+			// Terminated string.
+			return sb.String()
+		}
+		sb.WriteByte(c)
+	}
+	// Unterminated — return what we have so far.
+	return sb.String()
+}
+
+type widgetInput struct {
+	WidgetCode string `json:"widget_code"`
+	Title      string `json:"title"`
+}
+
+func extractWidgetHTML(input json.RawMessage) string {
+	var w widgetInput
+	if json.Unmarshal(input, &w) == nil {
+		return w.WidgetCode
+	}
+	return ""
+}
+
+func extractWidgetTitle(input json.RawMessage) string {
+	var w widgetInput
+	if json.Unmarshal(input, &w) == nil {
+		return w.Title
+	}
+	return ""
 }
 
 // jsonString extracts a JSON string value from a json.RawMessage.

@@ -28,6 +28,9 @@ PLAN_CONTENT = """## Fix authentication token validation
 5. **Update** the token refresh logic to handle clock skew (±30s tolerance)
 """
 
+WIDGET_HTML = "<h1>Fake Widget</h1><p>This is a test widget.</p>"
+WIDGET_TITLE = "Test Widget"
+
 ASK_QUESTION = {
     "question": "The rate limiter needs a storage backend. Which approach should I use?",
     "options": [
@@ -299,6 +302,63 @@ def emit_plan_turn(turns: int) -> None:
     emit_result(turns, "Plan created")
 
 
+def emit_widget_turn(turns: int) -> None:
+    """Emit show_widget streaming (content_block_start + input_json_delta + content_block_stop) + final + result."""
+    widget_input = json.dumps({"widget_code": WIDGET_HTML, "title": WIDGET_TITLE})
+    # Stream content_block_start
+    emit(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": "toolu_widget", "name": "show_widget"},
+            },
+        }
+    )
+    # Stream partial JSON deltas
+    mid = len(widget_input) // 2
+    emit(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": widget_input[:mid]},
+            },
+        }
+    )
+    time.sleep(0.05)
+    emit(
+        {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": widget_input[mid:]},
+            },
+        }
+    )
+    # Stream content_block_stop
+    emit(
+        {
+            "type": "stream_event",
+            "event": {"type": "content_block_stop", "index": 0},
+        }
+    )
+    # Final assistant message with the widget tool_use block.
+    emit_tool_use("toolu_widget", "show_widget", {"widget_code": WIDGET_HTML, "title": WIDGET_TITLE})
+    # Tool result (widget rendering is async).
+    emit(
+        {
+            "type": "user",
+            "message": {"content": [{"type": "text", "text": "Widget rendered"}], "is_error": False},
+            "parent_tool_use_id": "toolu_widget",
+        }
+    )
+    emit_result(turns, "Widget displayed")
+
+
 def emit_ask_turn(turns: int) -> None:
     """Emit AskUserQuestion + result."""
     emit_tool_use(
@@ -364,6 +424,10 @@ def main() -> None:
             continue
         if any(w in lower for w in ("fix", "bug", "refactor", "update", "add", "implement")):
             emit_demo_turn(turns)
+            continue
+
+        if "FAKE_WIDGET" in line:
+            emit_widget_turn(turns)
             continue
 
         joke = JOKES[(turns - 1) % len(JOKES)]
